@@ -1,0 +1,33 @@
+# API keys & secrets
+config.yaml
+config.yaml.bak
+.env
+*.env
+
+# Output files
+leads.csv
+web_results/
+*.csv
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude usage data (if any)
+.claude/usage-data/

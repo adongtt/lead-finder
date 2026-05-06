@@ -1,0 +1,34 @@
+# Copy this file to config.yaml and fill in your API keys
+
+# ---------------------------------------------------------------------------
+# SEARCH ENGINE (optional)
+# ---------------------------------------------------------------------------
+
+# SerpAPI - Google Search (optional, usually not needed)
+# Get your key at: https://serpapi.com
+# Free tier: 100 searches/month
+serpapi_key: ""
+
+# ---------------------------------------------------------------------------
+# EMAIL DISCOVERY (required: at least ONE)
+# ---------------------------------------------------------------------------
+
+# Hunter.io - Email Discovery (primary source)
+# Get your key at: https://hunter.io/api
+# Free tier: 25 searches/month
+hunter_key: ""
+
+# Snov.io - Email Discovery (fallback source)
+# Get your key at: https://app.snov.io/api (Account Settings → API)
+# Free tier: 50 searches/month
+# Leave empty to disable fallback
+snov_key: ""
+
+# ---------------------------------------------------------------------------
+# EMAIL VALIDATION (optional)
+# ---------------------------------------------------------------------------
+
+# ZeroBounce - Email Validation
+# Get your key at: https://www.zerobounce.net
+# Free tier: 100 validations/month
+zerobounce_key: ""

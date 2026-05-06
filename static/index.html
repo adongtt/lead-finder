@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>B2B Lead Finder</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card: #1e293b;
+      --text: #f8fafc;
+      --muted: #94a3b8;
+      --primary: #38bdf8;
+      --success: #34d399;
+      --danger: #f87171;
+      --border: #334155;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      padding: 60px 20px;
+    }
+    .container { width: 100%; max-width: 720px; }
+    h1 { font-size: 28px; margin-bottom: 8px; }
+    .subtitle { color: var(--muted); margin-bottom: 32px; }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px;
+      margin-bottom: 20px;
+    }
+    label {
+      display: block;
+      font-size: 13px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--muted);
+      margin-bottom: 8px;
+    }
+    input[type="text"], input[type="number"] {
+      width: 100%;
+      padding: 12px 14px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 15px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    input:focus { border-color: var(--primary); }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+    @media (max-width: 480px) { .row { grid-template-columns: 1fr; } }
+    button {
+      width: 100%;
+      padding: 14px;
+      background: var(--primary);
+      color: #0f172a;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+    button:hover { opacity: 0.9; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .spinner {
+      display: inline-block;
+      width: 18px;
+      height: 18px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: var(--text);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      vertical-align: middle;
+      margin-right: 8px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .result { margin-top: 20px; }
+    .badge {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .badge-success { background: rgba(52,211,153,0.15); color: var(--success); }
+    .badge-error { background: rgba(248,113,113,0.15); color: var(--danger); }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 16px;
+      font-size: 14px;
+    }
+    th, td {
+      padding: 10px 12px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+    }
+    th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; }
+    td { color: var(--text); }
+    .download-btn {
+      display: inline-block;
+      margin-top: 16px;
+      padding: 10px 18px;
+      background: var(--success);
+      color: #064e3b;
+      border-radius: 8px;
+      text-decoration: none;
+      font-weight: 700;
+      font-size: 14px;
+    }
+    .error-box {
+      background: rgba(248,113,113,0.1);
+      border: 1px solid rgba(248,113,113,0.3);
+      border-radius: 8px;
+      padding: 14px;
+      margin-top: 16px;
+      font-size: 13px;
+      color: var(--danger);
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .hint { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>B2B Lead Finder</h1>
+    <p class="subtitle">Search by keyword, extract domains, find decision-maker emails.</p>
+
+    <div class="card">
+      <form id="searchForm">
+        <div style="margin-bottom:16px">
+          <label for="keyword">Keyword</label>
+          <input type="text" id="keyword" name="keyword" placeholder='e.g. "football gloves manufacturer"' required>
+        </div>
+
+        <div class="row">
+          <div>
+            <label for="pages">Search Pages</label>
+            <input type="number" id="pages" name="pages" value="3" min="1" max="10">
+            <p class="hint">How many SERP pages to scan</p>
+          </div>
+          <div>
+            <label for="max_domains">Max Domains</label>
+            <input type="number" id="max_domains" name="max_domains" value="10" min="1" max="100">
+            <p class="hint">Limit domains to query for emails</p>
+          </div>
+        </div>
+
+        <div style="margin-bottom:20px">
+          <label for="exclude">Exclude Domains (optional)</label>
+          <input type="text" id="exclude" name="exclude" placeholder="nike.com,adidas.com">
+          <p class="hint">Comma-separated list of domains to skip</p>
+        </div>
+
+        <button type="submit" id="submitBtn">
+          <span id="btnText">Find Leads</span>
+        </button>
+      </form>
+
+      <div id="result" class="result"></div>
+    </div>
+  </div>
+
+  <script>
+    const form = document.getElementById('searchForm');
+    const btn = document.getElementById('submitBtn');
+    const btnText = document.getElementById('btnText');
+    const resultDiv = document.getElementById('result');
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      resultDiv.innerHTML = '';
+      btn.disabled = true;
+      btnText.innerHTML = '<span class="spinner"></span> Searching...';
+
+      const formData = new FormData(form);
+      try {
+        const res = await fetch('/api/leads/search', {
+          method: 'POST',
+          body: formData
+        });
+        const data = await res.json();
+
+        if (data.status === 'success') {
+          let html = `<div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">
+            <span class="badge badge-success">${data.total} leads found</span>
+            <a href="${data.download_url}" class="download-btn">Download CSV</a>
+          </div>`;
+
+          if (data.preview && data.preview.length > 0) {
+            html += '<table><thead><tr>' +
+              '<th>Email</th><th>Name</th><th>Position</th><th>Domain</th><th>Score</th>' +
+              '</tr></thead><tbody>';
+            for (const row of data.preview) {
+              html += '<tr>' +
+                `<td>${escapeHtml(row.email || '')}</td>` +
+                `<td>${escapeHtml((row.first_name || '') + ' ' + (row.last_name || ''))}</td>` +
+                `<td>${escapeHtml(row.position || '')}</td>` +
+                `<td>${escapeHtml(row.domain || '')}</td>` +
+                `<td>${escapeHtml(row.confidence_score || '')}</td>` +
+                '</tr>';
+            }
+            html += '</tbody></table>';
+          }
+          resultDiv.innerHTML = html;
+        } else {
+          resultDiv.innerHTML = `<div class="badge badge-error">Search failed</div>
+            <div class="error-box">${escapeHtml(data.message || 'Unknown error')}</div>`;
+        }
+      } catch (err) {
+        resultDiv.innerHTML = `<div class="badge badge-error">Request failed</div>
+          <div class="error-box">${escapeHtml(err.message)}</div>`;
+      } finally {
+        btn.disabled = false;
+        btnText.textContent = 'Find Leads';
+      }
+    });
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+  </script>
+</body>
+</html>

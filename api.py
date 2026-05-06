@@ -1,0 +1,102 @@
+#!/usr/bin/env python3
+"""
+Lead Finder Web API — FastAPI wrapper around lead_finder.py
+
+Run locally:
+    uvicorn api:app --reload --host 0.0.0.0 --port 8000
+
+Deploy:
+    pip install -r requirements.txt
+    uvicorn api:app --host 0.0.0.0 --port $PORT
+"""
+
+import csv
+import subprocess
+import uuid
+from pathlib import Path
+
+from fastapi import FastAPI, Form, Request
+from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+
+app = FastAPI(title="B2B Lead Finder API", version="1.0")
+
+# Serve static files (frontend)
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+RESULTS_DIR = Path("web_results")
+RESULTS_DIR.mkdir(exist_ok=True)
+
+
+@app.get("/", response_class=HTMLResponse)
+async def index(request: Request):
+    """Serve the web UI."""
+    with open("static/index.html", "r", encoding="utf-8") as f:
+        return HTMLResponse(content=f.read())
+
+
+@app.post("/api/leads/search")
+async def search_leads(
+    keyword: str = Form(...),
+    pages: int = Form(3),
+    max_domains: int = Form(10),
+    exclude: str = Form(""),
+):
+    """
+    Run a lead search and return results.
+    Synchronous — reasonable defaults keep it under ~15s.
+    """
+    job_id = str(uuid.uuid4())[:8]
+    output_file = RESULTS_DIR / f"{job_id}.csv"
+
+    cmd = [
+        "python", "lead_finder.py", keyword,
+        "--pages", str(pages),
+        "--max-domains", str(max_domains),
+        "--output", str(output_file),
+    ]
+    if exclude:
+        cmd.extend(["--exclude", exclude])
+
+    result = subprocess.run(cmd, capture_output=True, text=True, cwd=".", encoding="utf-8", errors="replace")
+
+    if output_file.exists():
+        leads = []
+        with open(output_file, "r", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                leads.append({k: v for k, v in row.items()})
+
+        return {
+            "job_id": job_id,
+            "status": "success",
+            "total": len(leads),
+            "download_url": f"/api/leads/download/{job_id}",
+            "preview": leads[:5] if leads else [],
+            "log": result.stdout[-500:] if result.stdout else "",
+        }
+    else:
+        return {
+            "job_id": job_id,
+            "status": "error",
+            "message": (result.stdout + "\n" + result.stderr)[-1000:],
+        }
+
+
+@app.get("/api/leads/download/{job_id}")
+async def download_leads(job_id: str):
+    """Download the CSV result file."""
+    file_path = RESULTS_DIR / f"{job_id}.csv"
+    if file_path.exists():
+        return FileResponse(
+            file_path,
+            filename=f"leads_{job_id}.csv",
+            media_type="text/csv"
+        )
+    return {"error": "File not found"}
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)

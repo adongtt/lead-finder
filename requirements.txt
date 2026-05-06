@@ -1,0 +1,12 @@
+requests>=2.31.0
+pyyaml>=6.0.1
+
+# Search engines (pick one or both):
+duckduckgo-search>=7.0.0       # Fast, free, no browser needed
+playwright>=1.40.0             # Real browser automation (fallback)
+
+# Web API
+fastapi>=0.110.0
+uvicorn[standard]>=0.29.0
+python-multipart>=0.0.9
+
