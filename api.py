@@ -29,7 +29,7 @@ RESULTS_DIR.mkdir(exist_ok=True)
 
 
 @app.get("/", response_class=HTMLResponse)
-async def index(request: Request):
+async def index():
     """Serve the web UI."""
     with open("static/index.html", "r", encoding="utf-8") as f:
         return HTMLResponse(content=f.read())
