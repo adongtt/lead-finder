@@ -146,12 +146,24 @@ class Lead:
 # ---------------------------------------------------------------------------
 
 def load_config() -> dict:
-    if not CONFIG_PATH.exists():
+    """Load config from file or environment variables."""
+    if CONFIG_PATH.exists():
+        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+            return yaml.safe_load(f)
+
+    # Fallback: read from environment variables (for cloud deployment)
+    env_config = {
+        "serpapi_key": os.environ.get("SERPAPI_KEY", ""),
+        "hunter_key": os.environ.get("HUNTER_KEY", ""),
+        "snov_key": os.environ.get("SNOV_KEY", ""),
+        "zerobounce_key": os.environ.get("ZEROBOUNCE_KEY", ""),
+    }
+    if not env_config["hunter_key"] and not env_config["snov_key"]:
         print(f"[ERROR] Config file not found: {CONFIG_PATH}")
         print("Please copy config.yaml.example to config.yaml and fill in your API keys.")
+        print("Or set HUNTER_KEY / SNOV_KEY environment variables.")
         sys.exit(1)
-    with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-        return yaml.safe_load(f)
+    return env_config
 
 
 def is_generic_email(email: str) -> bool:
