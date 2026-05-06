@@ -33,7 +33,10 @@ import yaml
 try:
     from ddgs import DDGS
 except ImportError:
-    DDGS = None
+    try:
+        from duckduckgo_search import DDGS
+    except ImportError:
+        DDGS = None
 
 # Optional: Browser automation via Playwright
 try:

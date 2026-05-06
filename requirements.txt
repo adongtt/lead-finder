@@ -2,7 +2,7 @@ requests>=2.31.0
 pyyaml>=6.0.1
 
 # Search engines (pick one or both):
-duckduckgo-search>=7.0.0       # Fast, free, no browser needed
+ddgs>=8.0.0                    # Fast, free, no browser needed (new package name)
 playwright>=1.40.0             # Real browser automation (fallback)
 
 # Web API
