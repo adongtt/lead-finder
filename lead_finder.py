@@ -152,6 +152,7 @@ def load_config() -> dict:
             return yaml.safe_load(f)
 
     # Fallback: read from environment variables (for cloud deployment)
+    # HUNTER_KEY can be a comma-separated list of keys for rotation
     env_config = {
         "serpapi_key": os.environ.get("SERPAPI_KEY", ""),
         "hunter_key": os.environ.get("HUNTER_KEY", ""),
@@ -333,60 +334,81 @@ class BrowserClient:
 
 
 class HunterClient:
-    def __init__(self, api_key: str):
-        self.api_key = api_key
+    def __init__(self, api_keys: str):
+        """
+        Accept a single key or comma-separated multiple keys.
+        Example: "key1,key2,key3"
+        """
+        self.api_keys = [k.strip() for k in api_keys.split(",") if k.strip()]
+        self._idx = 0
         self.base_url = "https://api.hunter.io/v2"
+        self._dead_keys: set = set()  # keys that returned 429/403
+
+    def _current_key(self) -> str:
+        return self.api_keys[self._idx % len(self.api_keys)]
+
+    def _rotate(self):
+        """Move to next available key."""
+        start = self._idx
+        for _ in range(len(self.api_keys)):
+            self._idx += 1
+            if self._current_key() not in self._dead_keys:
+                return True
+        # All keys dead
+        return False
+
+    def _call(self, endpoint: str, params: dict) -> dict:
+        """Make a Hunter API call with automatic key rotation on rate limit."""
+        url = f"{self.base_url}/{endpoint}"
+        attempts = 0
+        max_attempts = len(self.api_keys) * 2
+
+        while attempts < max_attempts:
+            key = self._current_key()
+            params["api_key"] = key
+            try:
+                resp = requests.get(url, params=params, timeout=15)
+                if resp.status_code == 429:
+                    print(f"    [Hunter] Key {self._idx + 1} rate limited. Rotating...")
+                    self._dead_keys.add(key)
+                    if not self._rotate():
+                        print(f"    [Hunter] All keys exhausted.")
+                        return {}
+                    attempts += 1
+                    time.sleep(2)
+                    continue
+                resp.raise_for_status()
+                return resp.json()
+            except requests.exceptions.HTTPError as e:
+                if resp.status_code == 400:
+                    try:
+                        err_body = resp.json()
+                        err_msg = err_body.get("errors", [{}])[0].get("details", "Bad Request")
+                        print(f"    [Hunter ERROR]: {err_msg}")
+                    except Exception:
+                        print(f"    [Hunter ERROR]: {e}")
+                else:
+                    print(f"    [Hunter ERROR]: {e}")
+                return {}
+            except Exception as e:
+                print(f"    [Hunter ERROR]: {e}")
+                return {}
+        return {}
 
     def domain_search(self, domain: str, limit: int = 10) -> List[dict]:
         """Return list of email dicts for a domain."""
-        url = f"{self.base_url}/domain-search"
-        params = {
-            "domain": domain,
-            "api_key": self.api_key,
-            "limit": limit,
-        }
-        try:
-            resp = requests.get(url, params=params, timeout=15)
-            resp.raise_for_status()
-            data = resp.json().get("data", {})
-            return data.get("emails", [])
-        except requests.exceptions.HTTPError as e:
-            if resp.status_code == 429:
-                print(f"    [Hunter] Rate limited on {domain}. Sleeping 3s...")
-                time.sleep(3)
-            elif resp.status_code == 400:
-                # Try to extract Hunter's error message
-                try:
-                    err_body = resp.json()
-                    err_msg = err_body.get("errors", [{}])[0].get("details", "Bad Request")
-                    print(f"    [Hunter ERROR] {domain}: {err_msg}")
-                except Exception:
-                    print(f"    [Hunter ERROR] {domain}: {e}")
-            else:
-                print(f"    [Hunter ERROR] {domain}: {e}")
-            return []
-        except Exception as e:
-            print(f"    [Hunter ERROR] {domain}: {e}")
-            return []
+        data = self._call("domain-search", {"domain": domain, "limit": limit})
+        return data.get("data", {}).get("emails", [])
 
     def email_finder(self, domain: str, first_name: str, last_name: str) -> Optional[dict]:
         """Guess email format for a specific person."""
-        url = f"{self.base_url}/email-finder"
-        params = {
+        data = self._call("email-finder", {
             "domain": domain,
             "first_name": first_name,
             "last_name": last_name,
-            "api_key": self.api_key,
-        }
-        try:
-            resp = requests.get(url, params=params, timeout=15)
-            resp.raise_for_status()
-            data = resp.json().get("data", {})
-            if data.get("email"):
-                return data
-        except Exception as e:
-            print(f"    [Hunter Finder ERROR] {domain}: {e}")
-        return None
+        })
+        result = data.get("data", {})
+        return result if result.get("email") else None
 
 
 class SnovClient:

@@ -16,6 +16,8 @@ serpapi_key: ""
 # Hunter.io - Email Discovery (primary source)
 # Get your key at: https://hunter.io/api
 # Free tier: 25 searches/month
+# TIP: Register multiple free accounts and list keys comma-separated to rotate:
+# hunter_key: "key1,key2,key3"
 hunter_key: ""
 
 # Snov.io - Email Discovery (fallback source)
