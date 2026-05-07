@@ -11,6 +11,7 @@ Deploy:
 """
 
 import csv
+import json
 import subprocess
 import uuid
 from pathlib import Path
@@ -26,6 +27,24 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 
 RESULTS_DIR = Path("web_results")
 RESULTS_DIR.mkdir(exist_ok=True)
+
+KEYWORDS_FILE = RESULTS_DIR / "keywords.json"
+
+
+def _load_keywords() -> dict:
+    if KEYWORDS_FILE.exists():
+        with open(KEYWORDS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
+
+def _save_keyword(keyword: str) -> None:
+    keywords = _load_keywords()
+    k = keyword.strip().lower()
+    if k:
+        keywords[k] = keywords.get(k, 0) + 1
+        with open(KEYWORDS_FILE, "w", encoding="utf-8") as f:
+            json.dump(keywords, f, ensure_ascii=False, indent=2)
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -61,6 +80,7 @@ async def search_leads(
     result = subprocess.run(cmd, capture_output=True, text=True, cwd=".", encoding="utf-8", errors="replace")
 
     if output_file.exists():
+        _save_keyword(keyword)
         leads = []
         with open(output_file, "r", encoding="utf-8") as f:
             reader = csv.DictReader(f)
@@ -94,6 +114,14 @@ async def download_leads(job_id: str):
             media_type="text/csv"
         )
     return {"error": "File not found"}
+
+
+@app.get("/api/keywords")
+async def get_keywords():
+    """Return searched keywords sorted by frequency."""
+    keywords = _load_keywords()
+    sorted_keywords = sorted(keywords.items(), key=lambda x: x[1], reverse=True)
+    return {"keywords": [{"term": k, "count": v} for k, v in sorted_keywords]}
 
 
 if __name__ == "__main__":
