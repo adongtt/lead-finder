@@ -173,13 +173,13 @@
             <div class="row">
               <div>
                 <label for="pages">Search Pages</label>
-                <input type="number" id="pages" name="pages" value="3" min="1" max="10">
+                <input type="number" id="pages" name="pages" value="20" min="1">
                 <p class="hint">How many SERP pages to scan</p>
               </div>
               <div>
                 <label for="max_domains">Max Domains</label>
-                <input type="number" id="max_domains" name="max_domains" value="10" min="1" max="100">
-                <p class="hint">Limit domains to query for emails</p>
+                <input type="number" id="max_domains" name="max_domains" min="1" placeholder="No limit">
+                <p class="hint">Leave empty for no limit</p>
               </div>
             </div>
 

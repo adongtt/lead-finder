@@ -57,8 +57,8 @@ async def index():
 @app.post("/api/leads/search")
 async def search_leads(
     keyword: str = Form(...),
-    pages: int = Form(3),
-    max_domains: int = Form(10),
+    pages: int = Form(20),
+    max_domains: Optional[int] = Form(None),
     exclude: str = Form(""),
 ):
     """
@@ -71,9 +71,10 @@ async def search_leads(
     cmd = [
         "python", "lead_finder.py", keyword,
         "--pages", str(pages),
-        "--max-domains", str(max_domains),
         "--output", str(output_file),
     ]
+    if max_domains is not None:
+        cmd.extend(["--max-domains", str(max_domains)])
     if exclude:
         cmd.extend(["--exclude", exclude])
 
