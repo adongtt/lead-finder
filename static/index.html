@@ -131,6 +131,22 @@
       word-break: break-word;
     }
     .hint { font-size: 12px; color: var(--muted); margin-top: 4px; }
+    .log-box {
+      margin-top: 16px;
+      max-height: 320px;
+      overflow-y: auto;
+      background: #0b1120;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 13px;
+      line-height: 1.5;
+      color: #94a3b8;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+    .log-box:empty { display: none; }
     .main-layout { display: grid; grid-template-columns: 1fr 280px; gap: 20px; align-items: flex-start; }
     .right-panel h2 { font-size: 16px; margin-bottom: 16px; }
     .keyword-list { list-style: none; }
@@ -194,6 +210,7 @@
             </button>
           </form>
 
+          <div id="logBox" class="log-box"></div>
           <div id="result" class="result"></div>
         </div>
       </div>
@@ -214,55 +231,74 @@
     const btn = document.getElementById('submitBtn');
     const btnText = document.getElementById('btnText');
     const resultDiv = document.getElementById('result');
+    const logBox = document.getElementById('logBox');
 
-    form.addEventListener('submit', async (e) => {
+    form.addEventListener('submit', (e) => {
       e.preventDefault();
       resultDiv.innerHTML = '';
+      logBox.textContent = '';
       btn.disabled = true;
       btnText.innerHTML = '<span class="spinner"></span> Searching...';
 
-      const formData = new FormData(form);
-      try {
-        const res = await fetch('/api/leads/search', {
-          method: 'POST',
-          body: formData
-        });
-        const data = await res.json();
+      const keyword = document.getElementById('keyword').value;
+      const pages = document.getElementById('pages').value;
+      const maxDomains = document.getElementById('max_domains').value;
+      const exclude = document.getElementById('exclude').value;
 
-        if (data.status === 'success') {
-          let html = `<div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">
-            <span class="badge badge-success">${data.total} leads found</span>
-            <a href="${data.download_url}" class="download-btn">Download CSV</a>
-          </div>`;
+      const params = new URLSearchParams({ keyword, pages });
+      if (maxDomains) params.append('max_domains', maxDomains);
+      if (exclude) params.append('exclude', exclude);
 
-          if (data.preview && data.preview.length > 0) {
-            html += '<table><thead><tr>' +
-              '<th>Email</th><th>Name</th><th>Position</th><th>Domain</th><th>Score</th>' +
-              '</tr></thead><tbody>';
-            for (const row of data.preview) {
-              html += '<tr>' +
-                `<td>${escapeHtml(row.email || '')}</td>` +
-                `<td>${escapeHtml((row.first_name || '') + ' ' + (row.last_name || ''))}</td>` +
-                `<td>${escapeHtml(row.position || '')}</td>` +
-                `<td>${escapeHtml(row.domain || '')}</td>` +
-                `<td>${escapeHtml(row.confidence_score || '')}</td>` +
-                '</tr>';
-            }
-            html += '</tbody></table>';
+      const es = new EventSource(`/api/leads/stream?${params.toString()}`);
+
+      es.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        if (data.type === 'log') {
+          logBox.textContent += data.content + '\n';
+          logBox.scrollTop = logBox.scrollHeight;
+        } else if (data.type === 'done') {
+          es.close();
+          btn.disabled = false;
+          btnText.textContent = 'Find Leads';
+          if (data.status === 'success') {
+            renderResult(data);
+            loadKeywords();
+          } else {
+            resultDiv.innerHTML = `<div class="badge badge-error">Search failed</div><div class="error-box">${escapeHtml(data.message || 'Unknown error')}</div>`;
           }
-          resultDiv.innerHTML = html;
-        } else {
-          resultDiv.innerHTML = `<div class="badge badge-error">Search failed</div>
-            <div class="error-box">${escapeHtml(data.message || 'Unknown error')}</div>`;
         }
-      } catch (err) {
-        resultDiv.innerHTML = `<div class="badge badge-error">Request failed</div>
-          <div class="error-box">${escapeHtml(err.message)}</div>`;
-      } finally {
+      };
+
+      es.onerror = () => {
+        es.close();
         btn.disabled = false;
         btnText.textContent = 'Find Leads';
-      }
+        resultDiv.innerHTML = '<div class="badge badge-error">Connection error</div><div class="error-box">EventSource connection failed. Please try again.</div>';
+      };
     });
+
+    function renderResult(data) {
+      let html = `<div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">
+        <span class="badge badge-success">${data.total} leads found</span>
+        <a href="${data.download_url}" class="download-btn">Download CSV</a>
+      </div>`;
+      if (data.preview && data.preview.length > 0) {
+        html += '<table><thead><tr>' +
+          '<th>Email</th><th>Name</th><th>Position</th><th>Domain</th><th>Score</th>' +
+          '</tr></thead><tbody>';
+        for (const row of data.preview) {
+          html += '<tr>' +
+            `<td>${escapeHtml(row.email || '')}</td>` +
+            `<td>${escapeHtml((row.first_name || '') + ' ' + (row.last_name || ''))}</td>` +
+            `<td>${escapeHtml(row.position || '')}</td>` +
+            `<td>${escapeHtml(row.domain || '')}</td>` +
+            `<td>${escapeHtml(row.confidence_score || '')}</td>` +
+            '</tr>';
+        }
+        html += '</tbody></table>';
+      }
+      resultDiv.innerHTML = html;
+    }
 
     function escapeHtml(text) {
       const div = document.createElement('div');
