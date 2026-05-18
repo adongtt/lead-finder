@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>B2B Lead Finder</title>
+  <title>B2B 客户开发工具</title>
   <style>
     :root {
       --bg: #0f172a;
@@ -226,45 +226,45 @@
   <div class="container">
     <div class="main-layout">
       <div class="left-panel">
-        <h1>B2B Lead Finder</h1>
-        <p class="subtitle">Search by keyword, extract domains, find decision-maker emails.</p>
+        <h1>B2B 客户开发工具</h1>
+        <p class="subtitle">输入关键词搜索，提取域名，发现决策人邮箱。</p>
 
         <div class="card">
           <form id="searchForm">
             <div style="margin-bottom:16px">
-              <label for="keyword">Keyword</label>
-              <input type="text" id="keyword" name="keyword" placeholder='e.g. "football gloves manufacturer"' required>
+              <label for="keyword">关键词</label>
+              <input type="text" id="keyword" name="keyword" placeholder='例如 "棒球手套 分销商"' required>
             </div>
 
             <div class="row">
               <div>
-                <label for="pages">Search Pages</label>
+                <label for="pages">搜索页数</label>
                 <input type="number" id="pages" name="pages" value="20" min="1">
-                <p class="hint">How many SERP pages to scan</p>
+                <p class="hint">要扫描多少页搜索结果</p>
               </div>
               <div>
-                <label for="max_domains">Max Domains</label>
-                <input type="number" id="max_domains" name="max_domains" min="1" placeholder="No limit">
-                <p class="hint">Leave empty for no limit</p>
+                <label for="max_domains">最大域名数</label>
+                <input type="number" id="max_domains" name="max_domains" min="1" placeholder="无限制">
+                <p class="hint">留空表示无限制</p>
               </div>
             </div>
 
             <div style="margin-bottom:20px">
-              <label for="exclude">Exclude Domains (optional)</label>
+              <label for="exclude">排除域名（可选）</label>
               <input type="text" id="exclude" name="exclude" placeholder="nike.com,adidas.com">
-              <p class="hint">Comma-separated list of domains to skip</p>
+              <p class="hint">逗号分隔，跳过这些域名</p>
             </div>
 
             <div style="margin-bottom:20px">
               <label style="display:flex;align-items:center;gap:8px;cursor:pointer;text-transform:none;letter-spacing:0;font-weight:500;color:var(--text);">
                 <input type="checkbox" id="deep" name="deep" style="width:auto;">
-                Deep Search — skip first 5 pages to avoid big-brand results
+                深度搜索 — 跳过前 5 页，避开大品牌
               </label>
-              <p class="hint">Useful when searching for small distributors / retailers</p>
+              <p class="hint">搜索小型分销商 / 零售商时建议开启</p>
             </div>
 
             <button type="submit" id="submitBtn">
-              <span id="btnText">Find Leads</span>
+              <span id="btnText">查找客户</span>
             </button>
           </form>
 
@@ -272,27 +272,27 @@
           <div id="result" class="result"></div>
           <div id="emailPanel" class="email-panel" style="display:none;">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-              <h3>Write Email</h3>
-              <button onclick="closeEmailPanel()" style="width:auto;padding:6px 12px;font-size:12px;background:var(--border);color:var(--text);">Close</button>
+              <h3>写开发信</h3>
+              <button onclick="closeEmailPanel()" style="width:auto;padding:6px 12px;font-size:12px;background:var(--border);color:var(--text);">关闭</button>
             </div>
             <div style="margin-bottom:12px;">
-              <label style="margin-bottom:6px;">Template</label>
+              <label style="margin-bottom:6px;">模板</label>
               <select id="emailTemplate" onchange="generateEmail()">
-                <option value="a">Brand / Distributor (US/EU)</option>
-                <option value="b">Procurement Manager</option>
-                <option value="c">Follow-up</option>
+                <option value="a">品牌 / 分销商（欧美）</option>
+                <option value="b">采购经理</option>
+                <option value="c">跟进邮件</option>
               </select>
             </div>
             <div style="margin-bottom:12px;">
-              <label style="margin-bottom:6px;">Subject</label>
+              <label style="margin-bottom:6px;">主题</label>
               <input type="text" id="emailSubject" class="sig-input" style="margin-bottom:0;">
             </div>
             <div style="margin-bottom:12px;">
-              <label style="margin-bottom:6px;">Body</label>
+              <label style="margin-bottom:6px;">正文</label>
               <textarea id="emailBody" rows="12"></textarea>
             </div>
             <div class="row-actions">
-              <button onclick="copyEmail()">Copy Email</button>
+              <button onclick="copyEmail()">复制邮件</button>
             </div>
           </div>
         </div>
@@ -302,15 +302,15 @@
         <div class="card">
           <h2>热门搜索</h2>
           <ul id="keywordList" class="keyword-list">
-            <li class="empty-hint">Loading...</li>
+            <li class="empty-hint">加载中...</li>
           </ul>
         </div>
         <div class="card">
           <h2>邮件签名</h2>
-          <input type="text" id="sigName" class="sig-input" placeholder="Your Name">
-          <input type="text" id="sigCompany" class="sig-input" placeholder="Company Name">
-          <input type="text" id="sigPhone" class="sig-input" placeholder="Phone / WhatsApp">
-          <button onclick="saveSignature()" style="padding:10px;font-size:13px;">Save Signature</button>
+          <input type="text" id="sigName" class="sig-input" placeholder="您的姓名">
+          <input type="text" id="sigCompany" class="sig-input" placeholder="公司名称">
+          <input type="text" id="sigPhone" class="sig-input" placeholder="电话 / WhatsApp">
+          <button onclick="saveSignature()" style="padding:10px;font-size:13px;">保存签名</button>
         </div>
       </aside>
     </div>
@@ -328,7 +328,7 @@
       resultDiv.innerHTML = '';
       logBox.textContent = '';
       btn.disabled = true;
-      btnText.innerHTML = '<span class="spinner"></span> Searching...';
+      btnText.innerHTML = '<span class="spinner"></span> 搜索中...';
 
       const keyword = document.getElementById('keyword').value;
       const pages = document.getElementById('pages').value;
@@ -351,12 +351,12 @@
         } else if (data.type === 'done') {
           es.close();
           btn.disabled = false;
-          btnText.textContent = 'Find Leads';
+          btnText.textContent = '查找客户';
           if (data.status === 'success') {
             renderResult(data);
             loadKeywords();
           } else {
-            resultDiv.innerHTML = `<div class="badge badge-error">Search failed</div><div class="error-box">${escapeHtml(data.message || 'Unknown error')}</div>`;
+            resultDiv.innerHTML = `<div class="badge badge-error">搜索失败</div><div class="error-box">${escapeHtml(data.message || '未知错误')}</div>`;
           }
         }
       };
@@ -364,19 +364,19 @@
       es.onerror = () => {
         es.close();
         btn.disabled = false;
-        btnText.textContent = 'Find Leads';
-        resultDiv.innerHTML = '<div class="badge badge-error">Connection error</div><div class="error-box">EventSource connection failed. Please try again.</div>';
+        btnText.textContent = '查找客户';
+        resultDiv.innerHTML = '<div class="badge badge-error">连接错误</div><div class="error-box">连接失败，请重试。</div>';
       };
     });
 
     function renderResult(data) {
       let html = `<div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">
-        <span class="badge badge-success">${data.total} leads found</span>
-        <a href="${data.download_url}" class="download-btn">Download CSV</a>
+        <span class="badge badge-success">找到 ${data.total} 个客户</span>
+        <a href="${data.download_url}" class="download-btn">下载 CSV</a>
       </div>`;
       if (data.preview && data.preview.length > 0) {
         html += '<table><thead><tr>' +
-          '<th>Email</th><th>Name</th><th>Position</th><th>Domain</th><th>Score</th><th>Action</th>' +
+          '<th>邮箱</th><th>姓名</th><th>职位</th><th>域名</th><th>分数</th><th>操作</th>' +
           '</tr></thead><tbody>';
         for (let i = 0; i < data.preview.length; i++) {
           const row = data.preview[i];
@@ -386,7 +386,7 @@
             `<td>${escapeHtml(row.position || '')}</td>` +
             `<td>${escapeHtml(row.domain || '')}</td>` +
             `<td>${escapeHtml(row.confidence_score || '')}</td>` +
-            `<td><button class="email-btn" onclick="openEmailPanel(${i})">Email</button></td>` +
+            `<td><button class="email-btn" onclick="openEmailPanel(${i})">发邮件</button></td>` +
             '</tr>';
         }
         html += '</tbody></table>';
@@ -436,7 +436,7 @@
       localStorage.setItem('sigName', document.getElementById('sigName').value);
       localStorage.setItem('sigCompany', document.getElementById('sigCompany').value);
       localStorage.setItem('sigPhone', document.getElementById('sigPhone').value);
-      alert('Signature saved');
+      alert('签名已保存');
     }
 
     function restoreSignatureInputs() {
@@ -454,7 +454,7 @@
       const sig = loadSignature();
       const signature = sig.name
         ? `${sig.name}\n${sig.company}${sig.phone ? '\n' + sig.phone : ''}`
-        : '[Your Name]\n[Your Company]';
+        : '[您的姓名]\n[公司名称]';
 
       const company = (lead.company || lead.domain || 'your company');
       const firstName = (lead.first_name || 'there');
@@ -473,7 +473,7 @@
       const subject = document.getElementById('emailSubject').value;
       const body = document.getElementById('emailBody').value;
       const text = `Subject: ${subject}\n\n${body}`;
-      navigator.clipboard.writeText(text).then(() => alert('Email copied to clipboard'));
+      navigator.clipboard.writeText(text).then(() => alert('邮件已复制到剪贴板'));
     }
 
     function escapeHtml(text) {
@@ -488,7 +488,7 @@
         const res = await fetch('/api/keywords');
         const data = await res.json();
         if (!data.keywords || data.keywords.length === 0) {
-          list.innerHTML = '<li class="empty-hint">No searches yet</li>';
+          list.innerHTML = '<li class="empty-hint">暂无搜索记录</li>';
           return;
         }
         list.innerHTML = '';
@@ -502,7 +502,7 @@
           list.appendChild(li);
         }
       } catch (err) {
-        list.innerHTML = '<li class="empty-hint">Failed to load</li>';
+        list.innerHTML = '<li class="empty-hint">加载失败</li>';
       }
     }
 
