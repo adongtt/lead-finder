@@ -117,6 +117,17 @@ EXCLUDED_DOMAINS = {
     # Government & education
     "gov.uk", "usa.gov", "europa.eu", "un.org",
     "harvard.edu", "mit.edu", "stanford.edu", "ox.ac.uk", "cam.ac.uk",
+    # Sports brands (big apparel/glove manufacturers, not distributors)
+    "nike.com", "nike.cn",
+    "adidas.com", "adidas.co.uk", "adidas.de",
+    "underarmour.com", "underarmour.co.uk",
+    "puma.com", "puma.de", "puma.co.uk",
+    "newbalance.com", "newbalance.co.uk",
+    "asics.com", "mizuno.com", "mizunousa.com",
+    "rawlings.com", "wilson.com", "wilsonsports.com",
+    "easton.com", "demarini.com", "louisville-slugger.com",
+    "franklinsports.com", "schutt.com", "riiddell.com",
+    "cuttersgloves.com", "gripboost.com", "battle.net",
     # Others
     "yelp.com", "trip.com", "glassdoor.com", "indeed.com", "monster.com",
     "ziprecruiter.com", "craigslist.org", " Gumtree.com",
