@@ -312,6 +312,12 @@
           <input type="text" id="sigPhone" class="sig-input" placeholder="电话 / WhatsApp">
           <button onclick="saveSignature()" style="padding:10px;font-size:13px;">保存签名</button>
         </div>
+        <div class="card">
+          <h2>已联系客户</h2>
+          <ul id="contactedList" class="keyword-list">
+            <li class="empty-hint">加载中...</li>
+          </ul>
+        </div>
       </aside>
     </div>
   </div>
@@ -370,23 +376,32 @@
     });
 
     function renderResult(data) {
+      if (data.download_url) window.currentDownloadUrl = data.download_url;
       let html = `<div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">
         <span class="badge badge-success">找到 ${data.total} 个客户</span>
-        <a href="${data.download_url}" class="download-btn">下载 CSV</a>
+        ${window.currentDownloadUrl ? `<a href="${window.currentDownloadUrl}" class="download-btn">下载 CSV</a>` : ''}
       </div>`;
       if (data.preview && data.preview.length > 0) {
         html += '<table><thead><tr>' +
-          '<th>邮箱</th><th>姓名</th><th>职位</th><th>域名</th><th>分数</th><th>操作</th>' +
+          '<th>邮箱</th><th>姓名</th><th>职位</th><th>国家</th><th>域名</th><th>状态</th><th>操作</th>' +
           '</tr></thead><tbody>';
         for (let i = 0; i < data.preview.length; i++) {
           const row = data.preview[i];
+          const contacted = row.contacted;
+          const statusBadge = contacted
+            ? `<span class="badge" style="background:rgba(248,113,113,0.15);color:var(--danger);">已联系</span>`
+            : `<span class="badge" style="background:rgba(52,211,153,0.15);color:var(--success);">未联系</span>`;
           html += `<tr data-idx="${i}">` +
             `<td>${escapeHtml(row.email || '')}</td>` +
             `<td>${escapeHtml((row.first_name || '') + ' ' + (row.last_name || ''))}</td>` +
             `<td>${escapeHtml(row.position || '')}</td>` +
+            `<td>${escapeHtml(row.country || '')}</td>` +
             `<td>${escapeHtml(row.domain || '')}</td>` +
-            `<td>${escapeHtml(row.confidence_score || '')}</td>` +
-            `<td><button class="email-btn" onclick="openEmailPanel(${i})">发邮件</button></td>` +
+            `<td>${statusBadge}</td>` +
+            `<td>` +
+              `<button class="email-btn" onclick="openEmailPanel(${i})">发邮件</button>` +
+              (contacted ? '' : ` <button class="email-btn" style="background:var(--border);color:var(--text);" onclick="markContacted(${i})">标记已联系</button>`) +
+            `</td>` +
             '</tr>';
         }
         html += '</tbody></table>';
@@ -506,7 +521,52 @@
       }
     }
 
+    async function markContacted(idx) {
+      const lead = window.currentLeads[idx];
+      if (!lead) return;
+      const contactedBy = loadSignature().name || '员工';
+      try {
+        const form = new FormData();
+        form.append('email', lead.email);
+        form.append('domain', lead.domain || '');
+        form.append('contacted_by', contactedBy);
+        form.append('notes', '');
+        const res = await fetch('/api/contacted', { method: 'POST', body: form });
+        if (res.ok) {
+          lead.contacted = true;
+          lead.contacted_at = new Date().toISOString();
+          alert('已标记为联系过');
+          renderResult({ total: window.currentLeads.length, preview: window.currentLeads, download_url: '' });
+          loadContacted();
+        }
+      } catch (err) {
+        alert('标记失败');
+      }
+    }
+
+    async function loadContacted() {
+      const list = document.getElementById('contactedList');
+      if (!list) return;
+      try {
+        const res = await fetch('/api/contacted');
+        const data = await res.json();
+        if (!data.items || data.items.length === 0) {
+          list.innerHTML = '<li class="empty-hint">暂无记录</li>';
+          return;
+        }
+        list.innerHTML = '';
+        for (const item of data.items.slice(0, 20)) {
+          const li = document.createElement('li');
+          li.innerHTML = `<span class="term">${escapeHtml(item.email)}</span><span class="count">${escapeHtml(item.domain || '')}</span>`;
+          list.appendChild(li);
+        }
+      } catch (err) {
+        list.innerHTML = '<li class="empty-hint">加载失败</li>';
+      }
+    }
+
     loadKeywords();
+    loadContacted();
     restoreSignatureInputs();
   </script>
 </body>

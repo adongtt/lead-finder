@@ -80,6 +80,103 @@ PERSONAL_PATTERNS = [
     re.compile(r"^[a-z]{2,20}[a-z]{2,20}$"),   # johnsmith (first+last concatenated)
 ]
 
+# Country detection from TLD
+def detect_country(domain: str, email: str = "") -> str:
+    """Guess country from domain TLD or email domain TLD."""
+    tld_map = {
+        # Europe
+        "co.uk": "UK", "uk": "UK",
+        "de": "Germany",
+        "fr": "France",
+        "it": "Italy",
+        "es": "Spain",
+        "nl": "Netherlands",
+        "be": "Belgium",
+        "at": "Austria",
+        "ch": "Switzerland",
+        "se": "Sweden",
+        "dk": "Denmark",
+        "fi": "Finland",
+        "no": "Norway",
+        "pl": "Poland",
+        "ie": "Ireland",
+        "pt": "Portugal",
+        "gr": "Greece",
+        "cz": "Czech Republic",
+        "hu": "Hungary",
+        "ro": "Romania",
+        "sk": "Slovakia",
+        "si": "Slovenia",
+        "hr": "Croatia",
+        "bg": "Bulgaria",
+        "lt": "Lithuania",
+        "lv": "Latvia",
+        "ee": "Estonia",
+        "eu": "EU",
+        # North America
+        "ca": "Canada",
+        "us": "USA",
+        "mx": "Mexico",
+        # Asia Pacific
+        "au": "Australia",
+        "nz": "New Zealand",
+        "jp": "Japan",
+        "kr": "South Korea",
+        "cn": "China",
+        "tw": "Taiwan",
+        "hk": "Hong Kong",
+        "sg": "Singapore",
+        "my": "Malaysia",
+        "th": "Thailand",
+        "vn": "Vietnam",
+        "id": "Indonesia",
+        "ph": "Philippines",
+        "in": "India",
+        "bd": "Bangladesh",
+        "pk": "Pakistan",
+        # Middle East / Africa
+        "ae": "UAE",
+        "sa": "Saudi Arabia",
+        "qa": "Qatar",
+        "kw": "Kuwait",
+        "bh": "Bahrain",
+        "om": "Oman",
+        "il": "Israel",
+        "tr": "Turkey",
+        "za": "South Africa",
+        "eg": "Egypt",
+        "ng": "Nigeria",
+        "ke": "Kenya",
+        # Latin America
+        "br": "Brazil",
+        "ar": "Argentina",
+        "cl": "Chile",
+        "co": "Colombia",
+        "pe": "Peru",
+        "uy": "Uruguay",
+        # Russia / CIS
+        "ru": "Russia",
+        "ua": "Ukraine",
+        "by": "Belarus",
+        "kz": "Kazakhstan",
+    }
+    parts = domain.rsplit(".", 2)
+    if len(parts) == 3 and parts[1] in ("co", "com", "org", "gov", "ac", "net"):
+        # e.g. example.co.uk -> co.uk
+        tld = f"{parts[1]}.{parts[2]}"
+    elif len(parts) >= 2:
+        tld = parts[-1]
+    else:
+        tld = ""
+    if tld in tld_map:
+        return tld_map[tld]
+    # Fallback: check email domain
+    if email and "@" in email:
+        email_domain = email.split("@")[1]
+        return detect_country(email_domain, "")
+    return ""
+
+
 # Big-brand / platform domains to exclude (no real decision-maker emails)
 EXCLUDED_DOMAINS = {
     # E-commerce giants
@@ -199,6 +296,7 @@ class Lead:
     validation_status: str = ""        # valid | invalid | catch-all | unknown
     search_keyword: str = ""
     found_at: str = ""
+    country: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -732,6 +830,7 @@ class LeadFinder:
                     sources=[source_name],
                     search_keyword=keyword,
                     found_at=timestamp,
+                    country=detect_country(domain, email),
                 )
                 all_leads.append(lead)
                 kept += 1
@@ -772,7 +871,7 @@ class LeadFinder:
             return
         fieldnames = [
             "email", "first_name", "last_name", "position", "department",
-            "company", "domain", "confidence_score", "email_type",
+            "company", "domain", "country", "confidence_score", "email_type",
             "validation_status", "sources", "search_keyword", "found_at",
         ]
         with open(path, "w", newline="", encoding="utf-8-sig") as f:

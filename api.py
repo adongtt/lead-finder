@@ -17,9 +17,10 @@ import subprocess
 import sys
 import uuid
 from pathlib import Path
+from datetime import datetime
 from typing import Optional
 
-from fastapi import FastAPI, Form
+from fastapi import FastAPI, Form, Body
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -32,6 +33,38 @@ RESULTS_DIR = Path("web_results")
 RESULTS_DIR.mkdir(exist_ok=True)
 
 KEYWORDS_FILE = RESULTS_DIR / "keywords.json"
+CONTACTED_FILE = RESULTS_DIR / "contacted.json"
+
+
+def _load_contacted() -> dict:
+    if CONTACTED_FILE.exists():
+        with open(CONTACTED_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
+
+def _mark_contacted(email: str, domain: str, contacted_by: str = "", notes: str = "") -> None:
+    contacted = _load_contacted()
+    email = email.lower().strip()
+    contacted[email] = {
+        "domain": domain,
+        "contacted_at": datetime.now().isoformat(),
+        "contacted_by": contacted_by,
+        "notes": notes,
+    }
+    with open(CONTACTED_FILE, "w", encoding="utf-8") as f:
+        json.dump(contacted, f, ensure_ascii=False, indent=2)
+
+
+def _enrich_with_contacted(leads: list) -> list:
+    """Add 'contacted' and 'contacted_at' keys to each lead dict."""
+    contacted = _load_contacted()
+    for lead in leads:
+        email = lead.get("email", "").lower().strip()
+        info = contacted.get(email)
+        lead["contacted"] = bool(info)
+        lead["contacted_at"] = info.get("contacted_at", "") if info else ""
+    return leads
 
 
 def _load_keywords() -> dict:
@@ -93,6 +126,7 @@ async def search_leads(
             reader = csv.DictReader(f)
             for row in reader:
                 leads.append({k: v for k, v in row.items()})
+        leads = _enrich_with_contacted(leads)
 
         return {
             "job_id": job_id,
@@ -159,6 +193,7 @@ async def stream_leads(
                     reader = csv.DictReader(f)
                     for row in reader:
                         leads.append({k: v for k, v in row.items()})
+                leads = _enrich_with_contacted(leads)
 
                 payload = json.dumps({
                     "type": "done",
@@ -207,6 +242,28 @@ async def get_keywords():
     keywords = _load_keywords()
     sorted_keywords = sorted(keywords.items(), key=lambda x: x[1], reverse=True)
     return {"keywords": [{"term": k, "count": v} for k, v in sorted_keywords]}
+
+
+@app.get("/api/contacted")
+async def get_contacted():
+    """Return all contacted leads."""
+    contacted = _load_contacted()
+    items = []
+    for email, info in sorted(contacted.items(), key=lambda x: x[1].get("contacted_at", ""), reverse=True):
+        items.append({"email": email, **info})
+    return {"items": items}
+
+
+@app.post("/api/contacted")
+async def post_contacted(
+    email: str = Form(...),
+    domain: str = Form(""),
+    contacted_by: str = Form(""),
+    notes: str = Form(""),
+):
+    """Mark an email as contacted."""
+    _mark_contacted(email, domain, contacted_by, notes)
+    return {"status": "ok", "email": email}
 
 
 if __name__ == "__main__":
