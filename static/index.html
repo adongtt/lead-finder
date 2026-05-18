@@ -255,6 +255,14 @@
               <p class="hint">Comma-separated list of domains to skip</p>
             </div>
 
+            <div style="margin-bottom:20px">
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer;text-transform:none;letter-spacing:0;font-weight:500;color:var(--text);">
+                <input type="checkbox" id="deep" name="deep" style="width:auto;">
+                Deep Search — skip first 5 pages to avoid big-brand results
+              </label>
+              <p class="hint">Useful when searching for small distributors / retailers</p>
+            </div>
+
             <button type="submit" id="submitBtn">
               <span id="btnText">Find Leads</span>
             </button>
@@ -326,10 +334,12 @@
       const pages = document.getElementById('pages').value;
       const maxDomains = document.getElementById('max_domains').value;
       const exclude = document.getElementById('exclude').value;
+      const deep = document.getElementById('deep').checked;
 
       const params = new URLSearchParams({ keyword, pages });
       if (maxDomains) params.append('max_domains', maxDomains);
       if (exclude) params.append('exclude', exclude);
+      if (deep) params.append('deep', 'true');
 
       const es = new EventSource(`/api/leads/stream?${params.toString()}`);
 

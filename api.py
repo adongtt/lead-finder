@@ -63,6 +63,7 @@ async def search_leads(
     pages: int = Form(20),
     max_domains: Optional[int] = Form(None),
     exclude: str = Form(""),
+    deep: bool = Form(False),
 ):
     """
     Run a lead search and return results.
@@ -80,6 +81,8 @@ async def search_leads(
         cmd.extend(["--max-domains", str(max_domains)])
     if exclude:
         cmd.extend(["--exclude", exclude])
+    if deep:
+        cmd.append("--deep")
 
     result = subprocess.run(cmd, capture_output=True, text=True, cwd=".", encoding="utf-8", errors="replace")
 
@@ -113,6 +116,7 @@ async def stream_leads(
     pages: int = 20,
     max_domains: Optional[int] = None,
     exclude: str = "",
+    deep: bool = False,
 ):
     """Stream lead search progress via Server-Sent Events."""
     job_id = str(uuid.uuid4())[:8]
@@ -127,6 +131,8 @@ async def stream_leads(
         cmd.extend(["--max-domains", str(max_domains)])
     if exclude:
         cmd.extend(["--exclude", exclude])
+    if deep:
+        cmd.append("--deep")
 
     async def event_generator():
         proc = await asyncio.create_subprocess_exec(

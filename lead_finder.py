@@ -23,7 +23,7 @@ import time
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional, Set
+from typing import Dict, List, Optional, Set
 from urllib.parse import urlparse
 
 import requests
@@ -133,6 +133,52 @@ EXCLUDED_DOMAINS = {
     "ziprecruiter.com", "craigslist.org", " Gumtree.com",
 }
 
+# ---------------------------------------------------------------------------
+# Search result scoring (title + snippet analysis)
+# ---------------------------------------------------------------------------
+
+# Positive signals: small distributors, importers, private-label buyers
+POSITIVE_SIGNALS = [
+    "distributor", "wholesale", "wholesaler", "importer", "import",
+    "retailer", "dealer", "reseller", "resell",
+    "private label", "private-label", "privatelabel",
+    "oem", "odm", "custom", "bespoke",
+    "family owned", "family-owned", "small business", "boutique",
+    "specialty", "specialise", "specialize",
+    "sports equipment", "sporting goods", "athletic",
+    "baseball", "football", "softball", "lacrosse", "hockey",
+]
+
+# Negative signals: news, blogs, reviews, jobs, investor pages
+NEGATIVE_SIGNALS = [
+    "news", "blog", "article", "magazine", "press release", "pressrelease",
+    "review", "reviews", "top 10", "top10", "comparison", "compare",
+    "guide", "tutorial", "how to", "howto", "tips", "advice",
+    "jobs", "careers", "hiring", "internship", "work with us",
+    "wikipedia", "wiki", "encyclopedia",
+    "stock", "investor", "shareholder", "annual report", "annualreport",
+    "fortune 500", "fortune500", "enterprise", "corporation", "holdings",
+    "global leader", "worldwide", "leading brand", "official store",
+    "billion", "million revenue",
+]
+
+
+def score_search_result(title: str = "", snippet: str = "") -> int:
+    """Score a search result based on title and snippet text.
+
+    Higher scores suggest small distributors / importers (good targets).
+    Lower / negative scores suggest news, blogs, big brands (bad targets).
+    """
+    text = f"{title} {snippet}".lower()
+    score = 0
+    for signal in POSITIVE_SIGNALS:
+        if signal in text:
+            score += 10
+    for signal in NEGATIVE_SIGNALS:
+        if signal in text:
+            score -= 20
+    return score
+
 
 # ---------------------------------------------------------------------------
 # Data Models
@@ -231,13 +277,14 @@ class SerpAPIClient:
         self.api_key = api_key
         self.base_url = "https://serpapi.com/search"
 
-    def search(self, query: str, num_results: int = 100, pages: int = 1) -> List[str]:
+    def search(self, query: str, num_results: int = 100, pages: int = 1, skip_pages: int = 0) -> List[dict]:
         """
-        Search Google and return list of result URLs.
+        Search Google and return list of result dicts with url, title, snippet.
         SerpAPI returns 10 results per page by default.
+        skip_pages: number of initial pages to skip (deep search mode).
         """
-        urls = []
-        for page in range(pages):
+        results = []
+        for page in range(skip_pages, skip_pages + pages):
             start = page * 10
             params = {
                 "q": query,
@@ -254,38 +301,46 @@ class SerpAPIClient:
                 for result in organic:
                     link = result.get("link")
                     if link:
-                        urls.append(link)
-                print(f"  [SerpAPI] Page {page + 1}: {len(organic)} results")
+                        results.append({
+                            "url": link,
+                            "title": result.get("title", ""),
+                            "snippet": result.get("snippet") or result.get("description", ""),
+                        })
+                print(f"  [SerpAPI] Page {page + 1} (skipped first {skip_pages}): {len(organic)} results")
                 if not organic:
                     break
             except requests.exceptions.RequestException as e:
                 print(f"  [SerpAPI ERROR] Page {page + 1}: {e}")
                 break
             time.sleep(1)  # Rate limit
-        return urls
+        return results
 
 
 class DuckDuckGoClient:
     """Free alternative to SerpAPI - no API key required."""
 
-    def search(self, query: str, max_results: int = 100) -> List[str]:
-        """Search DuckDuckGo and return result URLs."""
-        urls = []
+    def search(self, query: str, max_results: int = 100) -> List[dict]:
+        """Search DuckDuckGo and return result dicts with url, title, snippet."""
+        results = []
         if DDGS is None:
             print("  [ERROR] duckduckgo-search library not installed. Run: pip install duckduckgo-search")
-            return urls
+            return results
 
         try:
             with DDGS() as ddgs:
-                results = ddgs.text(query, max_results=max_results)
-                for r in results:
+                raw = ddgs.text(query, max_results=max_results)
+                for r in raw:
                     link = r.get("href")
                     if link:
-                        urls.append(link)
-            print(f"  [DuckDuckGo] Found {len(urls)} results")
+                        results.append({
+                            "url": link,
+                            "title": r.get("title", ""),
+                            "snippet": r.get("body") or r.get("snippet", ""),
+                        })
+            print(f"  [DuckDuckGo] Found {len(results)} results")
         except Exception as e:
             print(f"  [DuckDuckGo ERROR] {e}")
-        return urls
+        return results
 
 
 class BrowserClient:
@@ -296,11 +351,11 @@ class BrowserClient:
     More reliable than scraping but slower than API libraries.
     """
 
-    def search(self, query: str, max_results: int = 100) -> List[str]:
-        urls = []
+    def search(self, query: str, max_results: int = 100, skip_pages: int = 0) -> List[dict]:
+        results = []
         if sync_playwright is None:
             print("  [ERROR] Playwright not installed. Run: pip install playwright && playwright install chromium")
-            return urls
+            return results
 
         try:
             with sync_playwright() as p:
@@ -318,17 +373,34 @@ class BrowserClient:
                 page.press('input[name="q"]', "Enter")
                 page.wait_for_load_state("networkidle", timeout=30000)
 
+                # Skip initial pages for deep search
+                for _ in range(skip_pages):
+                    next_btn = page.query_selector("input[value='Next']")
+                    if not next_btn:
+                        break
+                    next_btn.click()
+                    page.wait_for_load_state("networkidle", timeout=30000)
+                    time.sleep(1.5)
+
                 collected = 0
                 while collected < max_results:
-                    # Extract result links
-                    links = page.query_selector_all("a.result__a")
-                    for link in links:
+                    # Extract results with title and snippet in one go
+                    page_results = page.evaluate("""
+                        () => Array.from(document.querySelectorAll('.result')).map(r => {
+                            const a = r.querySelector('a.result__a');
+                            const s = r.querySelector('.result__snippet');
+                            return {
+                                url: a ? a.href : '',
+                                title: a ? a.innerText.trim() : '',
+                                snippet: s ? s.innerText.trim() : ''
+                            };
+                        }).filter(r => r.url)
+                    """)
+                    for item in page_results:
                         if collected >= max_results:
                             break
-                        href = link.get_attribute("href")
-                        if href and href.startswith("http"):
-                            urls.append(href)
-                            collected += 1
+                        results.append(item)
+                        collected += 1
 
                     # Try to go to next page
                     if collected >= max_results:
@@ -341,10 +413,10 @@ class BrowserClient:
                     time.sleep(1.5)  # Be polite
 
                 browser.close()
-                print(f"  [Browser] Found {len(urls)} results")
+                print(f"  [Browser] Found {len(results)} results (skipped first {skip_pages} pages)")
         except Exception as e:
             print(f"  [Browser ERROR] {e}")
-        return urls
+        return results
 
 
 class HunterClient:
@@ -544,46 +616,65 @@ class LeadFinder:
         output: str = "leads.csv",
         validate: bool = False,
         max_domains: Optional[int] = None,
+        deep: bool = False,
     ) -> None:
         timestamp = datetime.now().isoformat()
         engine = self._resolve_engine()
+        skip_pages = 5 if deep else 0
 
         print(f"\n{'='*60}")
         print(f"  B2B Lead Finder")
         print(f"  Keyword: {keyword}")
         print(f"  Engine : {engine}")
         print(f"  Pages  : {pages}")
+        if deep:
+            print(f"  Mode   : DEEP (skip first {skip_pages} pages)")
         print(f"  Output : {output}")
         print(f"{'='*60}\n")
 
         # 1. Search
         if engine == "serpapi" and self.serp:
             print("[1/4] Searching Google via SerpAPI...")
-            result_urls = self.serp.search(keyword, pages=pages)
+            raw_results = self.serp.search(keyword, pages=pages, skip_pages=skip_pages)
         elif engine == "browser":
             print("[1/4] Searching via Browser (Playwright + DuckDuckGo)...")
-            result_urls = self.browser.search(keyword, max_results=pages * 10)
+            raw_results = self.browser.search(keyword, max_results=pages * 10, skip_pages=skip_pages)
         else:
             print("[1/4] Searching via DuckDuckGo (free, no API key)...")
-            result_urls = self.ddg.search(keyword, max_results=pages * 10)
-        print(f"      Total URLs found: {len(result_urls)}")
+            raw_results = self.ddg.search(keyword, max_results=(skip_pages + pages) * 10)
+            if deep:
+                raw_results = raw_results[skip_pages * 10:]
+        print(f"      Total results found: {len(raw_results)}")
 
-        # 2. Extract unique domains and exclude big brands
-        print("\n[2/4] Extracting domains...")
-        domains: Set[str] = set()
+        # 2. Score, filter, and extract unique domains
+        print("\n[2/4] Scoring and extracting domains...")
+        domain_scores: Dict[str, int] = {}
         skipped = 0
-        for url in result_urls:
+        for item in raw_results:
+            url = item.get("url") if isinstance(item, dict) else item
+            title = item.get("title", "") if isinstance(item, dict) else ""
+            snippet = item.get("snippet", "") if isinstance(item, dict) else ""
             domain = extract_domain(url)
             if not domain:
                 continue
             if domain in self.excluded_domains:
                 skipped += 1
                 continue
-            domains.add(domain)
-        domains = set(sorted(domains))
+            score = score_search_result(title, snippet)
+            # Keep the highest score for each domain
+            if domain not in domain_scores or score > domain_scores[domain]:
+                domain_scores[domain] = score
+
+        # Sort by score descending — small distributors bubble to the top
+        sorted_domains = sorted(domain_scores.items(), key=lambda x: x[1], reverse=True)
+        domains = [d for d, s in sorted_domains]
         if max_domains:
-            domains = set(list(domains)[:max_domains])
+            domains = domains[:max_domains]
         print(f"      Unique domains: {len(domains)} (excluded {skipped} big-brand domains)")
+        pos = sum(1 for _, s in sorted_domains if s > 0)
+        neg = sum(1 for _, s in sorted_domains if s < 0)
+        if pos or neg:
+            print(f"      Score distribution: {pos} positive, {neg} negative")
 
         # 3. Find emails via Hunter.io + Snov.io fallback
         sources_label = "Hunter.io"
@@ -738,6 +829,11 @@ def main():
         default="",
         help="Extra domains to exclude, comma-separated (e.g. 'nike.com,adidas.com')",
     )
+    parser.add_argument(
+        "--deep",
+        action="store_true",
+        help="Deep search: skip first 5 pages to avoid big-brand results",
+    )
     args = parser.parse_args()
 
     extra_excluded = set(d.strip().lower() for d in args.exclude.split(",") if d.strip())
@@ -749,6 +845,7 @@ def main():
         output=args.output,
         validate=args.validate,
         max_domains=args.max_domains,
+        deep=args.deep,
     )
 
 
