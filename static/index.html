@@ -166,6 +166,56 @@
     .keyword-list .term { font-size: 14px; color: var(--text); word-break: break-all; }
     .keyword-list .count { font-size: 12px; color: var(--muted); background: var(--card); padding: 2px 8px; border-radius: 999px; margin-left: 8px; flex-shrink: 0; }
     .empty-hint { font-size: 13px; color: var(--muted); }
+    .email-btn {
+      padding: 4px 10px;
+      font-size: 12px;
+      width: auto;
+      border-radius: 6px;
+      background: var(--success);
+      color: #064e3b;
+    }
+    .email-panel {
+      margin-top: 20px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+    }
+    .email-panel h3 { font-size: 16px; margin-bottom: 12px; }
+    .email-panel select, .email-panel textarea {
+      width: 100%;
+      padding: 10px 12px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 14px;
+      outline: none;
+    }
+    .email-panel textarea {
+      background: #0b1120;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      line-height: 1.6;
+      resize: vertical;
+    }
+    .email-panel .row-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .email-panel .row-actions button { width: auto; flex: 1; padding: 10px; font-size: 14px; }
+    .sig-input {
+      width: 100%;
+      padding: 8px 10px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 14px;
+      margin-bottom: 8px;
+      outline: none;
+    }
+    .sig-input:focus { border-color: var(--primary); }
     @media (max-width: 768px) {
       .main-layout { grid-template-columns: 1fr; }
       .right-panel { order: -1; }
@@ -212,6 +262,31 @@
 
           <div id="logBox" class="log-box"></div>
           <div id="result" class="result"></div>
+          <div id="emailPanel" class="email-panel" style="display:none;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+              <h3>Write Email</h3>
+              <button onclick="closeEmailPanel()" style="width:auto;padding:6px 12px;font-size:12px;background:var(--border);color:var(--text);">Close</button>
+            </div>
+            <div style="margin-bottom:12px;">
+              <label style="margin-bottom:6px;">Template</label>
+              <select id="emailTemplate" onchange="generateEmail()">
+                <option value="a">Brand / Distributor (US/EU)</option>
+                <option value="b">Procurement Manager</option>
+                <option value="c">Follow-up</option>
+              </select>
+            </div>
+            <div style="margin-bottom:12px;">
+              <label style="margin-bottom:6px;">Subject</label>
+              <input type="text" id="emailSubject" class="sig-input" style="margin-bottom:0;">
+            </div>
+            <div style="margin-bottom:12px;">
+              <label style="margin-bottom:6px;">Body</label>
+              <textarea id="emailBody" rows="12"></textarea>
+            </div>
+            <div class="row-actions">
+              <button onclick="copyEmail()">Copy Email</button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -221,6 +296,13 @@
           <ul id="keywordList" class="keyword-list">
             <li class="empty-hint">Loading...</li>
           </ul>
+        </div>
+        <div class="card">
+          <h2>邮件签名</h2>
+          <input type="text" id="sigName" class="sig-input" placeholder="Your Name">
+          <input type="text" id="sigCompany" class="sig-input" placeholder="Company Name">
+          <input type="text" id="sigPhone" class="sig-input" placeholder="Phone / WhatsApp">
+          <button onclick="saveSignature()" style="padding:10px;font-size:13px;">Save Signature</button>
         </div>
       </aside>
     </div>
@@ -284,20 +366,104 @@
       </div>`;
       if (data.preview && data.preview.length > 0) {
         html += '<table><thead><tr>' +
-          '<th>Email</th><th>Name</th><th>Position</th><th>Domain</th><th>Score</th>' +
+          '<th>Email</th><th>Name</th><th>Position</th><th>Domain</th><th>Score</th><th>Action</th>' +
           '</tr></thead><tbody>';
-        for (const row of data.preview) {
-          html += '<tr>' +
+        for (let i = 0; i < data.preview.length; i++) {
+          const row = data.preview[i];
+          html += `<tr data-idx="${i}">` +
             `<td>${escapeHtml(row.email || '')}</td>` +
             `<td>${escapeHtml((row.first_name || '') + ' ' + (row.last_name || ''))}</td>` +
             `<td>${escapeHtml(row.position || '')}</td>` +
             `<td>${escapeHtml(row.domain || '')}</td>` +
             `<td>${escapeHtml(row.confidence_score || '')}</td>` +
+            `<td><button class="email-btn" onclick="openEmailPanel(${i})">Email</button></td>` +
             '</tr>';
         }
         html += '</tbody></table>';
       }
       resultDiv.innerHTML = html;
+      window.currentLeads = data.preview || [];
+    }
+
+    const TEMPLATES = {
+      a: {
+        subject: "Quick question about {{company}}'s glove supplier",
+        body: `Hi {{first_name}},\n\nI came across {{company}} while researching baseball glove brands in the US market. We're a manufacturer specializing in custom baseball and football gloves with OEM/ODM capabilities, mainly exporting to Europe, North America and Southeast Asia.\n\nI noticed {{company}} has been expanding its product line — are you currently looking for additional manufacturing capacity or private-label options?\n\nIf this isn't your area, could you point me to the right person?\n\nBest,\n{{signature}}`
+      },
+      b: {
+        subject: "{{company}} glove manufacturing — worth a 2-min chat?",
+        body: `Hi {{first_name}},\n\nI'm reaching out because we produce MLB-grade baseball gloves and American football gloves for brands in Germany and the UK, and I think there could be a fit with {{company}}.\n\nOur MOQ starts at 500 pcs with 4-week turnaround. We also offer full custom design and padding spec adjustments.\n\nWorth a brief conversation to see if there's synergy?\n\nBest,\n{{signature}}`
+      },
+      c: {
+        subject: "Re: {{company}} supplier question",
+        body: `Hi {{first_name}},\n\nJust bumping this up in case it got buried. No pressure if timing isn't right.\n\nTo add context — one of our US clients increased their margin by 30% after switching to our direct manufacturing model. Happy to share the case study if helpful.\n\nBest,\n{{signature}}`
+      }
+    };
+
+    let currentEmailIdx = null;
+
+    function openEmailPanel(idx) {
+      currentEmailIdx = idx;
+      generateEmail();
+      document.getElementById('emailPanel').style.display = 'block';
+      document.getElementById('emailPanel').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+
+    function closeEmailPanel() {
+      document.getElementById('emailPanel').style.display = 'none';
+      currentEmailIdx = null;
+    }
+
+    function loadSignature() {
+      return {
+        name: localStorage.getItem('sigName') || '',
+        company: localStorage.getItem('sigCompany') || '',
+        phone: localStorage.getItem('sigPhone') || ''
+      };
+    }
+
+    function saveSignature() {
+      localStorage.setItem('sigName', document.getElementById('sigName').value);
+      localStorage.setItem('sigCompany', document.getElementById('sigCompany').value);
+      localStorage.setItem('sigPhone', document.getElementById('sigPhone').value);
+      alert('Signature saved');
+    }
+
+    function restoreSignatureInputs() {
+      const s = loadSignature();
+      document.getElementById('sigName').value = s.name;
+      document.getElementById('sigCompany').value = s.company;
+      document.getElementById('sigPhone').value = s.phone;
+    }
+
+    function generateEmail() {
+      if (currentEmailIdx === null) return;
+      const lead = window.currentLeads[currentEmailIdx];
+      const templateKey = document.getElementById('emailTemplate').value;
+      const template = TEMPLATES[templateKey];
+      const sig = loadSignature();
+      const signature = sig.name
+        ? `${sig.name}\n${sig.company}${sig.phone ? '\n' + sig.phone : ''}`
+        : '[Your Name]\n[Your Company]';
+
+      const company = (lead.company || lead.domain || 'your company');
+      const firstName = (lead.first_name || 'there');
+
+      document.getElementById('emailSubject').value = template.subject
+        .replace(/{{company}}/g, company)
+        .replace(/{{first_name}}/g, firstName);
+
+      document.getElementById('emailBody').value = template.body
+        .replace(/{{company}}/g, company)
+        .replace(/{{first_name}}/g, firstName)
+        .replace(/{{signature}}/g, signature);
+    }
+
+    function copyEmail() {
+      const subject = document.getElementById('emailSubject').value;
+      const body = document.getElementById('emailBody').value;
+      const text = `Subject: ${subject}\n\n${body}`;
+      navigator.clipboard.writeText(text).then(() => alert('Email copied to clipboard'));
     }
 
     function escapeHtml(text) {
@@ -331,6 +497,7 @@
     }
 
     loadKeywords();
+    restoreSignatureInputs();
   </script>
 </body>
 </html>
