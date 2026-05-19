@@ -299,6 +299,15 @@
       </div>
 
       <aside class="right-panel">
+        <div class="card" id="userCard" style="display:none;">
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <div>
+              <h2 id="userName" style="font-size:16px;margin-bottom:4px;">--</h2>
+              <span id="userRole" class="badge" style="font-size:11px;background:var(--border);color:var(--muted);">--</span>
+            </div>
+            <button onclick="logout()" style="width:auto;padding:8px 14px;font-size:13px;background:var(--border);color:var(--text);">退出</button>
+          </div>
+        </div>
         <div class="card">
           <h2>热门搜索</h2>
           <ul id="keywordList" class="keyword-list">
@@ -389,7 +398,7 @@
           const row = data.preview[i];
           const contacted = row.contacted;
           const statusBadge = contacted
-            ? `<span class="badge" style="background:rgba(248,113,113,0.15);color:var(--danger);">已联系</span>`
+            ? `<span class="badge" style="background:rgba(248,113,113,0.15);color:var(--danger);">已联系${row.contacted_by ? ' · ' + escapeHtml(row.contacted_by) : ''}</span>`
             : `<span class="badge" style="background:rgba(52,211,153,0.15);color:var(--success);">未联系</span>`;
           html += `<tr data-idx="${i}">` +
             `<td>${escapeHtml(row.email || '')}</td>` +
@@ -524,19 +533,20 @@
     async function markContacted(idx) {
       const lead = window.currentLeads[idx];
       if (!lead) return;
-      const contactedBy = loadSignature().name || '员工';
       try {
         const form = new FormData();
         form.append('email', lead.email);
         form.append('domain', lead.domain || '');
-        form.append('contacted_by', contactedBy);
         form.append('notes', '');
         const res = await fetch('/api/contacted', { method: 'POST', body: form });
         if (res.ok) {
+          const userRes = await fetch('/api/me');
+          const user = userRes.ok ? await userRes.json() : { name: '员工' };
           lead.contacted = true;
           lead.contacted_at = new Date().toISOString();
+          lead.contacted_by = user.name;
           alert('已标记为联系过');
-          renderResult({ total: window.currentLeads.length, preview: window.currentLeads, download_url: '' });
+          renderResult({ total: window.currentLeads.length, preview: window.currentLeads, download_url: window.currentDownloadUrl || '' });
           loadContacted();
         }
       } catch (err) {
@@ -565,6 +575,32 @@
       }
     }
 
+    async function checkAuth() {
+      try {
+        const res = await fetch('/api/me');
+        if (!res.ok) {
+          window.location.href = '/login';
+          return;
+        }
+        const user = await res.json();
+        document.getElementById('userName').textContent = user.name || user.user_id;
+        document.getElementById('userRole').textContent = user.role === 'admin' ? '管理员' : '业务员';
+        document.getElementById('userCard').style.display = 'block';
+      } catch (err) {
+        window.location.href = '/login';
+      }
+    }
+
+    async function logout() {
+      try {
+        await fetch('/logout', { method: 'POST' });
+        window.location.href = '/login';
+      } catch (err) {
+        window.location.href = '/login';
+      }
+    }
+
+    checkAuth();
     loadKeywords();
     loadContacted();
     restoreSignatureInputs();

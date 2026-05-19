@@ -13,16 +13,19 @@ Deploy:
 import asyncio
 import csv
 import json
+import os
 import subprocess
 import sys
 import uuid
 from pathlib import Path
+import bcrypt
 from datetime import datetime
 from typing import Optional
 
-from fastapi import FastAPI, Form, Body
-from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
+from fastapi import Depends, FastAPI, Form, HTTPException, Request, status
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.sessions import SessionMiddleware
 
 app = FastAPI(title="B2B Lead Finder API", version="1.0")
 
@@ -34,7 +37,56 @@ RESULTS_DIR.mkdir(exist_ok=True)
 
 KEYWORDS_FILE = RESULTS_DIR / "keywords.json"
 CONTACTED_FILE = RESULTS_DIR / "contacted.json"
+USERS_FILE = Path("users.json")
 
+SESSION_SECRET = os.environ.get("SESSION_SECRET", "lead-finder-dev-secret-change-in-production")
+app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET, max_age=86400 * 7)
+
+
+# ---------------------------------------------------------------------------
+# Auth helpers
+# ---------------------------------------------------------------------------
+
+def _load_users() -> dict:
+    if USERS_FILE.exists():
+        with open(USERS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
+
+def _verify_password(plain: str, hashed: str) -> bool:
+    return bcrypt.checkpw(plain.encode(), hashed.encode())
+
+
+def _get_current_user(request: Request) -> Optional[dict]:
+    """Return user dict from session, or None."""
+    user_id = request.session.get("user_id")
+    if not user_id:
+        return None
+    users = _load_users()
+    user = users.get(user_id)
+    if user:
+        return {"user_id": user_id, "name": user.get("name", user_id), "role": user.get("role", "sales")}
+    return None
+
+
+def require_user(request: Request) -> dict:
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="未登录")
+    return user
+
+
+def require_admin(request: Request) -> dict:
+    user = require_user(request)
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="需要管理员权限")
+    return user
+
+
+# ---------------------------------------------------------------------------
+# Data helpers
+# ---------------------------------------------------------------------------
 
 def _load_contacted() -> dict:
     if CONTACTED_FILE.exists():
@@ -43,13 +95,14 @@ def _load_contacted() -> dict:
     return {}
 
 
-def _mark_contacted(email: str, domain: str, contacted_by: str = "", notes: str = "") -> None:
+def _mark_contacted(email: str, domain: str, user_id: str, user_name: str, notes: str = "") -> None:
     contacted = _load_contacted()
     email = email.lower().strip()
     contacted[email] = {
         "domain": domain,
         "contacted_at": datetime.now().isoformat(),
-        "contacted_by": contacted_by,
+        "user_id": user_id,
+        "user_name": user_name,
         "notes": notes,
     }
     with open(CONTACTED_FILE, "w", encoding="utf-8") as f:
@@ -64,6 +117,7 @@ def _enrich_with_contacted(leads: list) -> list:
         info = contacted.get(email)
         lead["contacted"] = bool(info)
         lead["contacted_at"] = info.get("contacted_at", "") if info else ""
+        lead["contacted_by"] = info.get("user_name", "") if info else ""
     return leads
 
 
@@ -84,19 +138,57 @@ def _save_keyword(keyword: str) -> None:
 
 
 @app.get("/", response_class=HTMLResponse)
-async def index():
-    """Serve the web UI."""
+async def index(request: Request):
+    """Serve the web UI (redirect to login if not authenticated)."""
+    if not _get_current_user(request):
+        return RedirectResponse(url="/login", status_code=302)
     with open("static/index.html", "r", encoding="utf-8") as f:
         return HTMLResponse(content=f.read())
 
 
+@app.get("/login", response_class=HTMLResponse)
+async def login_page():
+    """Serve the login page."""
+    with open("static/login.html", "r", encoding="utf-8") as f:
+        return HTMLResponse(content=f.read())
+
+
+@app.post("/login")
+async def login(request: Request, username: str = Form(...), password: str = Form(...)):
+    """Authenticate and set session cookie."""
+    users = _load_users()
+    user = users.get(username.strip())
+    if not user or not _verify_password(password, user.get("password_hash", "")):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户名或密码错误")
+    request.session["user_id"] = username.strip()
+    return {"status": "ok"}
+
+
+@app.post("/logout")
+async def logout(request: Request):
+    """Clear session."""
+    request.session.clear()
+    return {"status": "ok"}
+
+
+@app.get("/api/me")
+async def me(request: Request):
+    """Return current authenticated user."""
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="未登录")
+    return user
+
+
 @app.post("/api/leads/search")
 async def search_leads(
+    request: Request,
     keyword: str = Form(...),
     pages: int = Form(20),
     max_domains: Optional[int] = Form(None),
     exclude: str = Form(""),
     deep: bool = Form(False),
+    user: dict = Depends(require_user),
 ):
     """
     Run a lead search and return results.
@@ -146,11 +238,13 @@ async def search_leads(
 
 @app.get("/api/leads/stream")
 async def stream_leads(
+    request: Request,
     keyword: str,
     pages: int = 20,
     max_domains: Optional[int] = None,
     exclude: str = "",
     deep: bool = False,
+    user: dict = Depends(require_user),
 ):
     """Stream lead search progress via Server-Sent Events."""
     job_id = str(uuid.uuid4())[:8]
@@ -224,7 +318,7 @@ async def stream_leads(
 
 
 @app.get("/api/leads/download/{job_id}")
-async def download_leads(job_id: str):
+async def download_leads(job_id: str, user: dict = Depends(require_user)):
     """Download the CSV result file."""
     file_path = RESULTS_DIR / f"{job_id}.csv"
     if file_path.exists():
@@ -237,7 +331,7 @@ async def download_leads(job_id: str):
 
 
 @app.get("/api/keywords")
-async def get_keywords():
+async def get_keywords(user: dict = Depends(require_user)):
     """Return searched keywords sorted by frequency."""
     keywords = _load_keywords()
     sorted_keywords = sorted(keywords.items(), key=lambda x: x[1], reverse=True)
@@ -245,24 +339,26 @@ async def get_keywords():
 
 
 @app.get("/api/contacted")
-async def get_contacted():
-    """Return all contacted leads."""
+async def get_contacted(user: dict = Depends(require_user)):
+    """Return contacted leads. Sales sees only their own; admin sees all."""
     contacted = _load_contacted()
     items = []
     for email, info in sorted(contacted.items(), key=lambda x: x[1].get("contacted_at", ""), reverse=True):
-        items.append({"email": email, **info})
+        if user["role"] == "admin" or info.get("user_id") == user["user_id"]:
+            items.append({"email": email, **info})
     return {"items": items}
 
 
 @app.post("/api/contacted")
 async def post_contacted(
+    request: Request,
     email: str = Form(...),
     domain: str = Form(""),
-    contacted_by: str = Form(""),
     notes: str = Form(""),
+    user: dict = Depends(require_user),
 ):
-    """Mark an email as contacted."""
-    _mark_contacted(email, domain, contacted_by, notes)
+    """Mark an email as contacted (auto-attributes to current user)."""
+    _mark_contacted(email, domain, user["user_id"], user["name"], notes)
     return {"status": "ok", "email": email}
 
 

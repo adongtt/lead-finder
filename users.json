@@ -1,0 +1,17 @@
+{
+  "admin": {
+    "name": "管理员",
+    "role": "admin",
+    "password_hash": "$2b$12$NSB0P58Glqe89gCKWFMAd.QVKj90Cn8FPKzHLSIE33rjt4TWp5/LK"
+  },
+  "zhangsan": {
+    "name": "张三",
+    "role": "sales",
+    "password_hash": "$2b$12$C.ZX3wNNKq7ojUD2zRKq8umt9/FZlqaH20RmKvMF45GO3gQdo9e4e"
+  },
+  "lisi": {
+    "name": "李四",
+    "role": "sales",
+    "password_hash": "$2b$12$FdyIxjfoQw5Cm19hCn9PD.0TunasMyTy7WuPSCqQzjQYyX2fKLRky"
+  }
+}
