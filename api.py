@@ -33,10 +33,10 @@ app = FastAPI(title="B2B Lead Finder API", version="1.0")
 # Serve static files (frontend)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-RESULTS_DIR = Path("web_results")
-RESULTS_DIR.mkdir(exist_ok=True)
+DATA_DIR = Path(os.environ.get("DATA_DIR", "web_results"))
+DATA_DIR.mkdir(exist_ok=True)
 
-DB_PATH = RESULTS_DIR / "leadfinder.db"
+DB_PATH = DATA_DIR / "leadfinder.db"
 USERS_FILE = Path("users.json")
 
 SESSION_SECRET = os.environ.get("SESSION_SECRET", "lead-finder-dev-secret-change-in-production")
@@ -54,7 +54,7 @@ def _get_conn() -> sqlite3.Connection:
 
 
 def _init_db() -> None:
-    RESULTS_DIR.mkdir(exist_ok=True)
+    DATA_DIR.mkdir(exist_ok=True)
     conn = _get_conn()
     c = conn.cursor()
 
@@ -120,7 +120,7 @@ def _migrate_json_to_sqlite() -> None:
     conn.close()
 
     # Migrate searches
-    searches_file = RESULTS_DIR / "searches.json"
+    searches_file = DATA_DIR / "searches.json"
     if searches_file.exists():
         with open(searches_file, "r", encoding="utf-8") as f:
             searches = json.load(f)
@@ -137,7 +137,7 @@ def _migrate_json_to_sqlite() -> None:
         searches_file.rename(searches_file.with_suffix(".json.bak"))
 
     # Migrate contacts and followups
-    contacted_file = RESULTS_DIR / "contacted.json"
+    contacted_file = DATA_DIR / "contacted.json"
     if contacted_file.exists():
         with open(contacted_file, "r", encoding="utf-8") as f:
             data = json.load(f)
@@ -176,7 +176,7 @@ def _migrate_json_to_sqlite() -> None:
         contacted_file.rename(contacted_file.with_suffix(".json.bak"))
 
     # Migrate keywords
-    keywords_file = RESULTS_DIR / "keywords.json"
+    keywords_file = DATA_DIR / "keywords.json"
     if keywords_file.exists():
         with open(keywords_file, "r", encoding="utf-8") as f:
             keywords = json.load(f)
@@ -465,7 +465,7 @@ async def search_leads(
     Synchronous — reasonable defaults keep it under ~15s.
     """
     job_id = str(uuid.uuid4())[:8]
-    output_file = RESULTS_DIR / f"{job_id}.csv"
+    output_file = DATA_DIR / f"{job_id}.csv"
 
     cmd = [
         "python", "lead_finder.py", keyword,
@@ -519,7 +519,7 @@ async def stream_leads(
 ):
     """Stream lead search progress via Server-Sent Events."""
     job_id = str(uuid.uuid4())[:8]
-    output_file = RESULTS_DIR / f"{job_id}.csv"
+    output_file = DATA_DIR / f"{job_id}.csv"
 
     cmd = [
         sys.executable or "python", "lead_finder.py", keyword,
@@ -592,7 +592,7 @@ async def stream_leads(
 @app.get("/api/leads/download/{job_id}")
 async def download_leads(job_id: str, user: dict = Depends(require_user)):
     """Download the CSV result file."""
-    file_path = RESULTS_DIR / f"{job_id}.csv"
+    file_path = DATA_DIR / f"{job_id}.csv"
     if file_path.exists():
         return FileResponse(
             file_path,
@@ -696,7 +696,7 @@ async def get_search_detail(job_id: str, user: dict = Depends(require_user)):
     if user["role"] != "admin" and search.get("user_id") != user["user_id"]:
         raise HTTPException(status_code=403, detail="无权查看")
 
-    file_path = RESULTS_DIR / f"{job_id}.csv"
+    file_path = DATA_DIR / f"{job_id}.csv"
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="CSV 文件已删除")
 
