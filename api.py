@@ -53,7 +53,7 @@ app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET, max_age=86400 *
 # ---------------------------------------------------------------------------
 
 def _get_conn():
-    conn = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
+    conn = psycopg2.connect(DATABASE_URL, sslmode="require", cursor_factory=RealDictCursor)
     return conn
 
 
