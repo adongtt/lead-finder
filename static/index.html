@@ -741,7 +741,16 @@
         for (const item of data.items.slice(0, 20)) {
           const li = document.createElement('li');
           li.style.cursor = 'pointer';
-          li.innerHTML = `<span class="term">${escapeHtml(item.email)}</span><span class="count">${item.status || ''}</span>`;
+          li.style.display = 'block';
+          const status = item.status || '已发邮件';
+          const time = item.created_at ? item.created_at.slice(5,16).replace('T',' ') : '';
+          const who = item.user_name || '';
+          li.innerHTML =
+            `<div style="display:flex;justify-content:space-between;align-items:center;">` +
+              `<span class="term" style="font-size:13px;">${escapeHtml(item.email || '')}</span>` +
+              `${statusBadge(status)}` +
+            `</div>` +
+            `<div style="font-size:11px;color:var(--muted);margin-top:6px;">${escapeHtml(who)} · ${escapeHtml(time)}</div>`;
           li.addEventListener('click', () => openContactDetail(item.email));
           list.appendChild(li);
         }
