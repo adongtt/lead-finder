@@ -14,14 +14,15 @@ import asyncio
 import csv
 import json
 import os
+import sqlite3
 import subprocess
 import sys
 import uuid
-from pathlib import Path
-import bcrypt
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
+import bcrypt
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, status
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -35,13 +36,161 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 RESULTS_DIR = Path("web_results")
 RESULTS_DIR.mkdir(exist_ok=True)
 
-KEYWORDS_FILE = RESULTS_DIR / "keywords.json"
-CONTACTED_FILE = RESULTS_DIR / "contacted.json"
-SEARCHES_FILE = RESULTS_DIR / "searches.json"
+DB_PATH = RESULTS_DIR / "leadfinder.db"
 USERS_FILE = Path("users.json")
 
 SESSION_SECRET = os.environ.get("SESSION_SECRET", "lead-finder-dev-secret-change-in-production")
 app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET, max_age=86400 * 7)
+
+
+# ---------------------------------------------------------------------------
+# DB init
+# ---------------------------------------------------------------------------
+
+def _get_conn() -> sqlite3.Connection:
+    conn = sqlite3.connect(str(DB_PATH))
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def _init_db() -> None:
+    RESULTS_DIR.mkdir(exist_ok=True)
+    conn = _get_conn()
+    c = conn.cursor()
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS searches (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            job_id TEXT UNIQUE,
+            keyword TEXT,
+            pages INTEGER,
+            total INTEGER,
+            user_id TEXT,
+            user_name TEXT,
+            searched_at TEXT,
+            deep INTEGER DEFAULT 0
+        )
+    """)
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS contacts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT UNIQUE,
+            domain TEXT,
+            user_id TEXT,
+            user_name TEXT,
+            status TEXT DEFAULT '已发邮件',
+            next_follow_up TEXT,
+            created_at TEXT
+        )
+    """)
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS followups (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            contact_email TEXT,
+            action TEXT,
+            notes TEXT,
+            user_id TEXT,
+            user_name TEXT,
+            created_at TEXT
+        )
+    """)
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS keywords (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            term TEXT UNIQUE,
+            count INTEGER DEFAULT 0
+        )
+    """)
+
+    conn.commit()
+    conn.close()
+
+
+def _migrate_json_to_sqlite() -> None:
+    """One-time migration from JSON files to SQLite."""
+    conn = _get_conn()
+    c = conn.cursor()
+    c.execute("SELECT COUNT(*) FROM contacts")
+    if c.fetchone()[0] > 0:
+        conn.close()
+        return  # Already has data, skip migration
+    conn.close()
+
+    # Migrate searches
+    searches_file = RESULTS_DIR / "searches.json"
+    if searches_file.exists():
+        with open(searches_file, "r", encoding="utf-8") as f:
+            searches = json.load(f)
+        conn = _get_conn()
+        c = conn.cursor()
+        for s in searches:
+            c.execute("""
+                INSERT OR IGNORE INTO searches (job_id, keyword, pages, total, user_id, user_name, searched_at, deep)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (s.get("job_id"), s.get("keyword"), s.get("pages"), s.get("total"),
+                  s.get("user_id"), s.get("user_name"), s.get("searched_at"), 1 if s.get("deep") else 0))
+        conn.commit()
+        conn.close()
+        searches_file.rename(searches_file.with_suffix(".json.bak"))
+
+    # Migrate contacts and followups
+    contacted_file = RESULTS_DIR / "contacted.json"
+    if contacted_file.exists():
+        with open(contacted_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        conn = _get_conn()
+        c = conn.cursor()
+        for email, info in data.items():
+            email = email.lower().strip()
+            if "history" not in info:
+                # Old flat format
+                user_id = info.get("user_id", "")
+                user_name = info.get("user_name", info.get("contacted_by", ""))
+                created_at = info.get("contacted_at", datetime.now().isoformat())
+                c.execute("""
+                    INSERT OR IGNORE INTO contacts (email, domain, user_id, user_name, status, next_follow_up, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, (email, info.get("domain", ""), user_id, user_name, "已发邮件", "", created_at))
+                c.execute("""
+                    INSERT INTO followups (contact_email, action, notes, user_id, user_name, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, (email, "已发邮件", info.get("notes", ""), user_id, user_name, created_at))
+            else:
+                # New CRM format
+                c.execute("""
+                    INSERT OR IGNORE INTO contacts (email, domain, user_id, user_name, status, next_follow_up, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, (email, info.get("domain", ""), info.get("user_id", ""), info.get("user_name", ""),
+                      info.get("status", "已发邮件"), info.get("next_follow_up", ""),
+                      info.get("created_at", datetime.now().isoformat())))
+                for h in info.get("history", []):
+                    c.execute("""
+                        INSERT INTO followups (contact_email, action, notes, user_id, user_name, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    """, (email, h.get("action"), h.get("notes", ""), h.get("user_id", ""), h.get("user_name", ""), h.get("at")))
+        conn.commit()
+        conn.close()
+        contacted_file.rename(contacted_file.with_suffix(".json.bak"))
+
+    # Migrate keywords
+    keywords_file = RESULTS_DIR / "keywords.json"
+    if keywords_file.exists():
+        with open(keywords_file, "r", encoding="utf-8") as f:
+            keywords = json.load(f)
+        conn = _get_conn()
+        c = conn.cursor()
+        for term, count in keywords.items():
+            c.execute("INSERT OR IGNORE INTO keywords (term, count) VALUES (?, ?)", (term, count))
+        conn.commit()
+        conn.close()
+        keywords_file.rename(keywords_file.with_suffix(".json.bak"))
+
+
+_init_db()
+_migrate_json_to_sqlite()
 
 
 # ---------------------------------------------------------------------------
@@ -86,177 +235,173 @@ def require_admin(request: Request) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Data helpers
+# DB helpers
 # ---------------------------------------------------------------------------
 
-def _load_contacted() -> dict:
-    if CONTACTED_FILE.exists():
-        with open(CONTACTED_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {}
+def db_save_search(job_id: str, keyword: str, pages: int, total: int, user_id: str, user_name: str, deep: bool) -> None:
+    conn = _get_conn()
+    c = conn.cursor()
+    c.execute("""
+        INSERT INTO searches (job_id, keyword, pages, total, user_id, user_name, searched_at, deep)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """, (job_id, keyword, pages, total, user_id, user_name, datetime.now().isoformat(), 1 if deep else 0))
+    conn.commit()
+    conn.close()
 
 
-def _mark_contacted(email: str, domain: str, user_id: str, user_name: str, notes: str = "") -> None:
-    contacted = _load_contacted()
-    email = email.lower().strip()
-    contacted[email] = {
-        "domain": domain,
-        "contacted_at": datetime.now().isoformat(),
-        "user_id": user_id,
-        "user_name": user_name,
-        "notes": notes,
-    }
-    with open(CONTACTED_FILE, "w", encoding="utf-8") as f:
-        json.dump(contacted, f, ensure_ascii=False, indent=2)
+def db_list_searches(user_id: str, role: str, keyword_filter: str = "") -> list:
+    conn = _get_conn()
+    c = conn.cursor()
+    if role == "admin":
+        c.execute("SELECT * FROM searches ORDER BY searched_at DESC LIMIT 100")
+    else:
+        c.execute("SELECT * FROM searches WHERE user_id = ? ORDER BY searched_at DESC LIMIT 100", (user_id,))
+    rows = c.fetchall()
+    conn.close()
+    results = []
+    for row in rows:
+        d = dict(row)
+        d["deep"] = bool(d.get("deep"))
+        if not keyword_filter or keyword_filter.lower() in (d.get("keyword") or "").lower():
+            results.append(d)
+    return results
 
 
-def _enrich_with_contacted(leads: list) -> list:
-    """Add 'contacted' and 'contacted_at' keys to each lead dict."""
-    contacted = _load_contacted()
-    for lead in leads:
-        email = lead.get("email", "").lower().strip()
-        info = contacted.get(email)
-        lead["contacted"] = bool(info)
-        lead["contacted_at"] = info.get("contacted_at", "") if info else ""
-        lead["contacted_by"] = info.get("user_name", "") if info else ""
-    return leads
+def db_get_search(job_id: str) -> Optional[dict]:
+    conn = _get_conn()
+    c = conn.cursor()
+    c.execute("SELECT * FROM searches WHERE job_id = ?", (job_id,))
+    row = c.fetchone()
+    conn.close()
+    if not row:
+        return None
+    d = dict(row)
+    d["deep"] = bool(d.get("deep"))
+    return d
 
 
-def _load_keywords() -> dict:
-    if KEYWORDS_FILE.exists():
-        with open(KEYWORDS_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {}
-
-
-def _save_keyword(keyword: str) -> None:
-    keywords = _load_keywords()
-    k = keyword.strip().lower()
-    if k:
-        keywords[k] = keywords.get(k, 0) + 1
-        with open(KEYWORDS_FILE, "w", encoding="utf-8") as f:
-            json.dump(keywords, f, ensure_ascii=False, indent=2)
-
-
-# ---------------------------------------------------------------------------
-# Searches history
-# ---------------------------------------------------------------------------
-
-def _load_searches() -> list:
-    if SEARCHES_FILE.exists():
-        with open(SEARCHES_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return []
-
-
-def _save_search(job_id: str, keyword: str, pages: int, total: int, user_id: str, user_name: str, deep: bool) -> None:
-    searches = _load_searches()
-    searches.insert(0, {
-        "job_id": job_id,
-        "keyword": keyword,
-        "pages": pages,
-        "total": total,
-        "user_id": user_id,
-        "user_name": user_name,
-        "searched_at": datetime.now().isoformat(),
-        "deep": deep,
-    })
-    with open(SEARCHES_FILE, "w", encoding="utf-8") as f:
-        json.dump(searches, f, ensure_ascii=False, indent=2)
-
-
-# ---------------------------------------------------------------------------
-# Contacted CRM (upgraded with status & history)
-# ---------------------------------------------------------------------------
-
-def _load_contacted() -> dict:
-    if not CONTACTED_FILE.exists():
-        return {}
-    with open(CONTACTED_FILE, "r", encoding="utf-8") as f:
-        data = json.load(f)
-    # Migrate old flat format to new CRM format
-    migrated = {}
-    for email, info in data.items():
-        if "history" not in info:
-            migrated[email] = {
-                "domain": info.get("domain", ""),
-                "user_id": info.get("user_id", ""),
-                "user_name": info.get("user_name", info.get("contacted_by", "")),
-                "status": "已发邮件",
-                "history": [
-                    {
-                        "action": "已发邮件",
-                        "at": info.get("contacted_at", datetime.now().isoformat()),
-                        "notes": info.get("notes", ""),
-                        "user_id": info.get("user_id", ""),
-                        "user_name": info.get("user_name", info.get("contacted_by", "")),
-                    }
-                ],
-                "next_follow_up": "",
-                "created_at": info.get("contacted_at", datetime.now().isoformat()),
-            }
-        else:
-            migrated[email] = info
-    return migrated
-
-
-def _mark_contacted(email: str, domain: str, user_id: str, user_name: str, notes: str = "") -> None:
-    contacted = _load_contacted()
-    email = email.lower().strip()
+def db_create_contact(email: str, domain: str, user_id: str, user_name: str, notes: str = "") -> None:
+    conn = _get_conn()
+    c = conn.cursor()
     now = datetime.now().isoformat()
-    contacted[email] = {
-        "domain": domain,
-        "user_id": user_id,
-        "user_name": user_name,
-        "status": "已发邮件",
-        "history": [
-            {
-                "action": "已发邮件",
-                "at": now,
-                "notes": notes,
-                "user_id": user_id,
-                "user_name": user_name,
-            }
-        ],
-        "next_follow_up": "",
-        "created_at": now,
-    }
-    with open(CONTACTED_FILE, "w", encoding="utf-8") as f:
-        json.dump(contacted, f, ensure_ascii=False, indent=2)
+    c.execute("""
+        INSERT OR REPLACE INTO contacts (email, domain, user_id, user_name, status, next_follow_up, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (email.lower().strip(), domain, user_id, user_name, "已发邮件", "", now))
+    c.execute("""
+        INSERT INTO followups (contact_email, action, notes, user_id, user_name, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (email.lower().strip(), "已发邮件", notes, user_id, user_name, now))
+    conn.commit()
+    conn.close()
 
 
-def _add_followup(email: str, action: str, notes: str, next_follow_up: str, user_id: str, user_name: str) -> None:
-    contacted = _load_contacted()
-    email = email.lower().strip()
-    if email not in contacted:
-        raise HTTPException(status_code=404, detail="客户不存在")
-    record = contacted[email]
-    record["status"] = action
-    record["history"].append({
-        "action": action,
-        "at": datetime.now().isoformat(),
-        "notes": notes,
-        "user_id": user_id,
-        "user_name": user_name,
-    })
+def db_list_contacts(user_id: str, role: str) -> list:
+    conn = _get_conn()
+    c = conn.cursor()
+    if role == "admin":
+        c.execute("SELECT * FROM contacts ORDER BY created_at DESC")
+    else:
+        c.execute("SELECT * FROM contacts WHERE user_id = ? ORDER BY created_at DESC", (user_id,))
+    rows = c.fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def db_get_contact(email: str) -> Optional[dict]:
+    conn = _get_conn()
+    c = conn.cursor()
+    c.execute("SELECT * FROM contacts WHERE email = ?", (email.lower().strip(),))
+    row = c.fetchone()
+    conn.close()
+    if not row:
+        return None
+    contact = dict(row)
+    history = db_list_followups(email)
+    for h in history:
+        h.pop("contact_email", None)
+    contact["history"] = history
+    return contact
+
+
+def db_update_contact_status(email: str, status: str) -> None:
+    conn = _get_conn()
+    c = conn.cursor()
+    c.execute("UPDATE contacts SET status = ? WHERE email = ?", (status, email.lower().strip()))
+    conn.commit()
+    conn.close()
+
+
+def db_add_followup(email: str, action: str, notes: str, next_follow_up: str, user_id: str, user_name: str) -> None:
+    conn = _get_conn()
+    c = conn.cursor()
+    now = datetime.now().isoformat()
+    c.execute("""
+        INSERT INTO followups (contact_email, action, notes, user_id, user_name, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (email.lower().strip(), action, notes, user_id, user_name, now))
+    c.execute("UPDATE contacts SET status = ? WHERE email = ?", (action, email.lower().strip()))
     if next_follow_up:
-        record["next_follow_up"] = next_follow_up
-    with open(CONTACTED_FILE, "w", encoding="utf-8") as f:
-        json.dump(contacted, f, ensure_ascii=False, indent=2)
+        c.execute("UPDATE contacts SET next_follow_up = ? WHERE email = ?", (next_follow_up, email.lower().strip()))
+    conn.commit()
+    conn.close()
 
 
-def _enrich_with_contacted(leads: list) -> list:
-    """Add 'contacted', 'contacted_at', 'contacted_by', 'status' keys to each lead dict."""
-    contacted = _load_contacted()
+def db_list_followups(email: str) -> list:
+    conn = _get_conn()
+    c = conn.cursor()
+    c.execute("SELECT * FROM followups WHERE contact_email = ? ORDER BY created_at ASC", (email.lower().strip(),))
+    rows = c.fetchall()
+    conn.close()
+    results = []
+    for r in rows:
+        d = dict(r)
+        d["at"] = d.pop("created_at")
+        results.append(d)
+    return results
+
+
+def db_enrich_leads(leads: list) -> list:
+    conn = _get_conn()
+    c = conn.cursor()
+    emails = [lead.get("email", "").lower().strip() for lead in leads if lead.get("email")]
+    contact_map = {}
+    if emails:
+        placeholders = ",".join("?" * len(emails))
+        c.execute(f"SELECT email, user_name, status, created_at FROM contacts WHERE email IN ({placeholders})", emails)
+        for r in c.fetchall():
+            contact_map[r["email"]] = {"user_name": r["user_name"], "status": r["status"], "created_at": r["created_at"]}
+    conn.close()
     for lead in leads:
         email = lead.get("email", "").lower().strip()
-        info = contacted.get(email)
+        info = contact_map.get(email)
         lead["contacted"] = bool(info)
-        lead["contacted_at"] = info.get("created_at", "") if info else ""
-        lead["contacted_by"] = info.get("user_name", "") if info else ""
-        lead["status"] = info.get("status", "") if info else ""
+        lead["contacted_at"] = info["created_at"] if info else ""
+        lead["contacted_by"] = info["user_name"] if info else ""
+        lead["status"] = info["status"] if info else ""
     return leads
 
+
+def db_increment_keyword(term: str) -> None:
+    conn = _get_conn()
+    c = conn.cursor()
+    c.execute("INSERT INTO keywords (term, count) VALUES (?, 1) ON CONFLICT(term) DO UPDATE SET count = count + 1", (term.strip().lower(),))
+    conn.commit()
+    conn.close()
+
+
+def db_list_keywords() -> list:
+    conn = _get_conn()
+    c = conn.cursor()
+    c.execute("SELECT term, count FROM keywords ORDER BY count DESC")
+    rows = c.fetchall()
+    conn.close()
+    return [{"term": r["term"], "count": r["count"]} for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Page endpoints
+# ---------------------------------------------------------------------------
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
@@ -301,6 +446,10 @@ async def me(request: Request):
     return user
 
 
+# ---------------------------------------------------------------------------
+# Search endpoints
+# ---------------------------------------------------------------------------
+
 @app.post("/api/leads/search")
 async def search_leads(
     request: Request,
@@ -333,14 +482,14 @@ async def search_leads(
     result = subprocess.run(cmd, capture_output=True, text=True, cwd=".", encoding="utf-8", errors="replace")
 
     if output_file.exists():
-        _save_keyword(keyword)
+        db_increment_keyword(keyword)
         leads = []
         with open(output_file, "r", encoding="utf-8") as f:
             reader = csv.DictReader(f)
             for row in reader:
                 leads.append({k: v for k, v in row.items()})
-        leads = _enrich_with_contacted(leads)
-        _save_search(job_id, keyword, pages, len(leads), user["user_id"], user["name"], deep)
+        leads = db_enrich_leads(leads)
+        db_save_search(job_id, keyword, pages, len(leads), user["user_id"], user["name"], deep)
 
         return {
             "job_id": job_id,
@@ -403,14 +552,14 @@ async def stream_leads(
             await proc.wait()
 
             if output_file.exists():
-                _save_keyword(keyword)
+                db_increment_keyword(keyword)
                 leads = []
                 with open(output_file, "r", encoding="utf-8") as f:
                     reader = csv.DictReader(f)
                     for row in reader:
                         leads.append({k: v for k, v in row.items()})
-                leads = _enrich_with_contacted(leads)
-                _save_search(job_id, keyword, pages, len(leads), user["user_id"], user["name"], deep)
+                leads = db_enrich_leads(leads)
+                db_save_search(job_id, keyword, pages, len(leads), user["user_id"], user["name"], deep)
 
                 payload = json.dumps({
                     "type": "done",
@@ -456,9 +605,8 @@ async def download_leads(job_id: str, user: dict = Depends(require_user)):
 @app.get("/api/keywords")
 async def get_keywords(user: dict = Depends(require_user)):
     """Return searched keywords sorted by frequency."""
-    keywords = _load_keywords()
-    sorted_keywords = sorted(keywords.items(), key=lambda x: x[1], reverse=True)
-    return {"keywords": [{"term": k, "count": v} for k, v in sorted_keywords]}
+    keywords = db_list_keywords()
+    return {"keywords": keywords}
 
 
 # ---------------------------------------------------------------------------
@@ -468,12 +616,8 @@ async def get_keywords(user: dict = Depends(require_user)):
 @app.get("/api/contacted")
 async def get_contacted(user: dict = Depends(require_user)):
     """Return contacted leads. Sales sees only their own; admin sees all."""
-    contacted = _load_contacted()
-    items = []
-    for email, info in sorted(contacted.items(), key=lambda x: x[1].get("created_at", ""), reverse=True):
-        if user["role"] == "admin" or info.get("user_id") == user["user_id"]:
-            items.append({"email": email, **info})
-    return {"items": items}
+    contacts = db_list_contacts(user["user_id"], user["role"])
+    return {"items": contacts}
 
 
 @app.post("/api/contacted")
@@ -485,21 +629,19 @@ async def post_contacted(
     user: dict = Depends(require_user),
 ):
     """Mark an email as contacted (auto-attributes to current user)."""
-    _mark_contacted(email, domain, user["user_id"], user["name"], notes)
+    db_create_contact(email, domain, user["user_id"], user["name"], notes)
     return {"status": "ok", "email": email}
 
 
 @app.get("/api/contacted/{email}")
 async def get_contact_detail(email: str, user: dict = Depends(require_user)):
     """Get full follow-up history for a single contact."""
-    contacted = _load_contacted()
-    email = email.lower().strip()
-    info = contacted.get(email)
-    if not info:
+    contact = db_get_contact(email)
+    if not contact:
         raise HTTPException(status_code=404, detail="客户不存在")
-    if user["role"] != "admin" and info.get("user_id") != user["user_id"]:
+    if user["role"] != "admin" and contact.get("user_id") != user["user_id"]:
         raise HTTPException(status_code=403, detail="无权查看")
-    return {"email": email, **info}
+    return contact
 
 
 @app.post("/api/contacted/{email}/followup")
@@ -511,7 +653,7 @@ async def post_followup(
     user: dict = Depends(require_user),
 ):
     """Add a follow-up record and update status."""
-    _add_followup(email, action, notes, next_follow_up, user["user_id"], user["name"])
+    db_add_followup(email, action, notes, next_follow_up, user["user_id"], user["name"])
     return {"status": "ok"}
 
 
@@ -522,16 +664,12 @@ async def put_status(
     user: dict = Depends(require_user),
 ):
     """Directly update a contact's status."""
-    contacted = _load_contacted()
-    email = email.lower().strip()
-    if email not in contacted:
+    contact = db_get_contact(email)
+    if not contact:
         raise HTTPException(status_code=404, detail="客户不存在")
-    record = contacted[email]
-    if user["role"] != "admin" and record.get("user_id") != user["user_id"]:
+    if user["role"] != "admin" and contact.get("user_id") != user["user_id"]:
         raise HTTPException(status_code=403, detail="无权修改")
-    record["status"] = status
-    with open(CONTACTED_FILE, "w", encoding="utf-8") as f:
-        json.dump(contacted, f, ensure_ascii=False, indent=2)
+    db_update_contact_status(email, status)
     return {"status": "ok"}
 
 
@@ -545,20 +683,14 @@ async def get_searches(
     user: dict = Depends(require_user),
 ):
     """Return search history (admin sees all, sales sees own)."""
-    searches = _load_searches()
-    results = []
-    for s in searches:
-        if user["role"] == "admin" or s.get("user_id") == user["user_id"]:
-            if not keyword or keyword.lower() in s.get("keyword", "").lower():
-                results.append(s)
-    return {"searches": results[:100]}
+    results = db_list_searches(user["user_id"], user["role"], keyword)
+    return {"searches": results}
 
 
 @app.get("/api/searches/{job_id}")
 async def get_search_detail(job_id: str, user: dict = Depends(require_user)):
     """Re-load a past search result from its CSV."""
-    searches = _load_searches()
-    search = next((s for s in searches if s.get("job_id") == job_id), None)
+    search = db_get_search(job_id)
     if not search:
         raise HTTPException(status_code=404, detail="搜索记录不存在")
     if user["role"] != "admin" and search.get("user_id") != user["user_id"]:
@@ -573,7 +705,7 @@ async def get_search_detail(job_id: str, user: dict = Depends(require_user)):
         reader = csv.DictReader(f)
         for row in reader:
             leads.append({k: v for k, v in row.items()})
-    leads = _enrich_with_contacted(leads)
+    leads = db_enrich_leads(leads)
 
     return {
         "job_id": job_id,
