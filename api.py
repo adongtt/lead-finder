@@ -518,7 +518,10 @@ async def search_leads(
         db_increment_keyword(keyword)
         csv_content = output_file.read_text(encoding="utf-8")
         leads = []
-        reader = csv.DictReader(csv_content.splitlines())
+        lines = csv_content.splitlines()
+        if lines:
+            lines[0] = lines[0].lstrip('﻿')
+        reader = csv.DictReader(lines)
         for row in reader:
             leads.append({k: v for k, v in row.items()})
         leads = db_enrich_leads(leads)
@@ -530,6 +533,7 @@ async def search_leads(
             "total": len(leads),
             "download_url": f"/api/leads/download/{job_id}",
             "preview": leads[:5] if leads else [],
+            "leads": leads,
             "log": result.stdout[-500:] if result.stdout else "",
         }
     else:
@@ -588,7 +592,10 @@ async def stream_leads(
                 db_increment_keyword(keyword)
                 csv_content = output_file.read_text(encoding="utf-8")
                 leads = []
-                reader = csv.DictReader(csv_content.splitlines())
+                lines = csv_content.splitlines()
+                if lines:
+                    lines[0] = lines[0].lstrip('﻿')
+                reader = csv.DictReader(lines)
                 for row in reader:
                     leads.append({k: v for k, v in row.items()})
                 leads = db_enrich_leads(leads)
@@ -601,6 +608,7 @@ async def stream_leads(
                     "total": len(leads),
                     "download_url": f"/api/leads/download/{job_id}",
                     "preview": leads[:5] if leads else [],
+                    "leads": leads,
                 }, ensure_ascii=False)
                 yield f"data: {payload}\n\n"
             else:
@@ -752,7 +760,10 @@ async def get_search_detail(job_id: str, user: dict = Depends(require_user)):
         csv_content = file_path.read_text(encoding="utf-8")
 
     leads = []
-    reader = csv.DictReader(csv_content.splitlines())
+    lines = csv_content.splitlines()
+    if lines:
+        lines[0] = lines[0].lstrip('﻿')
+    reader = csv.DictReader(lines)
     for row in reader:
         leads.append({k: v for k, v in row.items()})
     leads = db_enrich_leads(leads)
