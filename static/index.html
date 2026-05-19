@@ -216,6 +216,56 @@
       outline: none;
     }
     .sig-input:focus { border-color: var(--primary); }
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.7);
+      display: none;
+      justify-content: center;
+      align-items: center;
+      z-index: 100;
+      padding: 20px;
+    }
+    .modal-overlay.active { display: flex; }
+    .modal {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      width: 100%;
+      max-width: 520px;
+      max-height: 85vh;
+      overflow-y: auto;
+      padding: 24px;
+    }
+    .modal h3 { font-size: 18px; margin-bottom: 16px; }
+    .timeline { margin: 16px 0; }
+    .timeline-item {
+      border-left: 2px solid var(--border);
+      padding-left: 16px;
+      padding-bottom: 16px;
+      position: relative;
+    }
+    .timeline-item:last-child { padding-bottom: 0; }
+    .timeline-item::before {
+      content: '';
+      position: absolute;
+      left: -5px;
+      top: 4px;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--primary);
+    }
+    .timeline-time { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+    .timeline-action { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+    .timeline-notes { font-size: 13px; color: var(--muted); }
+    .status-new { background: rgba(52,211,153,0.15); color: var(--success); }
+    .status-sent { background: rgba(248,113,113,0.15); color: var(--danger); }
+    .status-replied { background: rgba(251,146,60,0.15); color: #fb923c; }
+    .status-quoted { background: rgba(96,165,250,0.15); color: #60a5fa; }
+    .status-negotiating { background: rgba(167,139,250,0.15); color: #a78bfa; }
+    .status-won { background: rgba(52,211,153,0.2); color: var(--success); }
+    .status-lost { background: rgba(148,163,184,0.15); color: var(--muted); }
     @media (max-width: 768px) {
       .main-layout { grid-template-columns: 1fr; }
       .right-panel { order: -1; }
@@ -327,7 +377,45 @@
             <li class="empty-hint">加载中...</li>
           </ul>
         </div>
+        <div class="card">
+          <h2>历史搜索</h2>
+          <ul id="searchList" class="keyword-list">
+            <li class="empty-hint">加载中...</li>
+          </ul>
+        </div>
       </aside>
+    </div>
+  </div>
+
+  <div id="contactModal" class="modal-overlay" onclick="if(event.target===this)closeContactModal()">
+    <div class="modal">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+        <h3 id="modalTitle">客户详情</h3>
+        <button onclick="closeContactModal()" style="width:auto;padding:6px 12px;font-size:12px;background:var(--border);color:var(--text);">关闭</button>
+      </div>
+      <div id="modalBody"></div>
+      <hr style="border:0;border-top:1px solid var(--border);margin:20px 0;">
+      <h4 style="font-size:14px;margin-bottom:12px;">添加跟进</h4>
+      <div style="margin-bottom:12px;">
+        <label style="margin-bottom:6px;">状态</label>
+        <select id="followupAction" class="sig-input" style="margin-bottom:0;">
+          <option value="已发邮件">已发邮件</option>
+          <option value="已回复">已回复</option>
+          <option value="已报价">已报价</option>
+          <option value="谈判中">谈判中</option>
+          <option value="成交">成交</option>
+          <option value="放弃">放弃</option>
+        </select>
+      </div>
+      <div style="margin-bottom:12px;">
+        <label style="margin-bottom:6px;">备注</label>
+        <textarea id="followupNotes" rows="3" class="sig-input" style="resize:vertical;"></textarea>
+      </div>
+      <div style="margin-bottom:12px;">
+        <label style="margin-bottom:6px;">下次跟进时间</label>
+        <input type="date" id="followupDate" class="sig-input" style="margin-bottom:0;">
+      </div>
+      <button onclick="submitFollowup()">保存跟进</button>
     </div>
   </div>
 
@@ -397,19 +485,19 @@
         for (let i = 0; i < data.preview.length; i++) {
           const row = data.preview[i];
           const contacted = row.contacted;
-          const statusBadge = contacted
-            ? `<span class="badge" style="background:rgba(248,113,113,0.15);color:var(--danger);">已联系${row.contacted_by ? ' · ' + escapeHtml(row.contacted_by) : ''}</span>`
-            : `<span class="badge" style="background:rgba(52,211,153,0.15);color:var(--success);">未联系</span>`;
+          const badge = statusBadge(row.status || (contacted ? '已发邮件' : '未联系'));
           html += `<tr data-idx="${i}">` +
             `<td>${escapeHtml(row.email || '')}</td>` +
             `<td>${escapeHtml((row.first_name || '') + ' ' + (row.last_name || ''))}</td>` +
             `<td>${escapeHtml(row.position || '')}</td>` +
             `<td>${escapeHtml(row.country || '')}</td>` +
             `<td>${escapeHtml(row.domain || '')}</td>` +
-            `<td>${statusBadge}</td>` +
+            `<td>${badge}</td>` +
             `<td>` +
               `<button class="email-btn" onclick="openEmailPanel(${i})">发邮件</button>` +
-              (contacted ? '' : ` <button class="email-btn" style="background:var(--border);color:var(--text);" onclick="markContacted(${i})">标记已联系</button>`) +
+              (contacted
+                ? ` <button class="email-btn" style="background:var(--primary);color:#0f172a;" onclick="openContactDetail('${escapeHtml(row.email)}')">跟进</button>`
+                : ` <button class="email-btn" style="background:var(--border);color:var(--text);" onclick="markContacted(${i})">标记已联系</button>`) +
             `</td>` +
             '</tr>';
         }
@@ -506,6 +594,20 @@
       return div.innerHTML;
     }
 
+    function statusBadge(status) {
+      const map = {
+        '未联系': 'status-new',
+        '已发邮件': 'status-sent',
+        '已回复': 'status-replied',
+        '已报价': 'status-quoted',
+        '谈判中': 'status-negotiating',
+        '成交': 'status-won',
+        '放弃': 'status-lost',
+      };
+      const cls = map[status] || 'status-new';
+      return `<span class="badge ${cls}">${escapeHtml(status || '未联系')}</span>`;
+    }
+
     async function loadKeywords() {
       const list = document.getElementById('keywordList');
       try {
@@ -540,17 +642,88 @@
         form.append('notes', '');
         const res = await fetch('/api/contacted', { method: 'POST', body: form });
         if (res.ok) {
-          const userRes = await fetch('/api/me');
-          const user = userRes.ok ? await userRes.json() : { name: '员工' };
           lead.contacted = true;
-          lead.contacted_at = new Date().toISOString();
-          lead.contacted_by = user.name;
-          alert('已标记为联系过');
+          lead.status = '已发邮件';
           renderResult({ total: window.currentLeads.length, preview: window.currentLeads, download_url: window.currentDownloadUrl || '' });
           loadContacted();
+          openContactDetail(lead.email);
         }
       } catch (err) {
         alert('标记失败');
+      }
+    }
+
+    let currentDetailEmail = null;
+
+    async function openContactDetail(email) {
+      currentDetailEmail = email;
+      try {
+        const res = await fetch('/api/contacted/' + encodeURIComponent(email));
+        if (!res.ok) { alert('加载详情失败'); return; }
+        const data = await res.json();
+        renderContactModal(data);
+        document.getElementById('contactModal').classList.add('active');
+      } catch (err) {
+        alert('加载详情失败');
+      }
+    }
+
+    function closeContactModal() {
+      document.getElementById('contactModal').classList.remove('active');
+      currentDetailEmail = null;
+    }
+
+    function renderContactModal(data) {
+      document.getElementById('modalTitle').textContent = data.email;
+      let html = `<div style="margin-bottom:12px;">当前状态：${statusBadge(data.status)}</div>`;
+      if (data.next_follow_up) {
+        html += `<div style="font-size:13px;color:var(--muted);margin-bottom:12px;">下次跟进：${escapeHtml(data.next_follow_up)}</div>`;
+      }
+      html += '<div class="timeline">';
+      if (data.history && data.history.length > 0) {
+        for (const h of data.history.slice().reverse()) {
+          html += `<div class="timeline-item">
+            <div class="timeline-time">${escapeHtml(h.at ? h.at.slice(0,16).replace('T',' ') : '')} · ${escapeHtml(h.user_name || '')}</div>
+            <div class="timeline-action">${escapeHtml(h.action)}</div>
+            ${h.notes ? `<div class="timeline-notes">${escapeHtml(h.notes)}</div>` : ''}
+          </div>`;
+        }
+      } else {
+        html += '<div style="color:var(--muted);font-size:13px;">暂无跟进记录</div>';
+      }
+      html += '</div>';
+      document.getElementById('modalBody').innerHTML = html;
+    }
+
+    async function submitFollowup() {
+      if (!currentDetailEmail) return;
+      const action = document.getElementById('followupAction').value;
+      const notes = document.getElementById('followupNotes').value;
+      const next = document.getElementById('followupDate').value;
+      try {
+        const form = new FormData();
+        form.append('action', action);
+        form.append('notes', notes);
+        form.append('next_follow_up', next);
+        const res = await fetch('/api/contacted/' + encodeURIComponent(currentDetailEmail) + '/followup', {
+          method: 'POST', body: form
+        });
+        if (res.ok) {
+          document.getElementById('followupNotes').value = '';
+          document.getElementById('followupDate').value = '';
+          openContactDetail(currentDetailEmail);
+          loadContacted();
+          if (window.currentLeads) {
+            for (const lead of window.currentLeads) {
+              if (lead.email === currentDetailEmail) { lead.status = action; }
+            }
+            renderResult({ total: window.currentLeads.length, preview: window.currentLeads, download_url: window.currentDownloadUrl || '' });
+          }
+        } else {
+          alert('保存失败');
+        }
+      } catch (err) {
+        alert('保存失败');
       }
     }
 
@@ -567,7 +740,44 @@
         list.innerHTML = '';
         for (const item of data.items.slice(0, 20)) {
           const li = document.createElement('li');
-          li.innerHTML = `<span class="term">${escapeHtml(item.email)}</span><span class="count">${escapeHtml(item.domain || '')}</span>`;
+          li.style.cursor = 'pointer';
+          li.innerHTML = `<span class="term">${escapeHtml(item.email)}</span><span class="count">${item.status || ''}</span>`;
+          li.addEventListener('click', () => openContactDetail(item.email));
+          list.appendChild(li);
+        }
+      } catch (err) {
+        list.innerHTML = '<li class="empty-hint">加载失败</li>';
+      }
+    }
+
+    async function loadSearches() {
+      const list = document.getElementById('searchList');
+      if (!list) return;
+      try {
+        const res = await fetch('/api/searches');
+        const data = await res.json();
+        if (!data.searches || data.searches.length === 0) {
+          list.innerHTML = '<li class="empty-hint">暂无记录</li>';
+          return;
+        }
+        list.innerHTML = '';
+        for (const s of data.searches.slice(0, 20)) {
+          const li = document.createElement('li');
+          li.style.cursor = 'pointer';
+          const time = s.searched_at ? s.searched_at.slice(0,16).replace('T',' ') : '';
+          li.innerHTML = `<span class="term">${escapeHtml(s.keyword)}</span><span class="count">${s.total || 0}</span>`;
+          li.title = `${escapeHtml(s.user_name || '')} · ${time}`;
+          li.addEventListener('click', async () => {
+            try {
+              const r = await fetch('/api/searches/' + s.job_id);
+              const d = await r.json();
+              if (d.preview) {
+                window.currentLeads = d.preview;
+                window.currentDownloadUrl = d.download_url;
+                renderResult(d);
+              }
+            } catch (e) { alert('加载失败'); }
+          });
           list.appendChild(li);
         }
       } catch (err) {
@@ -603,6 +813,7 @@
     checkAuth();
     loadKeywords();
     loadContacted();
+    loadSearches();
     restoreSignatureInputs();
   </script>
 </body>

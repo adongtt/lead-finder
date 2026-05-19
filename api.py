@@ -37,6 +37,7 @@ RESULTS_DIR.mkdir(exist_ok=True)
 
 KEYWORDS_FILE = RESULTS_DIR / "keywords.json"
 CONTACTED_FILE = RESULTS_DIR / "contacted.json"
+SEARCHES_FILE = RESULTS_DIR / "searches.json"
 USERS_FILE = Path("users.json")
 
 SESSION_SECRET = os.environ.get("SESSION_SECRET", "lead-finder-dev-secret-change-in-production")
@@ -137,6 +138,126 @@ def _save_keyword(keyword: str) -> None:
             json.dump(keywords, f, ensure_ascii=False, indent=2)
 
 
+# ---------------------------------------------------------------------------
+# Searches history
+# ---------------------------------------------------------------------------
+
+def _load_searches() -> list:
+    if SEARCHES_FILE.exists():
+        with open(SEARCHES_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return []
+
+
+def _save_search(job_id: str, keyword: str, pages: int, total: int, user_id: str, user_name: str, deep: bool) -> None:
+    searches = _load_searches()
+    searches.insert(0, {
+        "job_id": job_id,
+        "keyword": keyword,
+        "pages": pages,
+        "total": total,
+        "user_id": user_id,
+        "user_name": user_name,
+        "searched_at": datetime.now().isoformat(),
+        "deep": deep,
+    })
+    with open(SEARCHES_FILE, "w", encoding="utf-8") as f:
+        json.dump(searches, f, ensure_ascii=False, indent=2)
+
+
+# ---------------------------------------------------------------------------
+# Contacted CRM (upgraded with status & history)
+# ---------------------------------------------------------------------------
+
+def _load_contacted() -> dict:
+    if not CONTACTED_FILE.exists():
+        return {}
+    with open(CONTACTED_FILE, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    # Migrate old flat format to new CRM format
+    migrated = {}
+    for email, info in data.items():
+        if "history" not in info:
+            migrated[email] = {
+                "domain": info.get("domain", ""),
+                "user_id": info.get("user_id", ""),
+                "user_name": info.get("user_name", info.get("contacted_by", "")),
+                "status": "已发邮件",
+                "history": [
+                    {
+                        "action": "已发邮件",
+                        "at": info.get("contacted_at", datetime.now().isoformat()),
+                        "notes": info.get("notes", ""),
+                        "user_id": info.get("user_id", ""),
+                        "user_name": info.get("user_name", info.get("contacted_by", "")),
+                    }
+                ],
+                "next_follow_up": "",
+                "created_at": info.get("contacted_at", datetime.now().isoformat()),
+            }
+        else:
+            migrated[email] = info
+    return migrated
+
+
+def _mark_contacted(email: str, domain: str, user_id: str, user_name: str, notes: str = "") -> None:
+    contacted = _load_contacted()
+    email = email.lower().strip()
+    now = datetime.now().isoformat()
+    contacted[email] = {
+        "domain": domain,
+        "user_id": user_id,
+        "user_name": user_name,
+        "status": "已发邮件",
+        "history": [
+            {
+                "action": "已发邮件",
+                "at": now,
+                "notes": notes,
+                "user_id": user_id,
+                "user_name": user_name,
+            }
+        ],
+        "next_follow_up": "",
+        "created_at": now,
+    }
+    with open(CONTACTED_FILE, "w", encoding="utf-8") as f:
+        json.dump(contacted, f, ensure_ascii=False, indent=2)
+
+
+def _add_followup(email: str, action: str, notes: str, next_follow_up: str, user_id: str, user_name: str) -> None:
+    contacted = _load_contacted()
+    email = email.lower().strip()
+    if email not in contacted:
+        raise HTTPException(status_code=404, detail="客户不存在")
+    record = contacted[email]
+    record["status"] = action
+    record["history"].append({
+        "action": action,
+        "at": datetime.now().isoformat(),
+        "notes": notes,
+        "user_id": user_id,
+        "user_name": user_name,
+    })
+    if next_follow_up:
+        record["next_follow_up"] = next_follow_up
+    with open(CONTACTED_FILE, "w", encoding="utf-8") as f:
+        json.dump(contacted, f, ensure_ascii=False, indent=2)
+
+
+def _enrich_with_contacted(leads: list) -> list:
+    """Add 'contacted', 'contacted_at', 'contacted_by', 'status' keys to each lead dict."""
+    contacted = _load_contacted()
+    for lead in leads:
+        email = lead.get("email", "").lower().strip()
+        info = contacted.get(email)
+        lead["contacted"] = bool(info)
+        lead["contacted_at"] = info.get("created_at", "") if info else ""
+        lead["contacted_by"] = info.get("user_name", "") if info else ""
+        lead["status"] = info.get("status", "") if info else ""
+    return leads
+
+
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     """Serve the web UI (redirect to login if not authenticated)."""
@@ -219,6 +340,7 @@ async def search_leads(
             for row in reader:
                 leads.append({k: v for k, v in row.items()})
         leads = _enrich_with_contacted(leads)
+        _save_search(job_id, keyword, pages, len(leads), user["user_id"], user["name"], deep)
 
         return {
             "job_id": job_id,
@@ -288,6 +410,7 @@ async def stream_leads(
                     for row in reader:
                         leads.append({k: v for k, v in row.items()})
                 leads = _enrich_with_contacted(leads)
+                _save_search(job_id, keyword, pages, len(leads), user["user_id"], user["name"], deep)
 
                 payload = json.dumps({
                     "type": "done",
@@ -338,12 +461,16 @@ async def get_keywords(user: dict = Depends(require_user)):
     return {"keywords": [{"term": k, "count": v} for k, v in sorted_keywords]}
 
 
+# ---------------------------------------------------------------------------
+# Contacted CRM endpoints
+# ---------------------------------------------------------------------------
+
 @app.get("/api/contacted")
 async def get_contacted(user: dict = Depends(require_user)):
     """Return contacted leads. Sales sees only their own; admin sees all."""
     contacted = _load_contacted()
     items = []
-    for email, info in sorted(contacted.items(), key=lambda x: x[1].get("contacted_at", ""), reverse=True):
+    for email, info in sorted(contacted.items(), key=lambda x: x[1].get("created_at", ""), reverse=True):
         if user["role"] == "admin" or info.get("user_id") == user["user_id"]:
             items.append({"email": email, **info})
     return {"items": items}
@@ -360,6 +487,101 @@ async def post_contacted(
     """Mark an email as contacted (auto-attributes to current user)."""
     _mark_contacted(email, domain, user["user_id"], user["name"], notes)
     return {"status": "ok", "email": email}
+
+
+@app.get("/api/contacted/{email}")
+async def get_contact_detail(email: str, user: dict = Depends(require_user)):
+    """Get full follow-up history for a single contact."""
+    contacted = _load_contacted()
+    email = email.lower().strip()
+    info = contacted.get(email)
+    if not info:
+        raise HTTPException(status_code=404, detail="客户不存在")
+    if user["role"] != "admin" and info.get("user_id") != user["user_id"]:
+        raise HTTPException(status_code=403, detail="无权查看")
+    return {"email": email, **info}
+
+
+@app.post("/api/contacted/{email}/followup")
+async def post_followup(
+    email: str,
+    action: str = Form(...),
+    notes: str = Form(""),
+    next_follow_up: str = Form(""),
+    user: dict = Depends(require_user),
+):
+    """Add a follow-up record and update status."""
+    _add_followup(email, action, notes, next_follow_up, user["user_id"], user["name"])
+    return {"status": "ok"}
+
+
+@app.put("/api/contacted/{email}/status")
+async def put_status(
+    email: str,
+    status: str = Form(...),
+    user: dict = Depends(require_user),
+):
+    """Directly update a contact's status."""
+    contacted = _load_contacted()
+    email = email.lower().strip()
+    if email not in contacted:
+        raise HTTPException(status_code=404, detail="客户不存在")
+    record = contacted[email]
+    if user["role"] != "admin" and record.get("user_id") != user["user_id"]:
+        raise HTTPException(status_code=403, detail="无权修改")
+    record["status"] = status
+    with open(CONTACTED_FILE, "w", encoding="utf-8") as f:
+        json.dump(contacted, f, ensure_ascii=False, indent=2)
+    return {"status": "ok"}
+
+
+# ---------------------------------------------------------------------------
+# Search history endpoints
+# ---------------------------------------------------------------------------
+
+@app.get("/api/searches")
+async def get_searches(
+    keyword: str = "",
+    user: dict = Depends(require_user),
+):
+    """Return search history (admin sees all, sales sees own)."""
+    searches = _load_searches()
+    results = []
+    for s in searches:
+        if user["role"] == "admin" or s.get("user_id") == user["user_id"]:
+            if not keyword or keyword.lower() in s.get("keyword", "").lower():
+                results.append(s)
+    return {"searches": results[:100]}
+
+
+@app.get("/api/searches/{job_id}")
+async def get_search_detail(job_id: str, user: dict = Depends(require_user)):
+    """Re-load a past search result from its CSV."""
+    searches = _load_searches()
+    search = next((s for s in searches if s.get("job_id") == job_id), None)
+    if not search:
+        raise HTTPException(status_code=404, detail="搜索记录不存在")
+    if user["role"] != "admin" and search.get("user_id") != user["user_id"]:
+        raise HTTPException(status_code=403, detail="无权查看")
+
+    file_path = RESULTS_DIR / f"{job_id}.csv"
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="CSV 文件已删除")
+
+    leads = []
+    with open(file_path, "r", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            leads.append({k: v for k, v in row.items()})
+    leads = _enrich_with_contacted(leads)
+
+    return {
+        "job_id": job_id,
+        "keyword": search.get("keyword", ""),
+        "total": len(leads),
+        "download_url": f"/api/leads/download/{job_id}",
+        "preview": leads[:5] if leads else [],
+    }
 
 
 if __name__ == "__main__":
