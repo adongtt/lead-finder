@@ -72,9 +72,15 @@ def _init_db() -> None:
             user_id TEXT,
             user_name TEXT,
             searched_at TEXT,
-            deep INTEGER DEFAULT 0
+            deep INTEGER DEFAULT 0,
+            csv_content TEXT
         )
     """)
+    # Migrate existing searches table (add csv_content if missing)
+    try:
+        c.execute("ALTER TABLE searches ADD COLUMN IF NOT EXISTS csv_content TEXT")
+    except Exception:
+        pass
 
     c.execute("""
         CREATE TABLE IF NOT EXISTS contacts (
@@ -249,13 +255,13 @@ def require_admin(request: Request) -> dict:
 # DB helpers
 # ---------------------------------------------------------------------------
 
-def db_save_search(job_id: str, keyword: str, pages: int, total: int, user_id: str, user_name: str, deep: bool) -> None:
+def db_save_search(job_id: str, keyword: str, pages: int, total: int, user_id: str, user_name: str, deep: bool, csv_content: str = "") -> None:
     conn = _get_conn()
     c = conn.cursor()
     c.execute("""
-        INSERT INTO searches (job_id, keyword, pages, total, user_id, user_name, searched_at, deep)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-    """, (job_id, keyword, pages, total, user_id, user_name, datetime.now().isoformat(), 1 if deep else 0))
+        INSERT INTO searches (job_id, keyword, pages, total, user_id, user_name, searched_at, deep, csv_content)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+    """, (job_id, keyword, pages, total, user_id, user_name, datetime.now().isoformat(), 1 if deep else 0, csv_content))
     conn.commit()
     conn.close()
 
@@ -503,13 +509,13 @@ async def search_leads(
 
     if output_file.exists():
         db_increment_keyword(keyword)
+        csv_content = output_file.read_text(encoding="utf-8")
         leads = []
-        with open(output_file, "r", encoding="utf-8") as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                leads.append({k: v for k, v in row.items()})
+        reader = csv.DictReader(csv_content.splitlines())
+        for row in reader:
+            leads.append({k: v for k, v in row.items()})
         leads = db_enrich_leads(leads)
-        db_save_search(job_id, keyword, pages, len(leads), user["user_id"], user["name"], deep)
+        db_save_search(job_id, keyword, pages, len(leads), user["user_id"], user["name"], deep, csv_content)
 
         return {
             "job_id": job_id,
@@ -573,13 +579,13 @@ async def stream_leads(
 
             if output_file.exists():
                 db_increment_keyword(keyword)
+                csv_content = output_file.read_text(encoding="utf-8")
                 leads = []
-                with open(output_file, "r", encoding="utf-8") as f:
-                    reader = csv.DictReader(f)
-                    for row in reader:
-                        leads.append({k: v for k, v in row.items()})
+                reader = csv.DictReader(csv_content.splitlines())
+                for row in reader:
+                    leads.append({k: v for k, v in row.items()})
                 leads = db_enrich_leads(leads)
-                db_save_search(job_id, keyword, pages, len(leads), user["user_id"], user["name"], deep)
+                db_save_search(job_id, keyword, pages, len(leads), user["user_id"], user["name"], deep, csv_content)
 
                 payload = json.dumps({
                     "type": "done",
@@ -611,15 +617,29 @@ async def stream_leads(
 
 @app.get("/api/leads/download/{job_id}")
 async def download_leads(job_id: str, user: dict = Depends(require_user)):
-    """Download the CSV result file."""
-    file_path = DATA_DIR / f"{job_id}.csv"
-    if file_path.exists():
-        return FileResponse(
-            file_path,
-            filename=f"leads_{job_id}.csv",
-            media_type="text/csv"
-        )
-    return {"error": "File not found"}
+    """Download the CSV result file from database."""
+    search = db_get_search(job_id)
+    if not search:
+        raise HTTPException(status_code=404, detail="搜索记录不存在")
+    if user["role"] != "admin" and search.get("user_id") != user["user_id"]:
+        raise HTTPException(status_code=403, detail="无权下载")
+    csv_content = search.get("csv_content", "")
+    if not csv_content:
+        # Fallback to local file for legacy searches
+        file_path = DATA_DIR / f"{job_id}.csv"
+        if file_path.exists():
+            return FileResponse(
+                file_path,
+                filename=f"leads_{job_id}.csv",
+                media_type="text/csv"
+            )
+        raise HTTPException(status_code=404, detail="CSV 内容不存在")
+    from fastapi.responses import Response
+    return Response(
+        content=csv_content,
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=leads_{job_id}.csv"}
+    )
 
 
 @app.get("/api/keywords")
@@ -709,22 +729,25 @@ async def get_searches(
 
 @app.get("/api/searches/{job_id}")
 async def get_search_detail(job_id: str, user: dict = Depends(require_user)):
-    """Re-load a past search result from its CSV."""
+    """Re-load a past search result from database."""
     search = db_get_search(job_id)
     if not search:
         raise HTTPException(status_code=404, detail="搜索记录不存在")
     if user["role"] != "admin" and search.get("user_id") != user["user_id"]:
         raise HTTPException(status_code=403, detail="无权查看")
 
-    file_path = DATA_DIR / f"{job_id}.csv"
-    if not file_path.exists():
-        raise HTTPException(status_code=404, detail="CSV 文件已删除")
+    csv_content = search.get("csv_content", "")
+    if not csv_content:
+        # Fallback to local file for legacy searches
+        file_path = DATA_DIR / f"{job_id}.csv"
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail="CSV 内容不存在")
+        csv_content = file_path.read_text(encoding="utf-8")
 
     leads = []
-    with open(file_path, "r", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            leads.append({k: v for k, v in row.items()})
+    reader = csv.DictReader(csv_content.splitlines())
+    for row in reader:
+        leads.append({k: v for k, v in row.items()})
     leads = db_enrich_leads(leads)
 
     return {
