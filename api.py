@@ -335,6 +335,8 @@ def db_get_contact(email: str) -> Optional[dict]:
     if not row:
         return None
     contact = dict(row)
+    if not contact.get("email"):
+        contact["email"] = email
     history = db_list_followups(email)
     for h in history:
         h.pop("contact_email", None)

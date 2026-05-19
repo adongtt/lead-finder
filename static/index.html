@@ -674,7 +674,7 @@
     }
 
     function renderContactModal(data) {
-      document.getElementById('modalTitle').textContent = data.email;
+      document.getElementById('modalTitle').textContent = data.email || data.contact_email || '客户详情';
       let html = `<div style="margin-bottom:12px;">当前状态：${statusBadge(data.status)}</div>`;
       if (data.next_follow_up) {
         html += `<div style="font-size:13px;color:var(--muted);margin-bottom:12px;">下次跟进：${escapeHtml(data.next_follow_up)}</div>`;
