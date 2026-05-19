@@ -474,9 +474,10 @@
 
     function renderResult(data) {
       if (data.download_url) window.currentDownloadUrl = data.download_url;
+      if (data.job_id) window.currentJobId = data.job_id;
       let html = `<div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">
         <span class="badge badge-success">找到 ${data.total} 个客户</span>
-        ${window.currentDownloadUrl ? `<a href="${window.currentDownloadUrl}" class="download-btn">下载 CSV</a>` : ''}
+        ${data.job_id ? `<a href="/result?job_id=${encodeURIComponent(data.job_id)}" class="download-btn">查看全部</a>` : ''}
       </div>`;
       if (data.preview && data.preview.length > 0) {
         html += '<table><thead><tr>' +
@@ -776,16 +777,8 @@
           const time = s.searched_at ? s.searched_at.slice(0,16).replace('T',' ') : '';
           li.innerHTML = `<span class="term">${escapeHtml(s.keyword)}</span><span class="count">${s.total || 0}</span>`;
           li.title = `${escapeHtml(s.user_name || '')} · ${time}`;
-          li.addEventListener('click', async () => {
-            try {
-              const r = await fetch('/api/searches/' + s.job_id);
-              const d = await r.json();
-              if (d.preview) {
-                window.currentLeads = d.preview;
-                window.currentDownloadUrl = d.download_url;
-                renderResult(d);
-              }
-            } catch (e) { alert('加载失败'); }
+          li.addEventListener('click', () => {
+            window.location.href = '/result?job_id=' + encodeURIComponent(s.job_id);
           });
           list.appendChild(li);
         }

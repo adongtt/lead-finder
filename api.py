@@ -445,6 +445,13 @@ async def login_page():
         return HTMLResponse(content=f.read())
 
 
+@app.get("/result", response_class=HTMLResponse)
+async def result_page(user: dict = Depends(require_user)):
+    """Serve the search result detail page."""
+    with open("static/result.html", "r", encoding="utf-8") as f:
+        return HTMLResponse(content=f.read())
+
+
 @app.post("/login")
 async def login(request: Request, username: str = Form(...), password: str = Form(...)):
     """Authenticate and set session cookie."""
@@ -756,6 +763,7 @@ async def get_search_detail(job_id: str, user: dict = Depends(require_user)):
         "total": len(leads),
         "download_url": f"/api/leads/download/{job_id}",
         "preview": leads[:5] if leads else [],
+        "leads": leads,
     }
 
 

@@ -1,0 +1,35 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git push *)",
+      "WebSearch",
+      "Bash(python -m py_compile lead_finder.py)",
+      "Bash(python -m py_compile lead_finder.py api.py)",
+      "Bash(python -m py_compile api.py)",
+      "Bash(python -c \"import bcrypt; [print\\(bcrypt.hashpw\\(p.encode\\(\\), bcrypt.gensalt\\(\\)\\).decode\\(\\)\\) for p in ['admin123','zs123456','ls123456']]\")",
+      "Bash(pip install *)",
+      "Bash(python -c \"import api; print\\('Import OK'\\)\")",
+      "Bash(uvicorn api:app --host 127.0.0.1 --port 8000)",
+      "Bash(curl -s http://127.0.0.1:8000/login)",
+      "Bash(curl -s http://127.0.0.1:8000/)",
+      "Bash(curl -s http://127.0.0.1:8000/api/me)",
+      "Bash(kill %1)",
+      "Bash(curl -s -c cookies.txt -X POST http://127.0.0.1:8000/login -d \"username=admin\" -d \"password=admin123\")",
+      "Bash(curl -s -b cookies.txt http://127.0.0.1:8000/api/me)",
+      "Bash(curl -s -b cookies.txt http://127.0.0.1:8000/)",
+      "Bash(curl -s -b cookies.txt -X POST http://127.0.0.1:8000/logout)",
+      "Bash(curl -s -b cookies.txt -c cookies.txt -X POST http://127.0.0.1:8000/logout)",
+      "Bash(curl -s -c cookies.txt -X POST http://127.0.0.1:8000/login -d \"username=zhangsan\" -d \"password=zs123456\")",
+      "Bash(curl -s -b cookies.txt http://127.0.0.1:8000/api/searches)",
+      "Bash(curl -s -b cookies.txt http://127.0.0.1:8000/api/contacted)",
+      "Bash(curl -s -b cookies.txt -X POST http://127.0.0.1:8000/api/contacted -d \"email=test@example.com\" -d \"domain=example.com\" -d \"notes=initial\")",
+      "Bash(curl -s -b cookies.txt http://127.0.0.1:8000/api/contacted/test@example.com)",
+      "Bash(curl -s -b cookies.txt -X POST http://127.0.0.1:8000/api/contacted/test@example.com/followup --data-urlencode action=已回复 --data-urlencode notes=对方回复说有兴趣 -d next_follow_up=2026-05-25)",
+      "Bash(python -c ' *)",
+      "Bash(chcp 65001)",
+      "Bash(git reset *)"
+    ]
+  }
+}

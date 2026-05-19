@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>搜索结果 - B2B 客户开发工具</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card: #1e293b;
+      --text: #f8fafc;
+      --muted: #94a3b8;
+      --primary: #38bdf8;
+      --success: #34d399;
+      --danger: #f87171;
+      --border: #334155;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 24px;
+    }
+    .container { max-width: 1200px; margin: 0 auto; }
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+    .header h1 { font-size: 22px; }
+    .header .meta { color: var(--muted); font-size: 14px; }
+    .back-btn {
+      display: inline-block;
+      padding: 8px 16px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      text-decoration: none;
+      font-size: 14px;
+    }
+    .back-btn:hover { border-color: var(--primary); }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 20px;
+      overflow-x: auto;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+    th, td {
+      padding: 10px 12px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    th {
+      color: var(--muted);
+      font-weight: 600;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+    td { vertical-align: middle; }
+    tr:hover td { background: rgba(56,189,248,0.05); }
+    .badge {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .status-new { background: rgba(52,211,153,0.15); color: #34d399; }
+    .status-sent { background: rgba(56,189,248,0.15); color: #38bdf8; }
+    .status-replied { background: rgba(251,191,36,0.15); color: #fbbf24; }
+    .status-quoted { background: rgba(167,139,250,0.15); color: #a78bfa; }
+    .status-negotiating { background: rgba(251,146,60,0.15); color: #fb923c; }
+    .status-won { background: rgba(52,211,153,0.2); color: #34d399; }
+    .status-lost { background: rgba(148,163,184,0.15); color: #94a3b8; }
+    .btn-sm {
+      padding: 5px 10px;
+      border: none;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      margin-right: 4px;
+      margin-bottom: 4px;
+    }
+    .btn-primary { background: var(--primary); color: #0f172a; }
+    .btn-outline { background: var(--border); color: var(--text); }
+    .btn-success { background: var(--success); color: #0f172a; }
+    .pagination {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 8px;
+      margin-top: 20px;
+      flex-wrap: wrap;
+    }
+    .pagination button {
+      padding: 8px 14px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 14px;
+      cursor: pointer;
+    }
+    .pagination button.active {
+      background: var(--primary);
+      color: #0f172a;
+      border-color: var(--primary);
+    }
+    .pagination button:disabled { opacity: 0.4; cursor: not-allowed; }
+    .empty { text-align: center; padding: 60px 20px; color: var(--muted); }
+    .error-box {
+      background: rgba(248,113,113,0.1);
+      border: 1px solid rgba(248,113,113,0.3);
+      color: var(--danger);
+      padding: 12px;
+      border-radius: 8px;
+      margin-bottom: 16px;
+    }
+
+    /* Modal */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.6);
+      display: none;
+      justify-content: center;
+      align-items: center;
+      z-index: 1000;
+      padding: 20px;
+    }
+    .modal-overlay.active { display: flex; }
+    .modal {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      width: 100%;
+      max-width: 480px;
+      max-height: 90vh;
+      overflow-y: auto;
+      padding: 24px;
+    }
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+    .modal-header h3 { font-size: 18px; }
+    .close-btn {
+      background: none;
+      border: none;
+      color: var(--muted);
+      font-size: 20px;
+      cursor: pointer;
+    }
+    .sig-input {
+      width: 100%;
+      padding: 10px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 14px;
+      margin-bottom: 10px;
+    }
+    .timeline { margin: 12px 0; }
+    .timeline-item { padding: 10px 0; border-bottom: 1px solid var(--border); }
+    .timeline-time { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+    .timeline-action { font-weight: 600; font-size: 14px; }
+    .timeline-notes { font-size: 13px; color: var(--muted); margin-top: 4px; }
+    .modal-footer button { width: 100%; padding: 12px; margin-top: 10px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div>
+        <a href="/" class="back-btn">← 返回首页</a>
+        <h1 id="pageTitle">搜索结果</h1>
+        <div class="meta" id="pageMeta"></div>
+      </div>
+    </div>
+
+    <div id="errorBox"></div>
+
+    <div class="card" id="tableCard" style="display:none;">
+      <table>
+        <thead>
+          <tr>
+            <th>邮箱</th>
+            <th>姓名</th>
+            <th>职位</th>
+            <th>公司</th>
+            <th>域名</th>
+            <th>置信度</th>
+            <th>状态</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody id="tableBody"></tbody>
+      </table>
+      <div class="pagination" id="pagination"></div>
+    </div>
+
+    <div class="empty" id="emptyState" style="display:none;">加载中...</div>
+  </div>
+
+  <!-- Contact Detail Modal -->
+  <div class="modal-overlay" id="contactModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="modalTitle">客户详情</h3>
+        <button class="close-btn" onclick="closeContactModal()">×</button>
+      </div>
+      <div id="modalBody"></div>
+      <div style="margin-top:16px;border-top:1px solid var(--border);padding-top:16px;">
+        <label style="font-size:12px;color:var(--muted);">状态</label>
+        <select id="followupAction" class="sig-input">
+          <option value="已发邮件">已发邮件</option>
+          <option value="已回复">已回复</option>
+          <option value="已报价">已报价</option>
+          <option value="谈判中">谈判中</option>
+          <option value="成交">成交</option>
+          <option value="放弃">放弃</option>
+        </select>
+        <label style="font-size:12px;color:var(--muted);">备注</label>
+        <textarea id="followupNotes" rows="3" class="sig-input" style="resize:vertical;"></textarea>
+        <label style="font-size:12px;color:var(--muted);">下次跟进时间</label>
+        <input type="date" id="followupDate" class="sig-input">
+        <button class="btn-primary" style="width:100%;padding:12px;" onclick="submitFollowup()">保存跟进</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const PAGE_SIZE = 20;
+    let allLeads = [];
+    let currentPage = 1;
+    let searchMeta = {};
+    let currentDetailEmail = null;
+
+    const params = new URLSearchParams(location.search);
+    const jobId = params.get('job_id');
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    function statusBadge(status) {
+      const map = {
+        '未联系': 'status-new',
+        '已发邮件': 'status-sent',
+        '已回复': 'status-replied',
+        '已报价': 'status-quoted',
+        '谈判中': 'status-negotiating',
+        '成交': 'status-won',
+        '放弃': 'status-lost',
+      };
+      const cls = map[status] || 'status-new';
+      return `<span class="badge ${cls}">${escapeHtml(status || '未联系')}</span>`;
+    }
+
+    async function loadData() {
+      if (!jobId) {
+        showError('缺少 job_id 参数');
+        return;
+      }
+      try {
+        const res = await fetch('/api/searches/' + encodeURIComponent(jobId));
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          showError(err.detail || '加载失败');
+          return;
+        }
+        const data = await res.json();
+        searchMeta = { keyword: data.keyword, total: data.total, job_id: data.job_id };
+        allLeads = data.leads || [];
+        document.getElementById('pageTitle').textContent = escapeHtml(data.keyword || '搜索结果');
+        document.getElementById('pageMeta').textContent = `共 ${data.total} 条结果 · 搜索 ID: ${data.job_id}`;
+        if (allLeads.length === 0) {
+          document.getElementById('emptyState').textContent = '暂无结果';
+          document.getElementById('emptyState').style.display = 'block';
+        } else {
+          document.getElementById('tableCard').style.display = 'block';
+          renderPage();
+        }
+      } catch (err) {
+        showError('网络错误，请刷新重试');
+      }
+    }
+
+    function showError(msg) {
+      document.getElementById('errorBox').innerHTML = `<div class="error-box">${escapeHtml(msg)}</div>`;
+      document.getElementById('emptyState').textContent = '加载失败';
+      document.getElementById('emptyState').style.display = 'block';
+    }
+
+    function renderPage() {
+      const start = (currentPage - 1) * PAGE_SIZE;
+      const end = start + PAGE_SIZE;
+      const pageLeads = allLeads.slice(start, end);
+      const tbody = document.getElementById('tableBody');
+      let html = '';
+      for (const row of pageLeads) {
+        const contacted = row.contacted;
+        const badge = statusBadge(row.status || (contacted ? '已发邮件' : '未联系'));
+        html += `<tr>` +
+          `<td>${escapeHtml(row.email || '')}</td>` +
+          `<td>${escapeHtml((row.first_name || '') + ' ' + (row.last_name || ''))}</td>` +
+          `<td>${escapeHtml(row.position || '')}</td>` +
+          `<td>${escapeHtml(row.company || '')}</td>` +
+          `<td>${escapeHtml(row.domain || '')}</td>` +
+          `<td>${escapeHtml(row.confidence_score || '')}</td>` +
+          `<td>${badge}</td>` +
+          `<td>` +
+            `<a class="btn-sm btn-outline" href="mailto:${escapeHtml(row.email || '')}">发邮件</a>` +
+            (contacted
+              ? `<button class="btn-sm btn-primary" onclick="openContactDetail('${escapeHtml(row.email)}')">跟进</button>`
+              : `<button class="btn-sm btn-success" onclick="markContacted('${escapeHtml(row.email)}', '${escapeHtml(row.domain || '')}')">标记已联系</button>`) +
+          `</td>` +
+        `</tr>`;
+      }
+      tbody.innerHTML = html;
+      renderPagination();
+    }
+
+    function renderPagination() {
+      const totalPages = Math.ceil(allLeads.length / PAGE_SIZE) || 1;
+      const box = document.getElementById('pagination');
+      if (totalPages <= 1) { box.innerHTML = ''; return; }
+
+      let html = '';
+      html += `<button ${currentPage === 1 ? 'disabled' : ''} onclick="goPage(${currentPage - 1})">上一页</button>`;
+
+      const maxVisible = 5;
+      let startPage = Math.max(1, currentPage - Math.floor(maxVisible / 2));
+      let endPage = Math.min(totalPages, startPage + maxVisible - 1);
+      if (endPage - startPage + 1 < maxVisible) {
+        startPage = Math.max(1, endPage - maxVisible + 1);
+      }
+
+      if (startPage > 1) html += `<button onclick="goPage(1)">1</button>${startPage > 2 ? '<span style="color:var(--muted);padding:0 4px;">...</span>' : ''}`;
+      for (let i = startPage; i <= endPage; i++) {
+        html += `<button class="${i === currentPage ? 'active' : ''}" onclick="goPage(${i})">${i}</button>`;
+      }
+      if (endPage < totalPages) html += `${endPage < totalPages - 1 ? '<span style="color:var(--muted);padding:0 4px;">...</span>' : ''}<button onclick="goPage(${totalPages})">${totalPages}</button>`;
+
+      html += `<button ${currentPage === totalPages ? 'disabled' : ''} onclick="goPage(${currentPage + 1})">下一页</button>`;
+      box.innerHTML = html;
+    }
+
+    function goPage(p) {
+      const totalPages = Math.ceil(allLeads.length / PAGE_SIZE) || 1;
+      if (p < 1 || p > totalPages) return;
+      currentPage = p;
+      renderPage();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    async function markContacted(email, domain) {
+      if (!email) return;
+      try {
+        const form = new FormData();
+        form.append('email', email);
+        form.append('domain', domain || '');
+        form.append('notes', '');
+        const res = await fetch('/api/contacted', { method: 'POST', body: form });
+        if (res.ok) {
+          const lead = allLeads.find(l => l.email === email);
+          if (lead) { lead.contacted = true; lead.status = '已发邮件'; }
+          renderPage();
+          openContactDetail(email);
+        } else {
+          alert('标记失败');
+        }
+      } catch (err) {
+        alert('标记失败');
+      }
+    }
+
+    async function openContactDetail(email) {
+      currentDetailEmail = email;
+      try {
+        const res = await fetch('/api/contacted/' + encodeURIComponent(email));
+        if (!res.ok) { alert('加载详情失败'); return; }
+        const data = await res.json();
+        renderContactModal(data);
+        document.getElementById('contactModal').classList.add('active');
+      } catch (err) {
+        alert('加载详情失败');
+      }
+    }
+
+    function closeContactModal() {
+      document.getElementById('contactModal').classList.remove('active');
+      currentDetailEmail = null;
+    }
+
+    function renderContactModal(data) {
+      document.getElementById('modalTitle').textContent = data.email || data.contact_email || '客户详情';
+      let html = `<div style="margin-bottom:12px;">当前状态：${statusBadge(data.status)}</div>`;
+      if (data.next_follow_up) {
+        html += `<div style="font-size:13px;color:var(--muted);margin-bottom:12px;">下次跟进：${escapeHtml(data.next_follow_up)}</div>`;
+      }
+      html += '<div class="timeline">';
+      if (data.history && data.history.length > 0) {
+        for (const h of data.history.slice().reverse()) {
+          html += `<div class="timeline-item">
+            <div class="timeline-time">${escapeHtml(h.at ? h.at.slice(0,16).replace('T',' ') : '')} · ${escapeHtml(h.user_name || '')}</div>
+            <div class="timeline-action">${escapeHtml(h.action)}</div>
+            ${h.notes ? `<div class="timeline-notes">${escapeHtml(h.notes)}</div>` : ''}
+          </div>`;
+        }
+      } else {
+        html += '<div style="color:var(--muted);font-size:13px;">暂无跟进记录</div>';
+      }
+      html += '</div>';
+      document.getElementById('modalBody').innerHTML = html;
+    }
+
+    async function submitFollowup() {
+      if (!currentDetailEmail) return;
+      const action = document.getElementById('followupAction').value;
+      const notes = document.getElementById('followupNotes').value;
+      const next = document.getElementById('followupDate').value;
+      try {
+        const form = new FormData();
+        form.append('action', action);
+        form.append('notes', notes);
+        form.append('next_follow_up', next);
+        const res = await fetch('/api/contacted/' + encodeURIComponent(currentDetailEmail) + '/followup', {
+          method: 'POST', body: form
+        });
+        if (res.ok) {
+          document.getElementById('followupNotes').value = '';
+          document.getElementById('followupDate').value = '';
+          openContactDetail(currentDetailEmail);
+          const lead = allLeads.find(l => l.email === currentDetailEmail);
+          if (lead) { lead.status = action; }
+          renderPage();
+        } else {
+          alert('保存失败');
+        }
+      } catch (err) {
+        alert('保存失败');
+      }
+    }
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closeContactModal();
+    });
+
+    loadData();
+  </script>
+</body>
+</html>
