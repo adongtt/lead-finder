@@ -331,10 +331,14 @@
           `<td>${escapeHtml(row.confidence_score || '')}</td>` +
           `<td>${badge}</td>` +
           `<td>` +
-            `<a class="btn-sm btn-outline" href="mailto:${escapeHtml(row.email || '')}">发邮件</a>` +
-            (contacted
-              ? `<button class="btn-sm btn-primary" onclick="openContactDetail('${escapeHtml(row.email)}')">跟进</button>`
-              : `<button class="btn-sm btn-success" onclick="markContacted('${escapeHtml(row.email)}', '${escapeHtml(row.domain || '')}')">标记已联系</button>`) +
+            (row.email
+              ? `<a class="btn-sm btn-outline" href="mailto:${escapeHtml(row.email)}">发邮件</a>`
+              : `<span style="font-size:12px;color:var(--muted);">无邮箱</span>`) +
+            (row.email
+              ? (contacted
+                  ? ` <button class="btn-sm btn-primary" onclick="openContactDetail('${escapeHtml(row.email)}')">跟进</button>`
+                  : ` <button class="btn-sm btn-success" onclick="markContacted('${escapeHtml(row.email)}', '${escapeHtml(row.domain || '')}')">标记已联系</button>`)
+              : '') +
           `</td>` +
         `</tr>`;
       }
@@ -376,7 +380,7 @@
     }
 
     async function markContacted(email, domain) {
-      if (!email) return;
+      if (!email) { alert('该客户没有邮箱，无法标记'); return; }
       try {
         const form = new FormData();
         form.append('email', email);
