@@ -14,7 +14,9 @@ import asyncio
 import csv
 import json
 import os
-import sqlite3
+import os
+import psycopg2
+from psycopg2.extras import RealDictCursor
 import subprocess
 import sys
 import uuid
@@ -36,7 +38,10 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 DATA_DIR = Path(os.environ.get("DATA_DIR", "web_results"))
 DATA_DIR.mkdir(exist_ok=True)
 
-DB_PATH = DATA_DIR / "leadfinder.db"
+DATABASE_URL = os.environ.get(
+    "DATABASE_URL",
+    "postgresql://postgres:postgres@localhost:5432/leadfinder"
+)
 USERS_FILE = Path("users.json")
 
 SESSION_SECRET = os.environ.get("SESSION_SECRET", "lead-finder-dev-secret-change-in-production")
@@ -47,9 +52,8 @@ app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET, max_age=86400 *
 # DB init
 # ---------------------------------------------------------------------------
 
-def _get_conn() -> sqlite3.Connection:
-    conn = sqlite3.connect(str(DB_PATH))
-    conn.row_factory = sqlite3.Row
+def _get_conn():
+    conn = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
     return conn
 
 
@@ -60,7 +64,7 @@ def _init_db() -> None:
 
     c.execute("""
         CREATE TABLE IF NOT EXISTS searches (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             job_id TEXT UNIQUE,
             keyword TEXT,
             pages INTEGER,
@@ -74,7 +78,7 @@ def _init_db() -> None:
 
     c.execute("""
         CREATE TABLE IF NOT EXISTS contacts (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             email TEXT UNIQUE,
             domain TEXT,
             user_id TEXT,
@@ -87,7 +91,7 @@ def _init_db() -> None:
 
     c.execute("""
         CREATE TABLE IF NOT EXISTS followups (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             contact_email TEXT,
             action TEXT,
             notes TEXT,
@@ -99,7 +103,7 @@ def _init_db() -> None:
 
     c.execute("""
         CREATE TABLE IF NOT EXISTS keywords (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             term TEXT UNIQUE,
             count INTEGER DEFAULT 0
         )
@@ -109,12 +113,12 @@ def _init_db() -> None:
     conn.close()
 
 
-def _migrate_json_to_sqlite() -> None:
-    """One-time migration from JSON files to SQLite."""
+def _migrate_json_to_postgres() -> None:
+    """One-time migration from JSON files to PostgreSQL."""
     conn = _get_conn()
     c = conn.cursor()
     c.execute("SELECT COUNT(*) FROM contacts")
-    if c.fetchone()[0] > 0:
+    if c.fetchone()["count"] > 0:
         conn.close()
         return  # Already has data, skip migration
     conn.close()
@@ -128,8 +132,9 @@ def _migrate_json_to_sqlite() -> None:
         c = conn.cursor()
         for s in searches:
             c.execute("""
-                INSERT OR IGNORE INTO searches (job_id, keyword, pages, total, user_id, user_name, searched_at, deep)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO searches (job_id, keyword, pages, total, user_id, user_name, searched_at, deep)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT(job_id) DO NOTHING
             """, (s.get("job_id"), s.get("keyword"), s.get("pages"), s.get("total"),
                   s.get("user_id"), s.get("user_name"), s.get("searched_at"), 1 if s.get("deep") else 0))
         conn.commit()
@@ -151,25 +156,27 @@ def _migrate_json_to_sqlite() -> None:
                 user_name = info.get("user_name", info.get("contacted_by", ""))
                 created_at = info.get("contacted_at", datetime.now().isoformat())
                 c.execute("""
-                    INSERT OR IGNORE INTO contacts (email, domain, user_id, user_name, status, next_follow_up, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO contacts (email, domain, user_id, user_name, status, next_follow_up, created_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT(email) DO NOTHING
                 """, (email, info.get("domain", ""), user_id, user_name, "已发邮件", "", created_at))
                 c.execute("""
                     INSERT INTO followups (contact_email, action, notes, user_id, user_name, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?)
+                    VALUES (%s, %s, %s, %s, %s, %s)
                 """, (email, "已发邮件", info.get("notes", ""), user_id, user_name, created_at))
             else:
                 # New CRM format
                 c.execute("""
-                    INSERT OR IGNORE INTO contacts (email, domain, user_id, user_name, status, next_follow_up, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO contacts (email, domain, user_id, user_name, status, next_follow_up, created_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT(email) DO NOTHING
                 """, (email, info.get("domain", ""), info.get("user_id", ""), info.get("user_name", ""),
                       info.get("status", "已发邮件"), info.get("next_follow_up", ""),
                       info.get("created_at", datetime.now().isoformat())))
                 for h in info.get("history", []):
                     c.execute("""
                         INSERT INTO followups (contact_email, action, notes, user_id, user_name, created_at)
-                        VALUES (?, ?, ?, ?, ?, ?)
+                        VALUES (%s, %s, %s, %s, %s, %s)
                     """, (email, h.get("action"), h.get("notes", ""), h.get("user_id", ""), h.get("user_name", ""), h.get("at")))
         conn.commit()
         conn.close()
@@ -183,14 +190,18 @@ def _migrate_json_to_sqlite() -> None:
         conn = _get_conn()
         c = conn.cursor()
         for term, count in keywords.items():
-            c.execute("INSERT OR IGNORE INTO keywords (term, count) VALUES (?, ?)", (term, count))
+            c.execute("""
+                INSERT INTO keywords (term, count)
+                VALUES (%s, %s)
+                ON CONFLICT(term) DO NOTHING
+            """, (term, count))
         conn.commit()
         conn.close()
         keywords_file.rename(keywords_file.with_suffix(".json.bak"))
 
 
 _init_db()
-_migrate_json_to_sqlite()
+_migrate_json_to_postgres()
 
 
 # ---------------------------------------------------------------------------
@@ -243,7 +254,7 @@ def db_save_search(job_id: str, keyword: str, pages: int, total: int, user_id: s
     c = conn.cursor()
     c.execute("""
         INSERT INTO searches (job_id, keyword, pages, total, user_id, user_name, searched_at, deep)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
     """, (job_id, keyword, pages, total, user_id, user_name, datetime.now().isoformat(), 1 if deep else 0))
     conn.commit()
     conn.close()
@@ -255,7 +266,7 @@ def db_list_searches(user_id: str, role: str, keyword_filter: str = "") -> list:
     if role == "admin":
         c.execute("SELECT * FROM searches ORDER BY searched_at DESC LIMIT 100")
     else:
-        c.execute("SELECT * FROM searches WHERE user_id = ? ORDER BY searched_at DESC LIMIT 100", (user_id,))
+        c.execute("SELECT * FROM searches WHERE user_id = %s ORDER BY searched_at DESC LIMIT 100", (user_id,))
     rows = c.fetchall()
     conn.close()
     results = []
@@ -270,7 +281,7 @@ def db_list_searches(user_id: str, role: str, keyword_filter: str = "") -> list:
 def db_get_search(job_id: str) -> Optional[dict]:
     conn = _get_conn()
     c = conn.cursor()
-    c.execute("SELECT * FROM searches WHERE job_id = ?", (job_id,))
+    c.execute("SELECT * FROM searches WHERE job_id = %s", (job_id,))
     row = c.fetchone()
     conn.close()
     if not row:
@@ -285,12 +296,19 @@ def db_create_contact(email: str, domain: str, user_id: str, user_name: str, not
     c = conn.cursor()
     now = datetime.now().isoformat()
     c.execute("""
-        INSERT OR REPLACE INTO contacts (email, domain, user_id, user_name, status, next_follow_up, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO contacts (email, domain, user_id, user_name, status, next_follow_up, created_at)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        ON CONFLICT(email) DO UPDATE SET
+            domain = EXCLUDED.domain,
+            user_id = EXCLUDED.user_id,
+            user_name = EXCLUDED.user_name,
+            status = EXCLUDED.status,
+            next_follow_up = EXCLUDED.next_follow_up,
+            created_at = EXCLUDED.created_at
     """, (email.lower().strip(), domain, user_id, user_name, "已发邮件", "", now))
     c.execute("""
         INSERT INTO followups (contact_email, action, notes, user_id, user_name, created_at)
-        VALUES (?, ?, ?, ?, ?, ?)
+        VALUES (%s, %s, %s, %s, %s, %s)
     """, (email.lower().strip(), "已发邮件", notes, user_id, user_name, now))
     conn.commit()
     conn.close()
@@ -302,7 +320,7 @@ def db_list_contacts(user_id: str, role: str) -> list:
     if role == "admin":
         c.execute("SELECT * FROM contacts ORDER BY created_at DESC")
     else:
-        c.execute("SELECT * FROM contacts WHERE user_id = ? ORDER BY created_at DESC", (user_id,))
+        c.execute("SELECT * FROM contacts WHERE user_id = %s ORDER BY created_at DESC", (user_id,))
     rows = c.fetchall()
     conn.close()
     return [dict(r) for r in rows]
@@ -311,7 +329,7 @@ def db_list_contacts(user_id: str, role: str) -> list:
 def db_get_contact(email: str) -> Optional[dict]:
     conn = _get_conn()
     c = conn.cursor()
-    c.execute("SELECT * FROM contacts WHERE email = ?", (email.lower().strip(),))
+    c.execute("SELECT * FROM contacts WHERE email = %s", (email.lower().strip(),))
     row = c.fetchone()
     conn.close()
     if not row:
@@ -327,7 +345,7 @@ def db_get_contact(email: str) -> Optional[dict]:
 def db_update_contact_status(email: str, status: str) -> None:
     conn = _get_conn()
     c = conn.cursor()
-    c.execute("UPDATE contacts SET status = ? WHERE email = ?", (status, email.lower().strip()))
+    c.execute("UPDATE contacts SET status = %s WHERE email = %s", (status, email.lower().strip()))
     conn.commit()
     conn.close()
 
@@ -338,11 +356,11 @@ def db_add_followup(email: str, action: str, notes: str, next_follow_up: str, us
     now = datetime.now().isoformat()
     c.execute("""
         INSERT INTO followups (contact_email, action, notes, user_id, user_name, created_at)
-        VALUES (?, ?, ?, ?, ?, ?)
+        VALUES (%s, %s, %s, %s, %s, %s)
     """, (email.lower().strip(), action, notes, user_id, user_name, now))
-    c.execute("UPDATE contacts SET status = ? WHERE email = ?", (action, email.lower().strip()))
+    c.execute("UPDATE contacts SET status = %s WHERE email = %s", (action, email.lower().strip()))
     if next_follow_up:
-        c.execute("UPDATE contacts SET next_follow_up = ? WHERE email = ?", (next_follow_up, email.lower().strip()))
+        c.execute("UPDATE contacts SET next_follow_up = %s WHERE email = %s", (next_follow_up, email.lower().strip()))
     conn.commit()
     conn.close()
 
@@ -350,7 +368,7 @@ def db_add_followup(email: str, action: str, notes: str, next_follow_up: str, us
 def db_list_followups(email: str) -> list:
     conn = _get_conn()
     c = conn.cursor()
-    c.execute("SELECT * FROM followups WHERE contact_email = ? ORDER BY created_at ASC", (email.lower().strip(),))
+    c.execute("SELECT * FROM followups WHERE contact_email = %s ORDER BY created_at ASC", (email.lower().strip(),))
     rows = c.fetchall()
     conn.close()
     results = []
@@ -367,7 +385,7 @@ def db_enrich_leads(leads: list) -> list:
     emails = [lead.get("email", "").lower().strip() for lead in leads if lead.get("email")]
     contact_map = {}
     if emails:
-        placeholders = ",".join("?" * len(emails))
+        placeholders = ",".join(["%s"] * len(emails))
         c.execute(f"SELECT email, user_name, status, created_at FROM contacts WHERE email IN ({placeholders})", emails)
         for r in c.fetchall():
             contact_map[r["email"]] = {"user_name": r["user_name"], "status": r["status"], "created_at": r["created_at"]}
@@ -385,7 +403,7 @@ def db_enrich_leads(leads: list) -> list:
 def db_increment_keyword(term: str) -> None:
     conn = _get_conn()
     c = conn.cursor()
-    c.execute("INSERT INTO keywords (term, count) VALUES (?, 1) ON CONFLICT(term) DO UPDATE SET count = count + 1", (term.strip().lower(),))
+    c.execute("INSERT INTO keywords (term, count) VALUES (%s, 1) ON CONFLICT(term) DO UPDATE SET count = count + 1", (term.strip().lower(),))
     conn.commit()
     conn.close()
 
