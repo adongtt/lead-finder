@@ -13,5 +13,20 @@
     "name": "李四",
     "role": "sales",
     "password_hash": "$2b$12$FdyIxjfoQw5Cm19hCn9PD.0TunasMyTy7WuPSCqQzjQYyX2fKLRky"
+  },
+  "syy": {
+    "name": "孙圆圆",
+    "role": "sales",
+    "password_hash": "$2b$12$KwaohZrLpo7h9V6L1vQKpO5FgsGr4fq/9eA5.TLDEsBb1fJr9KdCu"
+  },
+  "lh": {
+    "name": "刘辉",
+    "role": "sales",
+    "password_hash": "$2b$12$RXLZHfsqP1kC/Pto43SeHOPkAu.fdNm2zp5j8vWkj5G26hFY0DNoy"
+  },
+  "wxt": {
+    "name": "王晓婷",
+    "role": "sales",
+    "password_hash": "$2b$12$yVwjJpBq7agE0ahZrbk/BePTdouJ6gZwwENpZptNPIzByi0OyYm7."
   }
 }
