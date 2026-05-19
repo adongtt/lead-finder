@@ -403,7 +403,7 @@ def db_enrich_leads(leads: list) -> list:
 def db_increment_keyword(term: str) -> None:
     conn = _get_conn()
     c = conn.cursor()
-    c.execute("INSERT INTO keywords (term, count) VALUES (%s, 1) ON CONFLICT(term) DO UPDATE SET count = count + 1", (term.strip().lower(),))
+    c.execute("INSERT INTO keywords (term, count) VALUES (%s, 1) ON CONFLICT(term) DO UPDATE SET count = keywords.count + 1", (term.strip().lower(),))
     conn.commit()
     conn.close()
 
