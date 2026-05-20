@@ -23,7 +23,8 @@
       min-height: 100vh;
       padding: 24px;
     }
-    .container { max-width: 1200px; margin: 0 auto; }
+    .container { max-width: 1600px; margin: 0 auto; padding: 0 16px; }
+    @media (min-width: 1800px) { .container { max-width: 1760px; } }
     .header {
       display: flex;
       align-items: center;
@@ -59,14 +60,14 @@
       font-size: 14px;
     }
     th, td {
-      padding: 10px 12px;
+      padding: 8px 10px;
       text-align: left;
       border-bottom: 1px solid var(--border);
       white-space: nowrap;
     }
     th:last-child, td:last-child {
       white-space: normal;
-      min-width: 140px;
+      min-width: 180px;
     }
     th {
       color: var(--muted);
