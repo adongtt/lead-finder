@@ -26,6 +26,12 @@ hunter_key: ""
 # Leave empty to disable fallback
 snov_key: ""
 
+# Apollo.io - Email Discovery (3rd fallback source)
+# Get your key at: https://apollo.io/settings/api (Settings → API Keys)
+# Free tier: limited credits/month
+# Leave empty to disable fallback
+apollo_key: ""
+
 # ---------------------------------------------------------------------------
 # EMAIL VALIDATION (optional)
 # ---------------------------------------------------------------------------

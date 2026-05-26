@@ -315,12 +315,13 @@ def load_config() -> dict:
         "serpapi_key": os.environ.get("SERPAPI_KEY", ""),
         "hunter_key": os.environ.get("HUNTER_KEY", ""),
         "snov_key": os.environ.get("SNOV_KEY", ""),
+        "apollo_key": os.environ.get("APOLLO_KEY", ""),
         "zerobounce_key": os.environ.get("ZEROBOUNCE_KEY", ""),
     }
-    if not env_config["hunter_key"] and not env_config["snov_key"]:
+    if not env_config["hunter_key"] and not env_config["snov_key"] and not env_config["apollo_key"]:
         print(f"[ERROR] Config file not found: {CONFIG_PATH}")
         print("Please copy config.yaml.example to config.yaml and fill in your API keys.")
-        print("Or set HUNTER_KEY / SNOV_KEY environment variables.")
+        print("Or set HUNTER_KEY / SNOV_KEY / APOLLO_KEY environment variables.")
         sys.exit(1)
     return env_config
 
@@ -644,6 +645,64 @@ class SnovClient:
             return []
 
 
+class ApolloClient:
+    """Apollo.io - B2B contact database API (3rd fallback)."""
+
+    def __init__(self, api_key: str):
+        self.api_key = api_key
+        self.base_url = "https://api.apollo.io/v1"
+
+    def domain_search(self, domain: str, limit: int = 50) -> List[dict]:
+        """Search contacts by domain. Returns list of email dicts."""
+        url = f"{self.base_url}/mixed_people/search"
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Api-Key {self.api_key}",
+        }
+        payload = {
+            "q_organization_domains": [domain],
+            "per_page": min(limit, 100),
+        }
+        try:
+            resp = requests.post(url, headers=headers, json=payload, timeout=20)
+            if resp.status_code == 429:
+                print(f"    [Apollo] Rate limited on {domain}. Sleeping 5s...")
+                time.sleep(5)
+                return []
+            resp.raise_for_status()
+            data = resp.json()
+            people = data.get("people", []) if isinstance(data, dict) else []
+            results = []
+            for p in people:
+                email = (p.get("email") or "").lower().strip()
+                if not email:
+                    continue
+                name = p.get("name") or ""
+                first_name = p.get("first_name") or ""
+                last_name = p.get("last_name") or ""
+                if not first_name and name:
+                    parts = name.split()
+                    first_name = parts[0]
+                    last_name = " ".join(parts[1:]) if len(parts) > 1 else ""
+                results.append({
+                    "value": email,
+                    "type": "personal",
+                    "confidence": 70,
+                    "first_name": first_name,
+                    "last_name": last_name,
+                    "position": p.get("title") or p.get("job_title") or "",
+                    "department": p.get("department") or "",
+                    "sources": [{"domain": "apollo.io"}],
+                })
+            return results
+        except requests.exceptions.HTTPError as e:
+            print(f"    [Apollo ERROR] {domain}: {e}")
+            return []
+        except Exception as e:
+            print(f"    [Apollo ERROR] {domain}: {e}")
+            return []
+
+
 class ZeroBounceClient:
     def __init__(self, api_key: str):
         self.api_key = api_key
@@ -689,6 +748,9 @@ class LeadFinder:
         self.snov = None
         if config.get("snov_key") and config["snov_key"] not in ("", "YOUR_SNOV_KEY_HERE"):
             self.snov = SnovClient(config["snov_key"])
+        self.apollo = None
+        if config.get("apollo_key") and config["apollo_key"] not in ("", "YOUR_APOLLO_KEY_HERE"):
+            self.apollo = ApolloClient(config["apollo_key"])
         self.zerobounce = None
         if config.get("zerobounce_key"):
             self.zerobounce = ZeroBounceClient(config["zerobounce_key"])
@@ -778,10 +840,12 @@ class LeadFinder:
         if pos or neg:
             print(f"      Score distribution: {pos} positive, {neg} negative")
 
-        # 3. Find emails via Hunter.io + Snov.io fallback
+        # 3. Find emails via Hunter.io → Snov.io → Apollo.io
         sources_label = "Hunter.io"
         if self.snov:
-            sources_label += " + Snov.io (fallback)"
+            sources_label += " → Snov.io"
+        if self.apollo:
+            sources_label += " → Apollo.io"
         print(f"\n[3/4] Finding emails via {sources_label}...")
         all_leads: List[Lead] = []
         for idx, domain in enumerate(domains, 1):
@@ -793,12 +857,19 @@ class LeadFinder:
             hunter_emails = self.hunter.domain_search(domain)
             if hunter_emails:
                 raw_emails = hunter_emails
-            elif self.snov:
-                # Fallback: Snov.io
-                snov_emails = self.snov.domain_search(domain)
-                if snov_emails:
-                    raw_emails = snov_emails
-                    source_name = "snov.io"
+            else:
+                if self.snov:
+                    # Fallback 1: Snov.io
+                    snov_emails = self.snov.domain_search(domain)
+                    if snov_emails:
+                        raw_emails = snov_emails
+                        source_name = "snov.io"
+                if not raw_emails and self.apollo:
+                    # Fallback 2: Apollo.io
+                    apollo_emails = self.apollo.domain_search(domain)
+                    if apollo_emails:
+                        raw_emails = apollo_emails
+                        source_name = "apollo.io"
 
             if not raw_emails:
                 print("0 found")
