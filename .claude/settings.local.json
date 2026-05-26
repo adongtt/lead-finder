@@ -29,7 +29,11 @@
       "Bash(curl -s -b cookies.txt -X POST http://127.0.0.1:8000/api/contacted/test@example.com/followup --data-urlencode action=已回复 --data-urlencode notes=对方回复说有兴趣 -d next_follow_up=2026-05-25)",
       "Bash(python -c ' *)",
       "Bash(chcp 65001)",
-      "Bash(git reset *)"
+      "Bash(git reset *)",
+      "Bash(python3 -c ' *)",
+      "Bash(python -m pip install bcrypt -q)",
+      "WebFetch(domain:apolloio.github.io)",
+      "WebFetch(domain:docs.apollo.io)"
     ]
   }
 }
