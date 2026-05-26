@@ -59,6 +59,36 @@
       cursor: pointer;
     }
     .export-btn:hover { opacity: 0.9; }
+    .filter-bar {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+    .filter-bar input {
+      padding: 8px 12px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 14px;
+      outline: none;
+      min-width: 220px;
+    }
+    .filter-bar input:focus { border-color: var(--primary); }
+    .filter-bar button {
+      padding: 8px 14px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 14px;
+      cursor: pointer;
+    }
+    .filter-bar button.primary { background: var(--primary); color: #0f172a; border: none; font-weight: 600; }
+    .filter-bar button:hover { opacity: 0.9; }
+    .filter-info { color: var(--muted); font-size: 13px; margin-bottom: 12px; }
     .card {
       background: var(--card);
       border: 1px solid var(--border);
@@ -220,6 +250,13 @@
 
     <div id="errorBox"></div>
 
+    <div class="filter-bar" id="filterBar" style="display:none;">
+      <input type="text" id="positionFilter" placeholder="输入职位关键词筛选，如 Buyer、Manager..." onkeydown="if(event.key==='Enter')applyFilter()">
+      <button class="primary" onclick="applyFilter()">筛选</button>
+      <button onclick="clearFilter()">重置</button>
+    </div>
+    <div class="filter-info" id="filterInfo" style="display:none;"></div>
+
     <div class="card" id="tableCard" style="display:none;">
       <table>
         <thead>
@@ -272,6 +309,7 @@
   <script>
     const PAGE_SIZE = 20;
     let allLeads = [];
+    let filteredLeads = [];
     let currentPage = 1;
     let searchMeta = {};
     let currentDetailEmail = null;
@@ -314,6 +352,7 @@
         const data = await res.json();
         searchMeta = { keyword: data.keyword, total: data.total, job_id: data.job_id };
         allLeads = data.leads || [];
+        filteredLeads = allLeads.slice();
         document.getElementById('pageTitle').textContent = escapeHtml(data.keyword || '搜索结果');
         document.getElementById('pageMeta').textContent = `共 ${data.total} 条结果 · 搜索 ID: ${data.job_id}`;
         document.getElementById('exportBtn').style.display = 'inline-block';
@@ -321,6 +360,7 @@
           document.getElementById('emptyState').textContent = '暂无结果';
           document.getElementById('emptyState').style.display = 'block';
         } else {
+          document.getElementById('filterBar').style.display = 'flex';
           document.getElementById('tableCard').style.display = 'block';
           renderPage();
         }
@@ -338,7 +378,7 @@
     function renderPage() {
       const start = (currentPage - 1) * PAGE_SIZE;
       const end = start + PAGE_SIZE;
-      const pageLeads = allLeads.slice(start, end);
+      const pageLeads = filteredLeads.slice(start, end);
       const tbody = document.getElementById('tableBody');
       let html = '';
       for (const row of pageLeads) {
@@ -369,7 +409,7 @@
     }
 
     function renderPagination() {
-      const totalPages = Math.ceil(allLeads.length / PAGE_SIZE) || 1;
+      const totalPages = Math.ceil(filteredLeads.length / PAGE_SIZE) || 1;
       const box = document.getElementById('pagination');
       if (totalPages <= 1) { box.innerHTML = ''; return; }
 
@@ -394,7 +434,7 @@
     }
 
     function goPage(p) {
-      const totalPages = Math.ceil(allLeads.length / PAGE_SIZE) || 1;
+      const totalPages = Math.ceil(filteredLeads.length / PAGE_SIZE) || 1;
       if (p < 1 || p > totalPages) return;
       currentPage = p;
       renderPage();
@@ -412,6 +452,8 @@
         if (res.ok) {
           const lead = allLeads.find(l => l.email === email);
           if (lead) { lead.contacted = true; lead.status = '已发邮件'; }
+          const fLead = filteredLeads.find(l => l.email === email);
+          if (fLead) { fLead.contacted = true; fLead.status = '已发邮件'; }
           renderPage();
           openContactDetail(email);
         } else {
@@ -481,6 +523,8 @@
           openContactDetail(currentDetailEmail);
           const lead = allLeads.find(l => l.email === currentDetailEmail);
           if (lead) { lead.status = action; }
+          const fLead = filteredLeads.find(l => l.email === currentDetailEmail);
+          if (fLead) { fLead.status = action; }
           renderPage();
         } else {
           alert('保存失败');
@@ -492,7 +536,33 @@
 
     function exportExcel() {
       if (!jobId) return;
-      window.location.href = '/api/searches/' + encodeURIComponent(jobId) + '/excel';
+      const filter = document.getElementById('positionFilter').value.trim();
+      let url = '/api/searches/' + encodeURIComponent(jobId) + '/excel';
+      if (filter) {
+        url += '?position=' + encodeURIComponent(filter);
+      }
+      window.location.href = url;
+    }
+
+    function applyFilter() {
+      const filter = document.getElementById('positionFilter').value.trim().toLowerCase();
+      if (!filter) {
+        clearFilter();
+        return;
+      }
+      filteredLeads = allLeads.filter(l => (l.position || '').toLowerCase().includes(filter));
+      currentPage = 1;
+      document.getElementById('filterInfo').textContent = `职位筛选："${filter}" · 共 ${filteredLeads.length} 条结果`;
+      document.getElementById('filterInfo').style.display = 'block';
+      renderPage();
+    }
+
+    function clearFilter() {
+      document.getElementById('positionFilter').value = '';
+      filteredLeads = allLeads.slice();
+      currentPage = 1;
+      document.getElementById('filterInfo').style.display = 'none';
+      renderPage();
     }
 
     document.addEventListener('keydown', (e) => {

@@ -410,6 +410,46 @@ def db_enrich_leads(leads: list) -> list:
     return leads
 
 
+# Position priority for sorting leads (higher priority = lower index)
+_POSITION_PRIORITY = [
+    "Buyer",
+    "Senior Buyer",
+    "Purchasing Manager",
+    "Procurement Manager",
+    "Sourcing Manager",
+    "Global Sourcing Manager",
+    "Merchandiser",
+    "Merchandising Manager",
+    "Category Manager",
+    "Product Category Manager",
+    "Commercial Director",
+    "Sales & Commercial Director",
+    "Sales and Commercial Director",
+    "Product Manager",
+    "Product Development Manager",
+    "Brand Manager",
+    "Marketing Manager",
+    "Operations Manager",
+    "Supply Chain Manager",
+    "General Manager",
+    "Managing Director",
+]
+
+
+def _position_priority(position: str) -> int:
+    if not position:
+        return 9999
+    pos_lower = position.lower()
+    for idx, title in enumerate(_POSITION_PRIORITY):
+        if title.lower() in pos_lower:
+            return idx
+    return 9999
+
+
+def _sort_leads_by_position(leads: list) -> list:
+    return sorted(leads, key=lambda lead: (_position_priority(lead.get("position", "")), lead.get("email", "")))
+
+
 def db_increment_keyword(term: str) -> None:
     conn = _get_conn()
     c = conn.cursor()
@@ -527,6 +567,7 @@ async def search_leads(
         for row in reader:
             leads.append({k: v for k, v in row.items()})
         leads = db_enrich_leads(leads)
+        leads = _sort_leads_by_position(leads)
         db_save_search(job_id, keyword, pages, len(leads), user["user_id"], user["name"], deep, csv_content)
 
         return {
@@ -601,6 +642,7 @@ async def stream_leads(
                 for row in reader:
                     leads.append({k: v for k, v in row.items()})
                 leads = db_enrich_leads(leads)
+                leads = _sort_leads_by_position(leads)
                 db_save_search(job_id, keyword, pages, len(leads), user["user_id"], user["name"], deep, csv_content)
 
                 payload = json.dumps({
@@ -769,6 +811,7 @@ async def get_search_detail(job_id: str, user: dict = Depends(require_user)):
     for row in reader:
         leads.append({k: v for k, v in row.items()})
     leads = db_enrich_leads(leads)
+    leads = _sort_leads_by_position(leads)
 
     return {
         "job_id": job_id,
@@ -781,8 +824,8 @@ async def get_search_detail(job_id: str, user: dict = Depends(require_user)):
 
 
 @app.get("/api/searches/{job_id}/excel")
-async def download_search_excel(job_id: str, user: dict = Depends(require_user)):
-    """Export a past search result as an Excel file."""
+async def download_search_excel(job_id: str, position: str = "", user: dict = Depends(require_user)):
+    """Export a past search result as an Excel file. Optionally filter by position."""
     search = db_get_search(job_id)
     if not search:
         raise HTTPException(status_code=404, detail="搜索记录不存在")
@@ -803,6 +846,11 @@ async def download_search_excel(job_id: str, user: dict = Depends(require_user))
     reader = csv.DictReader(lines)
     rows = [row for row in reader]
     rows = db_enrich_leads(rows)
+    rows = _sort_leads_by_position(rows)
+
+    if position and position.strip():
+        pos_lower = position.strip().lower()
+        rows = [r for r in rows if pos_lower in (r.get("position") or "").lower()]
 
     header_map = {
         "email": "邮箱",
