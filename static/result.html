@@ -148,6 +148,16 @@
       text-transform: uppercase;
       letter-spacing: 0.03em;
     }
+    th.sortable {
+      cursor: pointer;
+      user-select: none;
+    }
+    th.sortable:hover { color: var(--primary); }
+    th.sortable .sort-arrow {
+      margin-left: 4px;
+      font-size: 11px;
+      color: var(--primary);
+    }
     td { vertical-align: middle; }
     tr:hover td { background: rgba(56,189,248,0.05); }
     .badge {
@@ -293,8 +303,8 @@
           <tr>
             <th>邮箱</th>
             <th>姓名</th>
-            <th>职位</th>
-            <th>公司</th>
+            <th class="sortable" onclick="sortBy('position')">职位<span id="sortPosition" class="sort-arrow"></span></th>
+            <th class="sortable" onclick="sortBy('company')">公司<span id="sortCompany" class="sort-arrow"></span></th>
             <th>域名</th>
             <th>置信度</th>
             <th>状态</th>
@@ -343,6 +353,7 @@
     let currentPage = 1;
     let searchMeta = {};
     let currentDetailEmail = null;
+    let sortState = { column: null, direction: 'asc' };
 
     const POSITION_PRIORITY = [
       "Buyer", "Senior Buyer", "Purchasing Manager", "Procurement Manager",
@@ -420,10 +431,38 @@
       document.getElementById('emptyState').style.display = 'block';
     }
 
+    function sortBy(column) {
+      if (sortState.column === column) {
+        sortState.direction = sortState.direction === 'asc' ? 'desc' : 'asc';
+      } else {
+        sortState.column = column;
+        sortState.direction = 'asc';
+      }
+      currentPage = 1;
+      updateSortIndicators();
+      renderPage();
+    }
+
+    function updateSortIndicators() {
+      document.getElementById('sortPosition').textContent = sortState.column === 'position' ? (sortState.direction === 'asc' ? ' ↑' : ' ↓') : '';
+      document.getElementById('sortCompany').textContent = sortState.column === 'company' ? (sortState.direction === 'asc' ? ' ↑' : ' ↓') : '';
+    }
+
     function renderPage() {
       const start = (currentPage - 1) * PAGE_SIZE;
       const end = start + PAGE_SIZE;
-      const pageLeads = filteredLeads.slice(start, end);
+
+      let displayLeads = filteredLeads;
+      if (sortState.column) {
+        displayLeads = [...filteredLeads].sort((a, b) => {
+          const va = (a[sortState.column] || '').toLowerCase();
+          const vb = (b[sortState.column] || '').toLowerCase();
+          if (va < vb) return sortState.direction === 'asc' ? -1 : 1;
+          if (va > vb) return sortState.direction === 'asc' ? 1 : -1;
+          return 0;
+        });
+      }
+      const pageLeads = displayLeads.slice(start, end);
       const tbody = document.getElementById('tableBody');
       let html = '';
       for (const row of pageLeads) {
