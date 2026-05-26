@@ -741,7 +741,11 @@ class LeadFinder:
             print("[1/4] Searching via DuckDuckGo (free, no API key)...")
             raw_results = self.ddg.search(keyword, max_results=(skip_pages + pages) * 10)
             if deep:
-                raw_results = raw_results[skip_pages * 10:]
+                skip_count = skip_pages * 10
+                if len(raw_results) > skip_count:
+                    raw_results = raw_results[skip_count:]
+                else:
+                    print(f"  [DuckDuckGo] Only {len(raw_results)} results returned, keeping all (deep skip not applied).")
         print(f"      Total results found: {len(raw_results)}")
 
         # 2. Score, filter, and extract unique domains
