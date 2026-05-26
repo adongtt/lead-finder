@@ -616,30 +616,27 @@
       const container = document.getElementById('positionTags');
       if (!allLeads.length) { container.innerHTML = ''; container.style.display = 'none'; return; }
 
+      // 按实际 position 原值统计出现次数
       const counts = {};
       for (const lead of allLeads) {
-        const pos = lead.position || '';
+        const pos = (lead.position || '').trim();
         if (!pos) continue;
-        const posLower = pos.toLowerCase();
-        for (const title of POSITION_PRIORITY) {
-          if (posLower.includes(title.toLowerCase())) {
-            counts[title] = (counts[title] || 0) + 1;
-            break;
-          }
-        }
+        counts[pos] = (counts[pos] || 0) + 1;
       }
 
-      const sortedTitles = Object.keys(counts).sort((a, b) => {
-        return POSITION_PRIORITY.indexOf(a) - POSITION_PRIORITY.indexOf(b);
-      });
+      // 按数量降序排列，取前 15 个
+      const sortedPositions = Object.entries(counts)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 15)
+        .map(([pos, count]) => ({ pos, count }));
 
-      if (sortedTitles.length === 0) { container.innerHTML = ''; container.style.display = 'none'; return; }
+      if (sortedPositions.length === 0) { container.innerHTML = ''; container.style.display = 'none'; return; }
 
-      const currentFilter = document.getElementById('positionFilter').value.trim().toLowerCase();
+      const currentFilter = document.getElementById('positionFilter').value.trim();
       let html = `<button class="position-tag ${!currentFilter ? 'active' : ''}" onclick="filterByPosition('')">全部 <span class="count">(${allLeads.length})</span></button>`;
-      for (const title of sortedTitles) {
-        const active = currentFilter === title.toLowerCase() ? 'active' : '';
-        html += `<button class="position-tag ${active}" data-title="${attrEscape(title)}" onclick="filterByPosition(this.dataset.title)">${escapeHtml(title)} <span class="count">(${counts[title]})</span></button>`;
+      for (const { pos, count } of sortedPositions) {
+        const active = currentFilter.toLowerCase() === pos.toLowerCase() ? 'active' : '';
+        html += `<button class="position-tag ${active}" data-title="${attrEscape(pos)}" onclick="filterByPosition(this.dataset.title)">${escapeHtml(pos)} <span class="count">(${count})</span></button>`;
       }
       container.innerHTML = html;
       container.style.display = 'flex';
@@ -651,7 +648,13 @@
         return;
       }
       document.getElementById('positionFilter').value = title;
-      applyFilter();
+      // 精确匹配（不区分大小写）
+      filteredLeads = allLeads.filter(l => (l.position || '').trim().toLowerCase() === title.toLowerCase());
+      currentPage = 1;
+      document.getElementById('filterInfo').textContent = `职位筛选："${title}" · 共 ${filteredLeads.length} 条结果`;
+      document.getElementById('filterInfo').style.display = 'block';
+      renderPage();
+      renderPositionTags();
     }
 
     document.addEventListener('keydown', (e) => {
