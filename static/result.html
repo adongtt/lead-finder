@@ -89,6 +89,35 @@
     .filter-bar button.primary { background: var(--primary); color: #0f172a; border: none; font-weight: 600; }
     .filter-bar button:hover { opacity: 0.9; }
     .filter-info { color: var(--muted); font-size: 13px; margin-bottom: 12px; }
+    .position-tags {
+      display: none;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+    .position-tag {
+      padding: 6px 12px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      color: var(--text);
+      font-size: 13px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .position-tag:hover { border-color: var(--primary); }
+    .position-tag.active {
+      background: var(--primary);
+      color: #0f172a;
+      border-color: var(--primary);
+      font-weight: 600;
+    }
+    .position-tag .count {
+      color: var(--muted);
+      font-size: 12px;
+      margin-left: 4px;
+    }
+    .position-tag.active .count { color: rgba(15,23,42,0.7); }
     .card {
       background: var(--card);
       border: 1px solid var(--border);
@@ -255,6 +284,7 @@
       <button class="primary" onclick="applyFilter()">筛选</button>
       <button onclick="clearFilter()">重置</button>
     </div>
+    <div class="position-tags" id="positionTags"></div>
     <div class="filter-info" id="filterInfo" style="display:none;"></div>
 
     <div class="card" id="tableCard" style="display:none;">
@@ -314,6 +344,16 @@
     let searchMeta = {};
     let currentDetailEmail = null;
 
+    const POSITION_PRIORITY = [
+      "Buyer", "Senior Buyer", "Purchasing Manager", "Procurement Manager",
+      "Sourcing Manager", "Global Sourcing Manager", "Merchandiser",
+      "Merchandising Manager", "Category Manager", "Product Category Manager",
+      "Commercial Director", "Sales & Commercial Director", "Sales and Commercial Director",
+      "Product Manager", "Product Development Manager", "Brand Manager",
+      "Marketing Manager", "Operations Manager", "Supply Chain Manager",
+      "General Manager", "Managing Director"
+    ];
+
     const params = new URLSearchParams(location.search);
     const jobId = params.get('job_id');
 
@@ -321,6 +361,10 @@
       const div = document.createElement('div');
       div.textContent = text;
       return div.innerHTML;
+    }
+
+    function attrEscape(str) {
+      return str.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     }
 
     function statusBadge(status) {
@@ -363,6 +407,7 @@
           document.getElementById('filterBar').style.display = 'flex';
           document.getElementById('tableCard').style.display = 'block';
           renderPage();
+          renderPositionTags();
         }
       } catch (err) {
         showError('网络错误，请刷新重试');
@@ -555,6 +600,7 @@
       document.getElementById('filterInfo').textContent = `职位筛选："${filter}" · 共 ${filteredLeads.length} 条结果`;
       document.getElementById('filterInfo').style.display = 'block';
       renderPage();
+      renderPositionTags();
     }
 
     function clearFilter() {
@@ -563,6 +609,49 @@
       currentPage = 1;
       document.getElementById('filterInfo').style.display = 'none';
       renderPage();
+      renderPositionTags();
+    }
+
+    function renderPositionTags() {
+      const container = document.getElementById('positionTags');
+      if (!allLeads.length) { container.innerHTML = ''; container.style.display = 'none'; return; }
+
+      const counts = {};
+      for (const lead of allLeads) {
+        const pos = lead.position || '';
+        if (!pos) continue;
+        const posLower = pos.toLowerCase();
+        for (const title of POSITION_PRIORITY) {
+          if (posLower.includes(title.toLowerCase())) {
+            counts[title] = (counts[title] || 0) + 1;
+            break;
+          }
+        }
+      }
+
+      const sortedTitles = Object.keys(counts).sort((a, b) => {
+        return POSITION_PRIORITY.indexOf(a) - POSITION_PRIORITY.indexOf(b);
+      });
+
+      if (sortedTitles.length === 0) { container.innerHTML = ''; container.style.display = 'none'; return; }
+
+      const currentFilter = document.getElementById('positionFilter').value.trim().toLowerCase();
+      let html = `<button class="position-tag ${!currentFilter ? 'active' : ''}" onclick="filterByPosition('')">全部 <span class="count">(${allLeads.length})</span></button>`;
+      for (const title of sortedTitles) {
+        const active = currentFilter === title.toLowerCase() ? 'active' : '';
+        html += `<button class="position-tag ${active}" data-title="${attrEscape(title)}" onclick="filterByPosition(this.dataset.title)">${escapeHtml(title)} <span class="count">(${counts[title]})</span></button>`;
+      }
+      container.innerHTML = html;
+      container.style.display = 'flex';
+    }
+
+    function filterByPosition(title) {
+      if (!title) {
+        clearFilter();
+        return;
+      }
+      document.getElementById('positionFilter').value = title;
+      applyFilter();
     }
 
     document.addEventListener('keydown', (e) => {
