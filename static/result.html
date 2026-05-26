@@ -46,6 +46,19 @@
       font-size: 14px;
     }
     .back-btn:hover { border-color: var(--primary); }
+    .export-btn {
+      display: inline-block;
+      padding: 8px 16px;
+      background: var(--success);
+      border: none;
+      border-radius: 8px;
+      color: #0f172a;
+      text-decoration: none;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .export-btn:hover { opacity: 0.9; }
     .card {
       background: var(--card);
       border: 1px solid var(--border);
@@ -200,6 +213,9 @@
         <h1 id="pageTitle">搜索结果</h1>
         <div class="meta" id="pageMeta"></div>
       </div>
+      <div>
+        <button class="export-btn" id="exportBtn" onclick="exportExcel()" style="display:none;">导出 Excel</button>
+      </div>
     </div>
 
     <div id="errorBox"></div>
@@ -300,6 +316,7 @@
         allLeads = data.leads || [];
         document.getElementById('pageTitle').textContent = escapeHtml(data.keyword || '搜索结果');
         document.getElementById('pageMeta').textContent = `共 ${data.total} 条结果 · 搜索 ID: ${data.job_id}`;
+        document.getElementById('exportBtn').style.display = 'inline-block';
         if (allLeads.length === 0) {
           document.getElementById('emptyState').textContent = '暂无结果';
           document.getElementById('emptyState').style.display = 'block';
@@ -471,6 +488,11 @@
       } catch (err) {
         alert('保存失败');
       }
+    }
+
+    function exportExcel() {
+      if (!jobId) return;
+      window.location.href = '/api/searches/' + encodeURIComponent(jobId) + '/excel';
     }
 
     document.addEventListener('keydown', (e) => {

@@ -12,6 +12,7 @@ Deploy:
 
 import asyncio
 import csv
+import io
 import json
 import os
 import os
@@ -25,6 +26,7 @@ from pathlib import Path
 from typing import Optional
 
 import bcrypt
+from openpyxl import Workbook
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, status
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -776,6 +778,75 @@ async def get_search_detail(job_id: str, user: dict = Depends(require_user)):
         "preview": leads[:5] if leads else [],
         "leads": leads,
     }
+
+
+@app.get("/api/searches/{job_id}/excel")
+async def download_search_excel(job_id: str, user: dict = Depends(require_user)):
+    """Export a past search result as an Excel file."""
+    search = db_get_search(job_id)
+    if not search:
+        raise HTTPException(status_code=404, detail="搜索记录不存在")
+    if user["role"] != "admin" and search.get("user_id") != user["user_id"]:
+        raise HTTPException(status_code=403, detail="无权导出")
+
+    csv_content = search.get("csv_content", "")
+    if not csv_content:
+        file_path = DATA_DIR / f"{job_id}.csv"
+        if file_path.exists():
+            csv_content = file_path.read_text(encoding="utf-8")
+        else:
+            raise HTTPException(status_code=404, detail="CSV 内容不存在")
+
+    lines = csv_content.splitlines()
+    if lines:
+        lines[0] = lines[0].lstrip('﻿')
+    reader = csv.DictReader(lines)
+    rows = [row for row in reader]
+    rows = db_enrich_leads(rows)
+
+    header_map = {
+        "email": "邮箱",
+        "first_name": "名",
+        "last_name": "姓",
+        "position": "职位",
+        "department": "部门",
+        "company": "公司",
+        "domain": "域名",
+        "country": "国家",
+        "confidence_score": "置信度",
+        "email_type": "邮箱类型",
+        "validation_status": "验证状态",
+        "sources": "来源",
+        "search_keyword": "搜索关键词",
+        "found_at": "发现时间",
+        "status": "跟进状态",
+        "contacted_by": "跟进人",
+        "contacted_at": "跟进时间",
+    }
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Leads"
+
+    if rows:
+        headers = []
+        for key in rows[0].keys():
+            headers.append(header_map.get(key, key))
+        ws.append(headers)
+        for row in rows:
+            ws.append([row.get(k, "") for k in row.keys()])
+    else:
+        ws.append(["暂无数据"])
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename=leads_{job_id}.xlsx"},
+    )
 
 
 if __name__ == "__main__":
