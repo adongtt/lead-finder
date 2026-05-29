@@ -24,18 +24,26 @@
       display: flex;
       justify-content: center;
       align-items: flex-start;
-      padding: 60px 20px;
+      padding: 32px 20px;
     }
-    .container { width: 100%; max-width: 720px; }
+    .container { width: 100%; max-width: 1200px; }
+    .main-layout { display: grid; grid-template-columns: 1fr 340px; gap: 20px; align-items: flex-start; }
     h1 { font-size: 28px; margin-bottom: 8px; }
     .subtitle { color: var(--muted); margin-bottom: 32px; }
     .card {
       background: var(--card);
       border: 1px solid var(--border);
       border-radius: 12px;
-      padding: 24px;
-      margin-bottom: 20px;
+      padding: 20px;
+      margin-bottom: 16px;
     }
+    .sig-compact {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+    .sig-compact .sig-input { margin-bottom: 0; }
+    .sig-compact button { grid-column: 1 / -1; padding: 10px; font-size: 13px; }
     label {
       display: block;
       font-size: 13px;
@@ -85,7 +93,7 @@
       margin-right: 8px;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
-    .result { margin-top: 20px; }
+    .result { margin-top: 20px; max-height: 420px; overflow-y: auto; }
     .badge {
       display: inline-block;
       padding: 4px 10px;
@@ -148,8 +156,10 @@
     }
     .log-box:empty { display: none; }
     .main-layout { display: grid; grid-template-columns: 1fr 280px; gap: 20px; align-items: flex-start; }
-    .right-panel h2 { font-size: 16px; margin-bottom: 16px; }
-    .keyword-list { list-style: none; }
+    .right-panel h2 { font-size: 15px; margin-bottom: 12px; font-weight: 700; }
+    .keyword-list { list-style: none; max-height: 220px; overflow-y: auto; padding-right: 4px; }
+    .keyword-list::-webkit-scrollbar { width: 4px; }
+    .keyword-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
     .keyword-list li {
       display: flex;
       justify-content: space-between;
@@ -366,10 +376,12 @@
         </div>
         <div class="card">
           <h2>邮件签名</h2>
-          <input type="text" id="sigName" class="sig-input" placeholder="您的姓名">
-          <input type="text" id="sigCompany" class="sig-input" placeholder="公司名称">
-          <input type="text" id="sigPhone" class="sig-input" placeholder="电话 / WhatsApp">
-          <button onclick="saveSignature()" style="padding:10px;font-size:13px;">保存签名</button>
+          <div class="sig-compact">
+            <input type="text" id="sigName" class="sig-input" placeholder="您的姓名">
+            <input type="text" id="sigCompany" class="sig-input" placeholder="公司名称">
+            <input type="text" id="sigPhone" class="sig-input" placeholder="电话 / WhatsApp">
+            <button onclick="saveSignature()">保存签名</button>
+          </div>
         </div>
         <div class="card">
           <h2>已联系客户</h2>
