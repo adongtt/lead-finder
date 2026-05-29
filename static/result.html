@@ -6,14 +6,14 @@
   <title>搜索结果 - B2B 客户开发工具</title>
   <style>
     :root {
-      --bg: #0f172a;
-      --card: #1e293b;
-      --text: #f8fafc;
-      --muted: #94a3b8;
-      --primary: #38bdf8;
-      --success: #34d399;
-      --danger: #f87171;
-      --border: #334155;
+      --bg: #f8fafc;
+      --card: #ffffff;
+      --text: #0f172a;
+      --muted: #64748b;
+      --primary: #0284c7;
+      --success: #059669;
+      --danger: #dc2626;
+      --border: #e2e8f0;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -52,7 +52,7 @@
       background: var(--success);
       border: none;
       border-radius: 8px;
-      color: #0f172a;
+      color: #fff;
       text-decoration: none;
       font-size: 14px;
       font-weight: 600;
@@ -86,7 +86,7 @@
       font-size: 14px;
       cursor: pointer;
     }
-    .filter-bar button.primary { background: var(--primary); color: #0f172a; border: none; font-weight: 600; }
+    .filter-bar button.primary { background: var(--primary); color: #fff; border: none; font-weight: 600; }
     .filter-bar button:hover { opacity: 0.9; }
     .filter-info { color: var(--muted); font-size: 13px; margin-bottom: 12px; }
     .position-tags {
@@ -108,7 +108,7 @@
     .position-tag:hover { border-color: var(--primary); }
     .position-tag.active {
       background: var(--primary);
-      color: #0f172a;
+      color: #fff;
       border-color: var(--primary);
       font-weight: 600;
     }
@@ -117,7 +117,7 @@
       font-size: 12px;
       margin-left: 4px;
     }
-    .position-tag.active .count { color: rgba(15,23,42,0.7); }
+    .position-tag.active .count { color: rgba(255,255,255,0.85); }
     .card {
       background: var(--card);
       border: 1px solid var(--border);
@@ -167,13 +167,13 @@
       font-size: 12px;
       font-weight: 600;
     }
-    .status-new { background: rgba(52,211,153,0.15); color: #34d399; }
-    .status-sent { background: rgba(56,189,248,0.15); color: #38bdf8; }
-    .status-replied { background: rgba(251,191,36,0.15); color: #fbbf24; }
-    .status-quoted { background: rgba(167,139,250,0.15); color: #a78bfa; }
-    .status-negotiating { background: rgba(251,146,60,0.15); color: #fb923c; }
-    .status-won { background: rgba(52,211,153,0.2); color: #34d399; }
-    .status-lost { background: rgba(148,163,184,0.15); color: #94a3b8; }
+    .status-new { background: rgba(5,150,105,0.12); color: #047857; }
+    .status-sent { background: rgba(2,132,199,0.10); color: #0369a1; }
+    .status-replied { background: rgba(217,119,6,0.12); color: #b45309; }
+    .status-quoted { background: rgba(37,99,235,0.10); color: #1d4ed8; }
+    .status-negotiating { background: rgba(234,88,12,0.10); color: #c2410c; }
+    .status-won { background: rgba(5,150,105,0.15); color: #047857; }
+    .status-lost { background: rgba(100,116,139,0.12); color: #475569; }
     .btn-sm {
       padding: 5px 10px;
       border: none;
@@ -184,9 +184,9 @@
       margin-right: 4px;
       margin-bottom: 4px;
     }
-    .btn-primary { background: var(--primary); color: #0f172a; }
-    .btn-outline { background: var(--border); color: var(--text); }
-    .btn-success { background: var(--success); color: #0f172a; }
+    .btn-primary { background: var(--primary); color: #fff; }
+    .btn-outline { background: transparent; color: var(--text); border: 1px solid var(--border); }
+    .btn-success { background: var(--success); color: #fff; }
     .pagination {
       display: flex;
       justify-content: center;
@@ -206,7 +206,7 @@
     }
     .pagination button.active {
       background: var(--primary);
-      color: #0f172a;
+      color: #fff;
       border-color: var(--primary);
     }
     .pagination button:disabled { opacity: 0.4; cursor: not-allowed; }
