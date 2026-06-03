@@ -391,9 +391,26 @@ def _strip_html_tags(html: str) -> str:
     return unescape(text)
 
 
-def _fetch_about_text(domain: str, headers: dict, timeout: int) -> str:
-    """Try common about-page paths and return the first substantial paragraph."""
-    about_paths = ["/about", "/about-us", "/aboutus", "/company", "/our-company", "/who-we-are"]
+def _extract_linkedin_links(html: str) -> List[str]:
+    """Extract linkedin.com/in/ profile URLs from raw HTML."""
+    if not html:
+        return []
+    pattern = r'https?://(?:www\.)?linkedin\.com/in/[a-zA-Z0-9\-_%]+'
+    matches = re.findall(pattern, html, flags=re.IGNORECASE)
+    seen: set = set()
+    results: List[str] = []
+    for m in matches:
+        url = m.lower().replace("http://", "https://").replace("www.", "")
+        clean = "https://www." + url.replace("https://", "")
+        if clean not in seen:
+            seen.add(clean)
+            results.append(clean)
+    return results
+
+
+def _fetch_about_page(domain: str, headers: dict, timeout: int) -> tuple:
+    """Try common about-page paths and return (html, extracted_text)."""
+    about_paths = ["/about", "/about-us", "/aboutus", "/company", "/our-company", "/who-we-are", "/team", "/staff", "/people"]
     for path in about_paths:
         url = f"https://{domain}{path}"
         try:
@@ -407,9 +424,56 @@ def _fetch_about_text(domain: str, headers: dict, timeout: int) -> str:
                 if len(text) >= 30 and not text.lower().startswith(("home", "menu", "contact", "about us", "copyright")):
                     if len(text) > 600:
                         text = text[:600].rsplit(".", 1)[0] + "."
-                    return text
+                    return html, text
         except Exception:
             continue
+    return "", ""
+
+
+def _fetch_about_text(domain: str, headers: dict, timeout: int) -> str:
+    """Try common about-page paths and return the first substantial paragraph."""
+    _, text = _fetch_about_page(domain, headers, timeout)
+    return text
+
+
+def search_linkedin_ddg(name: str, company: str, ddg_client=None) -> str:
+    """Search LinkedIn profile via DuckDuckGo. Returns URL or empty string."""
+    if not name or not company:
+        return ""
+    query = f'"{name}" "{company}" site:linkedin.com/in'
+    try:
+        if ddg_client and hasattr(ddg_client, 'search'):
+            results = ddg_client.search(query, max_results=5)
+        else:
+            if DDGS is None:
+                return ""
+            with DDGS() as ddgs:
+                raw = ddgs.text(query, max_results=5)
+                results = [{"url": r.get("href"), "title": r.get("title", ""), "snippet": r.get("body", "")}
+                           for r in raw if r.get("href")]
+        for r in results:
+            url = r.get("url", "")
+            if re.search(r'linkedin\.com/in/[a-zA-Z0-9\-_%]+', url, re.IGNORECASE):
+                return url
+    except Exception:
+        pass
+    return ""
+
+
+def _match_linkedin_by_name(first_name: str, last_name: str, links: List[str]) -> str:
+    """Try to match a LinkedIn URL to a person by name slug similarity."""
+    if not first_name or not last_name or not links:
+        return ""
+    name_slug = re.sub(r'[^a-z0-9]', '-', f"{first_name}-{last_name}".lower())
+    name_slug_rev = re.sub(r'[^a-z0-9]', '-', f"{last_name}-{first_name}".lower())
+    for url in links:
+        slug = url.rstrip("/").split("/")[-1].lower()
+        # Exact or partial match
+        if name_slug in slug or name_slug_rev in slug:
+            return url
+        # Fuzzy: first name OR last name in slug
+        if first_name.lower() in slug and last_name.lower() in slug:
+            return url
     return ""
 
 
@@ -417,7 +481,7 @@ def fetch_domain_meta(domain: str, timeout: int = 10) -> dict:
     """
     Fetch homepage metadata (title, description, keywords, h1) plus about-page text.
 
-    Returns a dict with keys: title, description, keywords, h1, about_text.
+    Returns a dict with keys: title, description, keywords, h1, about_text, linkedin_links.
     """
     headers = {
         "User-Agent": (
@@ -426,47 +490,55 @@ def fetch_domain_meta(domain: str, timeout: int = 10) -> dict:
             "Chrome/120.0.0.0 Safari/537.36"
         )
     }
-    result = {"title": "", "description": "", "keywords": "", "h1": "", "about_text": ""}
+    result = {"title": "", "description": "", "keywords": "", "h1": "", "about_text": "", "linkedin_links": []}
+    homepage_html = ""
 
     # --- Homepage metadata ---
     try:
         url = f"https://{domain}"
         resp = requests.get(url, headers=headers, timeout=timeout, allow_redirects=True)
         if resp.status_code == 200:
-            html = resp.text
+            homepage_html = resp.text
             # title
-            m = re.search(r"<title>(.*?)</title>", html, re.IGNORECASE | re.DOTALL)
+            m = re.search(r"<title>(.*?)</title>", homepage_html, re.IGNORECASE | re.DOTALL)
             result["title"] = unescape(m.group(1)).strip() if m else ""
             # meta keywords
             m = re.search(
                 r'<meta[^>]+name=["\']keywords["\'][^>]+content=["\'](.*?)["\']',
-                html, flags=re.IGNORECASE,
+                homepage_html, flags=re.IGNORECASE,
             )
             if not m:
                 m = re.search(
                     r'<meta[^>]+content=["\'](.*?)["\'][^>]+name=["\']keywords["\']',
-                    html, flags=re.IGNORECASE,
+                    homepage_html, flags=re.IGNORECASE,
                 )
             result["keywords"] = unescape(m.group(1)).strip() if m else ""
             # h1
-            m = re.search(r"<h1[^>]*>(.*?)</h1>", html, flags=re.IGNORECASE | re.DOTALL)
+            m = re.search(r"<h1[^>]*>(.*?)</h1>", homepage_html, flags=re.IGNORECASE | re.DOTALL)
             result["h1"] = _strip_html_tags(m.group(1)).strip() if m else ""
             # meta description
             m = re.search(
                 r'<meta[^>]+name=["\']description["\'][^>]+content=["\'](.*?)["\']',
-                html, flags=re.IGNORECASE,
+                homepage_html, flags=re.IGNORECASE,
             )
             if not m:
                 m = re.search(
                     r'<meta[^>]+content=["\'](.*?)["\'][^>]+name=["\']description["\']',
-                    html, flags=re.IGNORECASE,
+                    homepage_html, flags=re.IGNORECASE,
                 )
             result["description"] = unescape(m.group(1)).strip() if m else ""
     except Exception:
         pass
 
-    # --- About-page text ---
-    result["about_text"] = _fetch_about_text(domain, headers, timeout)
+    # --- About-page text + LinkedIn links ---
+    about_html, about_text = _fetch_about_page(domain, headers, timeout)
+    result["about_text"] = about_text
+    all_linkedin = _extract_linkedin_links(homepage_html) + _extract_linkedin_links(about_html)
+    seen: set = set()
+    for url in all_linkedin:
+        if url not in seen:
+            seen.add(url)
+            result["linkedin_links"].append(url)
     return result
 
 
@@ -835,7 +907,7 @@ class ApolloClient:
         url = f"{self.base_url}/mixed_people/search"
         headers = {
             "Content-Type": "application/json",
-            "Authorization": f"Api-Key {self.api_key}",
+            "x-api-key": self.api_key,
         }
         payload = {
             "q_organization_domains": [domain],
@@ -846,6 +918,14 @@ class ApolloClient:
             if resp.status_code == 429:
                 print(f"    [Apollo] Rate limited on {domain}. Sleeping 5s...")
                 time.sleep(5)
+                return []
+            if resp.status_code == 403:
+                data = resp.json() if resp.text else {}
+                err = data.get("error", "")
+                if "free plan" in err.lower():
+                    print("    [Apollo] Free plan key cannot use People Search. Skipping Apollo.")
+                else:
+                    print(f"    [Apollo] Forbidden (403): {err}")
                 return []
             resp.raise_for_status()
             data = resp.json()
@@ -1028,6 +1108,7 @@ class LeadFinder:
         print("\n[3/5] Fetching website metadata and scoring relevance...")
         domain_descriptions: Dict[str, str] = {}
         domain_relevance: Dict[str, int] = {}
+        domain_linkedin_links: Dict[str, List[str]] = {}
         with concurrent.futures.ThreadPoolExecutor(max_workers=6) as executor:
             future_to_domain = {executor.submit(fetch_domain_meta, d): d for d in domains}
             for future in concurrent.futures.as_completed(future_to_domain):
@@ -1037,14 +1118,18 @@ class LeadFinder:
                     desc = meta["about_text"] or meta["description"] or ""
                     domain_descriptions[domain] = desc
                     domain_relevance[domain] = calculate_content_relevance(meta, keyword)
+                    domain_linkedin_links[domain] = meta.get("linkedin_links", [])
                 except Exception:
                     domain_descriptions[domain] = ""
                     domain_relevance[domain] = 0
+                    domain_linkedin_links[domain] = []
         fetched = sum(1 for d in domain_descriptions.values() if d)
         rel_high = sum(1 for r in domain_relevance.values() if r >= 20)
         rel_low = sum(1 for r in domain_relevance.values() if r < 0)
+        linkedin_found = sum(1 for links in domain_linkedin_links.values() if links)
         print(f"      Fetched descriptions for {fetched}/{len(domains)} domains")
         print(f"      Relevance: {rel_high} high, {rel_low} low")
+        print(f"      LinkedIn profiles found on websites: {linkedin_found}")
 
         # 3b. Filter out low-relevance domains
         before_filter = len(domains)
@@ -1147,6 +1232,14 @@ class LeadFinder:
                 if not is_personal and confidence < 50:
                     continue
 
+                # Resolve LinkedIn URL: Apollo > website match > empty (DDG later)
+                linkedin_url = e.get("linkedin_url", "")
+                if not linkedin_url:
+                    links = domain_linkedin_links.get(domain, [])
+                    linkedin_url = _match_linkedin_by_name(
+                        e.get("first_name", ""), e.get("last_name", ""), links
+                    )
+
                 lead = Lead(
                     domain=domain,
                     company=e.get("domain", domain),
@@ -1163,7 +1256,7 @@ class LeadFinder:
                     country=detect_country(domain, email),
                     website_description=domain_descriptions.get(domain, ""),
                     relevance_score=domain_relevance.get(domain, 0),
-                    linkedin_url=e.get("linkedin_url", ""),
+                    linkedin_url=linkedin_url,
                 )
                 all_leads.append(lead)
                 kept += 1
@@ -1173,9 +1266,32 @@ class LeadFinder:
 
         print(f"\n      Total leads after filtering: {len(all_leads)}")
 
-        # 5. Optional email validation
+        # 4b. Supplement LinkedIn URLs via DuckDuckGo for leads still missing one
+        leads_without_linkedin = [l for l in all_leads if not l.linkedin_url and l.first_name and l.last_name]
+        if leads_without_linkedin:
+            max_ddg_searches = min(len(leads_without_linkedin), 30)  # cap to avoid slowness
+            print(f"\n[4b/5] Searching LinkedIn via DuckDuckGo for {max_ddg_searches} leads...")
+            ddg_found = 0
+            with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+                future_to_lead = {}
+                for lead in leads_without_linkedin[:max_ddg_searches]:
+                    name = f"{lead.first_name} {lead.last_name}"
+                    future = executor.submit(search_linkedin_ddg, name, lead.company)
+                    future_to_lead[future] = lead
+                for future in concurrent.futures.as_completed(future_to_lead):
+                    lead = future_to_lead[future]
+                    try:
+                        url = future.result()
+                        if url:
+                            lead.linkedin_url = url
+                            ddg_found += 1
+                    except Exception:
+                        pass
+            print(f"      Found {ddg_found} LinkedIn profiles via DuckDuckGo")
+
+        # 6. Optional email validation
         if validate and self.zerobounce:
-            print("\n[5/5] Validating emails via ZeroBounce...")
+            print("\n[6/6] Validating emails via ZeroBounce...")
             for idx, lead in enumerate(all_leads, 1):
                 print(f"  [{idx}/{len(all_leads)}] {lead.email} ...", end=" ", flush=True)
                 result = self.zerobounce.validate(lead.email)
@@ -1184,9 +1300,9 @@ class LeadFinder:
                 print(status)
                 time.sleep(0.5)
         else:
-            print("\n[5/5] Skipping email validation (pass --validate to enable)")
+            print("\n[6/6] Skipping email validation (pass --validate to enable)")
 
-        # 5. Deduplicate by email
+        # 6. Deduplicate by email
         seen_emails: Set[str] = set()
         unique_leads: List[Lead] = []
         for lead in all_leads:
