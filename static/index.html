@@ -411,6 +411,14 @@
               <p class="hint">搜索小型分销商 / 零售商时建议开启</p>
             </div>
 
+            <div style="margin-bottom:20px">
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer;text-transform:none;letter-spacing:0;font-weight:500;color:var(--text);">
+                <input type="checkbox" id="amazon" name="amazon" style="width:auto;">
+                同时搜索 Amazon 品牌 — 抓取亚马逊上的产品品牌并找官网
+              </label>
+              <p class="hint">从 Amazon 热门产品中发现潜在品牌客户（需要翻墙）</p>
+            </div>
+
             <button type="submit" id="submitBtn">
               <span id="btnText">查找客户</span>
             </button>
@@ -599,6 +607,7 @@
       const maxDomains = document.getElementById('max_domains').value;
       const exclude = document.getElementById('exclude').value;
       const deep = document.getElementById('deep').checked;
+      const amazon = document.getElementById('amazon').checked;
       const domainsInput = document.getElementById('domainsInput').value;
       const checkedTlds = Array.from(document.querySelectorAll('input[name="target_tld"]:checked')).map(cb => cb.value);
 
@@ -606,6 +615,7 @@
       if (maxDomains) params.append('max_domains', maxDomains);
       if (exclude) params.append('exclude', exclude);
       if (deep) params.append('deep', 'true');
+      if (amazon) params.append('amazon', 'true');
       if (domainsInput) params.append('domains', domainsInput);
       if (checkedTlds.length > 0) params.append('target_tlds', checkedTlds.join(','));
 

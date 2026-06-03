@@ -984,6 +984,104 @@ class ZeroBounceClient:
 
 
 # ---------------------------------------------------------------------------
+# Amazon brand search helpers
+# ---------------------------------------------------------------------------
+
+def _search_amazon_brands(keyword: str) -> Set[str]:
+    """Search Amazon and extract brand names from product titles."""
+    brands: Set[str] = set()
+    try:
+        url = f"https://www.amazon.com/s?k={urllib.parse.quote_plus(keyword)}"
+        resp = requests.get(url, headers=HEADERS, timeout=20)
+        if resp.status_code != 200:
+            return brands
+        html = resp.text
+        if "captcha" in html.lower() or "Enter the characters you see below" in html:
+            print("      [Amazon] CAPTCHA page returned — try with a VPN/proxy")
+            return brands
+
+        # Extract product titles via multiple patterns
+        titles: Set[str] = set()
+        for pattern in [
+            r'<span[^>]*class="[^"]*a-size-base-plus[^"]*"[^>]*>([^<]{10,120})</span>',
+            r'<span[^>]*class="[^"]*a-size-medium[^"]*"[^>]*>([^<]{10,120})</span>',
+            r'<span[^>]*class="[^"]*a-color-base[^"]*a-text-normal[^"]*"[^>]*>([^<]{10,120})</span>',
+            r'<h2[^>]*>.*?<span[^>]*>([^<]{10,120})</span>.*?</h2>',
+        ]:
+            for m in re.finditer(pattern, html, re.DOTALL):
+                titles.add(re.sub(r'<[^>]+>', '', m.group(1)).strip())
+
+        for title in titles:
+            brand = _extract_brand_from_title(title)
+            if brand:
+                brands.add(brand)
+    except Exception as e:
+        print(f"      [Amazon] Error: {e}")
+    return brands
+
+
+def _extract_brand_from_title(title: str) -> Optional[str]:
+    """Extract brand name from an Amazon product title."""
+    title = title.strip()
+    if len(title) < 5 or len(title) > 120:
+        return None
+    words = title.split()
+    brand_words = []
+    for word in words:
+        clean = re.sub(r'[^\w\-\&]', '', word)
+        if not clean:
+            continue
+        # Brand words start with uppercase and are not common words
+        if clean[0].isupper() and clean.lower() not in {
+            "the", "and", "for", "with", "new", "best", "top", "original", "official",
+            "premium", "pro", "plus", "max", "mini", "ultra", "super", "genuine",
+        }:
+            brand_words.append(clean)
+        else:
+            break
+    if brand_words:
+        return ' '.join(brand_words)
+    return None
+
+
+def _find_brand_domain(brand: str) -> Optional[str]:
+    """Find official website for a brand via Bing."""
+    try:
+        resp = requests.get(
+            "https://www.bing.com/search",
+            params={"q": f"{brand} official website"},
+            headers=HEADERS,
+            timeout=15,
+        )
+        html = resp.text
+        m = re.search(
+            r'<li class="b_algo"[^>]*>.*?<h2[^>]*><a[^>]+href="([^"]+)"',
+            html,
+            re.DOTALL,
+        )
+        if not m:
+            return None
+        url = m.group(1)
+        parsed = urllib.parse.urlparse(url)
+        domain = parsed.netloc.lower()
+        if domain.startswith("www."):
+            domain = domain[4:]
+        blocked = {
+            "facebook.com", "linkedin.com", "twitter.com", "x.com", "instagram.com",
+            "youtube.com", "wikipedia.org", "amazon.com", "ebay.com", "alibaba.com",
+            "zoominfo.com", "crunchbase.com", "bbb.org", "yellowpages.com", "yelp.com",
+            "tripadvisor.com", "pinterest.com", "reddit.com", "quora.com",
+            "etsy.com", "walmart.com", "target.com", "homedepot.com",
+            "bestbuy.com", "costco.com", "wayfair.com", "macys.com",
+        }
+        if domain in blocked:
+            return None
+        return domain
+    except Exception:
+        return None
+
+
+# ---------------------------------------------------------------------------
 # Core Pipeline
 # ---------------------------------------------------------------------------
 
@@ -1040,6 +1138,7 @@ class LeadFinder:
         min_relevance: int = -50,
         domains: Optional[List[str]] = None,
         target_tlds: Optional[List[str]] = None,
+        amazon: bool = False,
     ) -> None:
         timestamp = datetime.now().isoformat()
         engine = self._resolve_engine()
@@ -1085,6 +1184,25 @@ class LeadFinder:
         print(f"      Total results found: {len(raw_results)}")
         print("PROGRESS: 20")
 
+        # 1b. Amazon brand search (optional)
+        amazon_domains: Dict[str, int] = {}
+        if amazon:
+            print("PROGRESS: 15")
+            print("\n[1b/5] Searching Amazon for brands...")
+            amazon_brands = _search_amazon_brands(keyword)
+            if amazon_brands:
+                print(f"      Found {len(amazon_brands)} brand candidates")
+                found_domains = 0
+                for brand in amazon_brands:
+                    domain = _find_brand_domain(brand)
+                    if domain and domain not in self.excluded_domains and domain not in amazon_domains:
+                        amazon_domains[domain] = 5  # Positive score for Amazon brands
+                        found_domains += 1
+                if found_domains:
+                    print(f"      Resolved {found_domains} domains from Amazon brands")
+            else:
+                print("      No brands found (Amazon may require a VPN/proxy or is blocking automated access)")
+
         # 2. Score, filter, and extract unique domains
         print("PROGRESS: 25")
         print("\n[2/5] Scoring and extracting domains...")
@@ -1111,12 +1229,21 @@ class LeadFinder:
             if domain not in domain_scores or score > domain_scores[domain]:
                 domain_scores[domain] = score
 
+        # Merge Amazon domains
+        for domain, score in amazon_domains.items():
+            if domain not in domain_scores:
+                domain_scores[domain] = score
+            else:
+                domain_scores[domain] = max(domain_scores[domain], score)
+
         # Sort by score descending — small distributors bubble to the top
         sorted_domains = sorted(domain_scores.items(), key=lambda x: x[1], reverse=True)
         domains = [d for d, s in sorted_domains]
         if max_domains:
             domains = domains[:max_domains]
         print(f"      Unique domains: {len(domains)} (excluded {skipped} big-brand domains)")
+        if amazon_domains:
+            print(f"      Amazon-sourced : {len(amazon_domains)} domains")
         pos = sum(1 for _, s in sorted_domains if s > 0)
         neg = sum(1 for _, s in sorted_domains if s < 0)
         if pos or neg:
@@ -1438,6 +1565,11 @@ def main():
         default="",
         help="Comma-separated TLDs to keep, e.g. '.de,.fr,.uk' (default: all)",
     )
+    parser.add_argument(
+        "--amazon",
+        action="store_true",
+        help="Also search Amazon for product brands and find their official websites",
+    )
     args = parser.parse_args()
 
     extra_excluded = set(d.strip().lower() for d in args.exclude.split(",") if d.strip())
@@ -1456,6 +1588,7 @@ def main():
         min_relevance=args.min_relevance,
         domains=domain_list,
         target_tlds=tld_list,
+        amazon=args.amazon,
     )
 
 
