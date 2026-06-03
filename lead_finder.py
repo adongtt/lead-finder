@@ -15,6 +15,7 @@ Usage:
 """
 
 import argparse
+import concurrent.futures
 import csv
 import os
 import re
@@ -22,6 +23,7 @@ import sys
 import time
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
+from html import unescape
 from pathlib import Path
 from typing import Dict, List, Optional, Set
 from urllib.parse import urlparse
@@ -244,6 +246,11 @@ POSITIVE_SIGNALS = [
     "specialty", "specialise", "specialize",
     "sports equipment", "sporting goods", "athletic",
     "baseball", "football", "softball", "lacrosse", "hockey",
+    # B2B / manufacturing signals
+    "manufacturer", "factory", "supplier", "export", "exporter", "bulk",
+    "moq", "trade", "trading", "b2b", "commercial", "production",
+    "processing", "mill", "plant", "workshop", "industrial",
+    " sourcing", "procurement", "purchasing",
 ]
 
 # Negative signals: news, blogs, reviews, jobs, investor pages
@@ -257,6 +264,27 @@ NEGATIVE_SIGNALS = [
     "fortune 500", "fortune500", "enterprise", "corporation", "holdings",
     "global leader", "worldwide", "leading brand", "official store",
     "billion", "million revenue",
+    # Retail / consumer signals
+    "shop", "store", "buy now", "add to cart", "online shop",
+    "ecommerce", "e-commerce", "retail store", "consumer", "home delivery",
+    "amazon seller", "marketplace", "directory", "listings",
+    "yellow pages", "buyer's guide", "coupon", "discount", "deal",
+    "shopping", "cart", "checkout", "wishlist", "personal use",
+]
+
+# Content-relevance scoring: used after we fetch the homepage
+B2B_CONTENT_POSITIVE = [
+    "manufacturer", "factory", "wholesale", "wholesaler", "supplier",
+    "oem", "odm", "export", "exporter", "bulk", "b2b", "trade",
+    "trading", "custom", "private label", "moq", "production",
+    "mill", "plant", "workshop", "industrial", "processing",
+]
+
+B2B_CONTENT_NEGATIVE = [
+    "shop", "store", "buy now", "add to cart", "retail", "consumer",
+    "ecommerce", "e-commerce", "online store", "shopping", "reviews",
+    "blog", "news", "directory", "marketplace", "amazon", "ebay",
+    "personal use", "home use", "gift", "cart", "checkout",
 ]
 
 
@@ -274,6 +302,56 @@ def score_search_result(title: str = "", snippet: str = "") -> int:
     for signal in NEGATIVE_SIGNALS:
         if signal in text:
             score -= 20
+    return score
+
+
+def build_enhanced_query(keyword: str, b2b_focus: bool = True) -> str:
+    """Enhance raw keyword with B2B qualifiers to improve result relevance.
+
+    If the user already included B2B terms, return as-is.
+    Otherwise append manufacturer/wholesale/etc. using OR syntax.
+    """
+    if not b2b_focus:
+        return keyword
+    lower = keyword.lower()
+    b2b_terms = ["manufacturer", "factory", "wholesale", "supplier", "oem", "odm"]
+    if any(t in lower for t in b2b_terms):
+        return keyword
+    # DuckDuckGo / Google compatible OR syntax
+    return f'{keyword} (manufacturer OR wholesale OR supplier OR factory OR "OEM" OR "ODM")'
+
+
+def calculate_content_relevance(meta: dict, keyword: str) -> int:
+    """Score domain relevance based on homepage content (title, desc, keywords, h1, about).
+
+    Returns an integer score. Positive = likely B2B/manufacturer.
+    Negative = likely retail/blog/directory.
+    """
+    text = " ".join([
+        meta.get("title", ""),
+        meta.get("description", ""),
+        meta.get("keywords", ""),
+        meta.get("h1", ""),
+        meta.get("about_text", ""),
+    ]).lower()
+
+    if not text.strip():
+        return 0
+
+    score = 0
+    for term in B2B_CONTENT_POSITIVE:
+        if term in text:
+            score += 15
+    for term in B2B_CONTENT_NEGATIVE:
+        if term in text:
+            score -= 30
+
+    # Reward if the actual keyword products appear on the page
+    kw_parts = [p for p in keyword.lower().split() if len(p) > 3]
+    for part in kw_parts:
+        if part in text:
+            score += 8
+
     return score
 
 
@@ -297,6 +375,104 @@ class Lead:
     search_keyword: str = ""
     found_at: str = ""
     country: str = ""
+    website_description: str = ""
+    relevance_score: int = 0
+
+
+# ---------------------------------------------------------------------------
+# Website Description Scraper
+# ---------------------------------------------------------------------------
+
+def _strip_html_tags(html: str) -> str:
+    """Remove HTML tags and collapse whitespace."""
+    text = re.sub(r"<[^>]+>", " ", html)
+    text = " ".join(text.split())
+    return unescape(text)
+
+
+def _fetch_about_text(domain: str, headers: dict, timeout: int) -> str:
+    """Try common about-page paths and return the first substantial paragraph."""
+    about_paths = ["/about", "/about-us", "/aboutus", "/company", "/our-company", "/who-we-are"]
+    for path in about_paths:
+        url = f"https://{domain}{path}"
+        try:
+            resp = requests.get(url, headers=headers, timeout=timeout, allow_redirects=True)
+            if resp.status_code != 200:
+                continue
+            html = resp.text
+            matches = re.findall(r"<p[^>]*>(.*?)</p>", html, flags=re.IGNORECASE | re.DOTALL)
+            for m in matches:
+                text = _strip_html_tags(m).strip()
+                if len(text) >= 30 and not text.lower().startswith(("home", "menu", "contact", "about us", "copyright")):
+                    if len(text) > 600:
+                        text = text[:600].rsplit(".", 1)[0] + "."
+                    return text
+        except Exception:
+            continue
+    return ""
+
+
+def fetch_domain_meta(domain: str, timeout: int = 10) -> dict:
+    """
+    Fetch homepage metadata (title, description, keywords, h1) plus about-page text.
+
+    Returns a dict with keys: title, description, keywords, h1, about_text.
+    """
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/120.0.0.0 Safari/537.36"
+        )
+    }
+    result = {"title": "", "description": "", "keywords": "", "h1": "", "about_text": ""}
+
+    # --- Homepage metadata ---
+    try:
+        url = f"https://{domain}"
+        resp = requests.get(url, headers=headers, timeout=timeout, allow_redirects=True)
+        if resp.status_code == 200:
+            html = resp.text
+            # title
+            m = re.search(r"<title>(.*?)</title>", html, re.IGNORECASE | re.DOTALL)
+            result["title"] = unescape(m.group(1)).strip() if m else ""
+            # meta keywords
+            m = re.search(
+                r'<meta[^>]+name=["\']keywords["\'][^>]+content=["\'](.*?)["\']',
+                html, flags=re.IGNORECASE,
+            )
+            if not m:
+                m = re.search(
+                    r'<meta[^>]+content=["\'](.*?)["\'][^>]+name=["\']keywords["\']',
+                    html, flags=re.IGNORECASE,
+                )
+            result["keywords"] = unescape(m.group(1)).strip() if m else ""
+            # h1
+            m = re.search(r"<h1[^>]*>(.*?)</h1>", html, flags=re.IGNORECASE | re.DOTALL)
+            result["h1"] = _strip_html_tags(m.group(1)).strip() if m else ""
+            # meta description
+            m = re.search(
+                r'<meta[^>]+name=["\']description["\'][^>]+content=["\'](.*?)["\']',
+                html, flags=re.IGNORECASE,
+            )
+            if not m:
+                m = re.search(
+                    r'<meta[^>]+content=["\'](.*?)["\'][^>]+name=["\']description["\']',
+                    html, flags=re.IGNORECASE,
+                )
+            result["description"] = unescape(m.group(1)).strip() if m else ""
+    except Exception:
+        pass
+
+    # --- About-page text ---
+    result["about_text"] = _fetch_about_text(domain, headers, timeout)
+    return result
+
+
+def fetch_website_description(domain: str, timeout: int = 10) -> str:
+    """Convenience wrapper: return the best description string for a domain."""
+    meta = fetch_domain_meta(domain, timeout)
+    return meta["about_text"] or meta["description"] or ""
 
 
 # ---------------------------------------------------------------------------
@@ -464,13 +640,14 @@ class BrowserClient:
                     user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
                 )
                 page = context.new_page()
+                page.set_default_timeout(60000)
 
                 # Use DuckDuckGo HTML version (no JS, faster, automation-friendly)
                 print("  [Browser] Launching Chromium...")
-                page.goto("https://html.duckduckgo.com/html/", timeout=30000)
+                page.goto("https://html.duckduckgo.com/html/", timeout=60000)
                 page.fill('input[name="q"]', query)
                 page.press('input[name="q"]', "Enter")
-                page.wait_for_load_state("networkidle", timeout=30000)
+                page.wait_for_load_state("networkidle", timeout=60000)
 
                 # Skip initial pages for deep search
                 for _ in range(skip_pages):
@@ -478,7 +655,7 @@ class BrowserClient:
                     if not next_btn:
                         break
                     next_btn.click()
-                    page.wait_for_load_state("networkidle", timeout=30000)
+                    page.wait_for_load_state("networkidle", timeout=60000)
                     time.sleep(1.5)
 
                 collected = 0
@@ -777,31 +954,36 @@ class LeadFinder:
         validate: bool = False,
         max_domains: Optional[int] = None,
         deep: bool = False,
+        b2b_focus: bool = True,
+        min_relevance: int = -50,
     ) -> None:
         timestamp = datetime.now().isoformat()
         engine = self._resolve_engine()
         skip_pages = 5 if deep else 0
+        search_query = build_enhanced_query(keyword, b2b_focus=b2b_focus)
 
         print(f"\n{'='*60}")
         print(f"  B2B Lead Finder")
-        print(f"  Keyword: {keyword}")
-        print(f"  Engine : {engine}")
-        print(f"  Pages  : {pages}")
+        print(f"  Keyword : {keyword}")
+        if b2b_focus and search_query != keyword:
+            print(f"  Query   : {search_query}")
+        print(f"  Engine  : {engine}")
+        print(f"  Pages   : {pages}")
         if deep:
-            print(f"  Mode   : DEEP (skip first {skip_pages} pages)")
-        print(f"  Output : {output}")
+            print(f"  Mode    : DEEP (skip first {skip_pages} pages)")
+        print(f"  Output  : {output}")
         print(f"{'='*60}\n")
 
         # 1. Search
         if engine == "serpapi" and self.serp:
-            print("[1/4] Searching Google via SerpAPI...")
-            raw_results = self.serp.search(keyword, pages=pages, skip_pages=skip_pages)
+            print("[1/5] Searching Google via SerpAPI...")
+            raw_results = self.serp.search(search_query, pages=pages, skip_pages=skip_pages)
         elif engine == "browser":
-            print("[1/4] Searching via Browser (Playwright + DuckDuckGo)...")
-            raw_results = self.browser.search(keyword, max_results=pages * 10, skip_pages=skip_pages)
+            print("[1/5] Searching via Browser (Playwright + DuckDuckGo)...")
+            raw_results = self.browser.search(search_query, max_results=pages * 10, skip_pages=skip_pages)
         else:
-            print("[1/4] Searching via DuckDuckGo (free, no API key)...")
-            raw_results = self.ddg.search(keyword, max_results=(skip_pages + pages) * 10)
+            print("[1/5] Searching via DuckDuckGo (free, no API key)...")
+            raw_results = self.ddg.search(search_query, max_results=(skip_pages + pages) * 10)
             if deep:
                 skip_count = skip_pages * 10
                 if len(raw_results) > skip_count:
@@ -811,7 +993,7 @@ class LeadFinder:
         print(f"      Total results found: {len(raw_results)}")
 
         # 2. Score, filter, and extract unique domains
-        print("\n[2/4] Scoring and extracting domains...")
+        print("\n[2/5] Scoring and extracting domains...")
         domain_scores: Dict[str, int] = {}
         skipped = 0
         for item in raw_results:
@@ -840,13 +1022,42 @@ class LeadFinder:
         if pos or neg:
             print(f"      Score distribution: {pos} positive, {neg} negative")
 
-        # 3. Find emails via Hunter.io → Snov.io → Apollo.io
+        # 3. Fetch website descriptions and calculate content relevance
+        print("\n[3/5] Fetching website metadata and scoring relevance...")
+        domain_descriptions: Dict[str, str] = {}
+        domain_relevance: Dict[str, int] = {}
+        with concurrent.futures.ThreadPoolExecutor(max_workers=6) as executor:
+            future_to_domain = {executor.submit(fetch_domain_meta, d): d for d in domains}
+            for future in concurrent.futures.as_completed(future_to_domain):
+                domain = future_to_domain[future]
+                try:
+                    meta = future.result()
+                    desc = meta["about_text"] or meta["description"] or ""
+                    domain_descriptions[domain] = desc
+                    domain_relevance[domain] = calculate_content_relevance(meta, keyword)
+                except Exception:
+                    domain_descriptions[domain] = ""
+                    domain_relevance[domain] = 0
+        fetched = sum(1 for d in domain_descriptions.values() if d)
+        rel_high = sum(1 for r in domain_relevance.values() if r >= 20)
+        rel_low = sum(1 for r in domain_relevance.values() if r < 0)
+        print(f"      Fetched descriptions for {fetched}/{len(domains)} domains")
+        print(f"      Relevance: {rel_high} high, {rel_low} low")
+
+        # 3b. Filter out low-relevance domains
+        before_filter = len(domains)
+        domains = [d for d in domains if domain_relevance.get(d, 0) >= min_relevance]
+        after_filter = len(domains)
+        if after_filter < before_filter:
+            print(f"      Filtered out {before_filter - after_filter} low-relevance domains (min={min_relevance})")
+
+        # 4. Find emails via Hunter.io → Snov.io → Apollo.io
         sources_label = "Hunter.io"
         if self.snov:
             sources_label += " → Snov.io"
         if self.apollo:
             sources_label += " → Apollo.io"
-        print(f"\n[3/4] Finding emails via {sources_label}...")
+        print(f"\n[4/5] Finding emails via {sources_label}...")
         all_leads: List[Lead] = []
         for idx, domain in enumerate(domains, 1):
             print(f"  [{idx}/{len(domains)}] {domain} ...", end=" ", flush=True)
@@ -906,6 +1117,8 @@ class LeadFinder:
                     search_keyword=keyword,
                     found_at=timestamp,
                     country=detect_country(domain, email),
+                    website_description=domain_descriptions.get(domain, ""),
+                    relevance_score=domain_relevance.get(domain, 0),
                 )
                 all_leads.append(lead)
                 kept += 1
@@ -915,9 +1128,9 @@ class LeadFinder:
 
         print(f"\n      Total leads after filtering: {len(all_leads)}")
 
-        # 4. Optional email validation
+        # 5. Optional email validation
         if validate and self.zerobounce:
-            print("\n[4/4] Validating emails via ZeroBounce...")
+            print("\n[5/5] Validating emails via ZeroBounce...")
             for idx, lead in enumerate(all_leads, 1):
                 print(f"  [{idx}/{len(all_leads)}] {lead.email} ...", end=" ", flush=True)
                 result = self.zerobounce.validate(lead.email)
@@ -926,7 +1139,7 @@ class LeadFinder:
                 print(status)
                 time.sleep(0.5)
         else:
-            print("\n[4/4] Skipping email validation (pass --validate to enable)")
+            print("\n[5/5] Skipping email validation (pass --validate to enable)")
 
         # 5. Deduplicate by email
         seen_emails: Set[str] = set()
@@ -948,6 +1161,7 @@ class LeadFinder:
             "email", "first_name", "last_name", "position", "department",
             "company", "domain", "country", "confidence_score", "email_type",
             "validation_status", "sources", "search_keyword", "found_at",
+            "website_description", "relevance_score",
         ]
         with open(path, "w", newline="", encoding="utf-8-sig") as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -1008,6 +1222,17 @@ def main():
         action="store_true",
         help="Deep search: skip first 5 pages to avoid big-brand results",
     )
+    parser.add_argument(
+        "--no-b2b-focus",
+        action="store_true",
+        help="Disable automatic B2B keyword enhancement (manufacturer/wholesale/etc.)",
+    )
+    parser.add_argument(
+        "--min-relevance",
+        type=int,
+        default=-50,
+        help="Minimum content-relevance score for a domain to be processed (default: -50, use 0 for stricter filtering)",
+    )
     args = parser.parse_args()
 
     extra_excluded = set(d.strip().lower() for d in args.exclude.split(",") if d.strip())
@@ -1020,6 +1245,8 @@ def main():
         validate=args.validate,
         max_domains=args.max_domains,
         deep=args.deep,
+        b2b_focus=not args.no_b2b_focus,
+        min_relevance=args.min_relevance,
     )
 
 

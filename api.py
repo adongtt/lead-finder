@@ -867,6 +867,8 @@ async def download_search_excel(job_id: str, position: str = "", user: dict = De
         "sources": "来源",
         "search_keyword": "搜索关键词",
         "found_at": "发现时间",
+        "website_description": "网站简介",
+        "relevance_score": "关联度",
         "status": "跟进状态",
         "contacted_by": "跟进人",
         "contacted_at": "跟进时间",

@@ -306,6 +306,8 @@
             <th class="sortable" onclick="sortBy('position')">职位<span id="sortPosition" class="sort-arrow"></span></th>
             <th class="sortable" onclick="sortBy('company')">公司<span id="sortCompany" class="sort-arrow"></span></th>
             <th>域名</th>
+            <th>网站简介</th>
+            <th>关联度</th>
             <th>置信度</th>
             <th>状态</th>
             <th>操作</th>
@@ -474,6 +476,8 @@
           `<td>${escapeHtml(row.position || '')}</td>` +
           `<td>${escapeHtml(row.company || '')}</td>` +
           `<td>${escapeHtml(row.domain || '')}</td>` +
+          `<td style="max-width:300px;white-space:normal;word-break:break-word;font-size:13px;color:#475569;">${escapeHtml(row.website_description || '')}</td>` +
+          `<td>${escapeHtml(row.relevance_score !== undefined ? row.relevance_score : '')}</td>` +
           `<td>${escapeHtml(row.confidence_score || '')}</td>` +
           `<td>${badge}</td>` +
           `<td>` +
