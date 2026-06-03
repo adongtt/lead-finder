@@ -1057,6 +1057,7 @@ class LeadFinder:
         print(f"{'='*60}\n")
 
         # 1. Search
+        print("PROGRESS: 5")
         if engine == "serpapi" and self.serp:
             print("[1/5] Searching Google via SerpAPI...")
             raw_results = self.serp.search(search_query, pages=pages, skip_pages=skip_pages)
@@ -1073,8 +1074,10 @@ class LeadFinder:
                 else:
                     print(f"  [DuckDuckGo] Only {len(raw_results)} results returned, keeping all (deep skip not applied).")
         print(f"      Total results found: {len(raw_results)}")
+        print("PROGRESS: 20")
 
         # 2. Score, filter, and extract unique domains
+        print("PROGRESS: 25")
         print("\n[2/5] Scoring and extracting domains...")
         domain_scores: Dict[str, int] = {}
         skipped = 0
@@ -1105,14 +1108,18 @@ class LeadFinder:
             print(f"      Score distribution: {pos} positive, {neg} negative")
 
         # 3. Fetch website descriptions and calculate content relevance
+        print("PROGRESS: 30")
         print("\n[3/5] Fetching website metadata and scoring relevance...")
         domain_descriptions: Dict[str, str] = {}
         domain_relevance: Dict[str, int] = {}
         domain_linkedin_links: Dict[str, List[str]] = {}
+        total_domains = len(domains)
+        completed_domains = 0
         with concurrent.futures.ThreadPoolExecutor(max_workers=6) as executor:
             future_to_domain = {executor.submit(fetch_domain_meta, d): d for d in domains}
             for future in concurrent.futures.as_completed(future_to_domain):
                 domain = future_to_domain[future]
+                completed_domains += 1
                 try:
                     meta = future.result()
                     desc = meta["about_text"] or meta["description"] or ""
@@ -1123,6 +1130,9 @@ class LeadFinder:
                     domain_descriptions[domain] = ""
                     domain_relevance[domain] = 0
                     domain_linkedin_links[domain] = []
+                if completed_domains % max(1, total_domains // 5) == 0 or completed_domains == total_domains:
+                    pct = 30 + int((completed_domains / total_domains) * 15)
+                    print(f"PROGRESS: {min(pct, 45)}")
         fetched = sum(1 for d in domain_descriptions.values() if d)
         rel_high = sum(1 for r in domain_relevance.values() if r >= 20)
         rel_low = sum(1 for r in domain_relevance.values() if r < 0)
@@ -1144,9 +1154,13 @@ class LeadFinder:
             sources_label += " + Snov.io"
         if self.apollo:
             sources_label += " + Apollo.io"
+        print("PROGRESS: 50")
         print(f"\n[4/5] Finding emails via {sources_label} (merge & enrich)...")
         all_leads: List[Lead] = []
+        total_domains_step4 = len(domains)
         for idx, domain in enumerate(domains, 1):
+            pct = 50 + int((idx / total_domains_step4) * 25)
+            print(f"PROGRESS: {min(pct, 75)}")
             print(f"  [{idx}/{len(domains)}] {domain} ...", end=" ", flush=True)
             raw_emails: List[dict] = []
             source_name = "hunter.io"
@@ -1270,6 +1284,7 @@ class LeadFinder:
         leads_without_linkedin = [l for l in all_leads if not l.linkedin_url and l.first_name and l.last_name]
         if leads_without_linkedin:
             max_ddg_searches = min(len(leads_without_linkedin), 30)  # cap to avoid slowness
+            print("PROGRESS: 80")
             print(f"\n[4b/5] Searching LinkedIn via DuckDuckGo for {max_ddg_searches} leads...")
             ddg_found = 0
             with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
@@ -1290,6 +1305,7 @@ class LeadFinder:
             print(f"      Found {ddg_found} LinkedIn profiles via DuckDuckGo")
 
         # 6. Optional email validation
+        print("PROGRESS: 90")
         if validate and self.zerobounce:
             print("\n[6/6] Validating emails via ZeroBounce...")
             for idx, lead in enumerate(all_leads, 1):
@@ -1311,6 +1327,7 @@ class LeadFinder:
                 unique_leads.append(lead)
 
         # 6. Export
+        print("PROGRESS: 100")
         self._export_csv(unique_leads, output)
         self._print_summary(unique_leads, keyword, len(domains))
 
