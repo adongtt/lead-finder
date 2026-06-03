@@ -377,6 +377,7 @@ class Lead:
     country: str = ""
     website_description: str = ""
     relevance_score: int = 0
+    linkedin_url: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -869,6 +870,7 @@ class ApolloClient:
                     "last_name": last_name,
                     "position": p.get("title") or p.get("job_title") or "",
                     "department": p.get("department") or "",
+                    "linkedin_url": p.get("linkedin_url") or "",
                     "sources": [{"domain": "apollo.io"}],
                 })
             return results
@@ -1051,36 +1053,78 @@ class LeadFinder:
         if after_filter < before_filter:
             print(f"      Filtered out {before_filter - after_filter} low-relevance domains (min={min_relevance})")
 
-        # 4. Find emails via Hunter.io → Snov.io → Apollo.io
+        # 4. Find emails via Hunter.io + Snov.io + Apollo.io (merge mode)
         sources_label = "Hunter.io"
         if self.snov:
-            sources_label += " → Snov.io"
+            sources_label += " + Snov.io"
         if self.apollo:
-            sources_label += " → Apollo.io"
-        print(f"\n[4/5] Finding emails via {sources_label}...")
+            sources_label += " + Apollo.io"
+        print(f"\n[4/5] Finding emails via {sources_label} (merge & enrich)...")
         all_leads: List[Lead] = []
         for idx, domain in enumerate(domains, 1):
             print(f"  [{idx}/{len(domains)}] {domain} ...", end=" ", flush=True)
             raw_emails: List[dict] = []
             source_name = "hunter.io"
 
-            # Primary: Hunter.io
+            # Query all available sources and merge
+            email_map: dict = {}
+            source_tags: List[str] = []
+
             hunter_emails = self.hunter.domain_search(domain)
             if hunter_emails:
-                raw_emails = hunter_emails
-            else:
-                if self.snov:
-                    # Fallback 1: Snov.io
-                    snov_emails = self.snov.domain_search(domain)
-                    if snov_emails:
-                        raw_emails = snov_emails
-                        source_name = "snov.io"
-                if not raw_emails and self.apollo:
-                    # Fallback 2: Apollo.io
-                    apollo_emails = self.apollo.domain_search(domain)
-                    if apollo_emails:
-                        raw_emails = apollo_emails
-                        source_name = "apollo.io"
+                source_tags.append("hunter.io")
+                for e in hunter_emails:
+                    email = (e.get("value") or "").lower().strip()
+                    if email and "@" in email:
+                        email_map[email] = dict(e)
+                        email_map[email]["_sources"] = ["hunter.io"]
+
+            if self.snov:
+                snov_emails = self.snov.domain_search(domain)
+                if snov_emails:
+                    source_tags.append("snov.io")
+                    for e in snov_emails:
+                        email = (e.get("value") or "").lower().strip()
+                        if email and "@" in email:
+                            if email in email_map:
+                                email_map[email]["_sources"].append("snov.io")
+                                # Snov may have better confidence / names
+                                if e.get("first_name") and not email_map[email].get("first_name"):
+                                    email_map[email]["first_name"] = e["first_name"]
+                                if e.get("last_name") and not email_map[email].get("last_name"):
+                                    email_map[email]["last_name"] = e["last_name"]
+                                if e.get("position") and not email_map[email].get("position"):
+                                    email_map[email]["position"] = e["position"]
+                            else:
+                                email_map[email] = dict(e)
+                                email_map[email]["_sources"] = ["snov.io"]
+
+            if self.apollo:
+                apollo_emails = self.apollo.domain_search(domain)
+                if apollo_emails:
+                    source_tags.append("apollo.io")
+                    for e in apollo_emails:
+                        email = (e.get("value") or "").lower().strip()
+                        if email and "@" in email:
+                            if email in email_map:
+                                email_map[email]["_sources"].append("apollo.io")
+                                # Apollo enrichment: linkedin_url, names, position
+                                if e.get("linkedin_url") and not email_map[email].get("linkedin_url"):
+                                    email_map[email]["linkedin_url"] = e["linkedin_url"]
+                                if e.get("first_name") and not email_map[email].get("first_name"):
+                                    email_map[email]["first_name"] = e["first_name"]
+                                if e.get("last_name") and not email_map[email].get("last_name"):
+                                    email_map[email]["last_name"] = e["last_name"]
+                                if e.get("position") and not email_map[email].get("position"):
+                                    email_map[email]["position"] = e["position"]
+                                if e.get("department") and not email_map[email].get("department"):
+                                    email_map[email]["department"] = e["department"]
+                            else:
+                                email_map[email] = dict(e)
+                                email_map[email]["_sources"] = ["apollo.io"]
+
+            raw_emails = list(email_map.values())
+            source_name = " + ".join(source_tags) if source_tags else "none"
 
             if not raw_emails:
                 print("0 found")
@@ -1113,12 +1157,13 @@ class LeadFinder:
                     department=e.get("department", ""),
                     confidence_score=confidence,
                     email_type="personal" if is_personal else "generic",
-                    sources=[source_name],
+                    sources=e.get("_sources", [source_name]),
                     search_keyword=keyword,
                     found_at=timestamp,
                     country=detect_country(domain, email),
                     website_description=domain_descriptions.get(domain, ""),
                     relevance_score=domain_relevance.get(domain, 0),
+                    linkedin_url=e.get("linkedin_url", ""),
                 )
                 all_leads.append(lead)
                 kept += 1
@@ -1161,7 +1206,7 @@ class LeadFinder:
             "email", "first_name", "last_name", "position", "department",
             "company", "domain", "country", "confidence_score", "email_type",
             "validation_status", "sources", "search_keyword", "found_at",
-            "website_description", "relevance_score",
+            "website_description", "relevance_score", "linkedin_url",
         ]
         with open(path, "w", newline="", encoding="utf-8-sig") as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames)
