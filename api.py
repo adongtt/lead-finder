@@ -595,6 +595,8 @@ async def stream_leads(
     max_domains: Optional[int] = None,
     exclude: str = "",
     deep: bool = False,
+    domains: str = "",
+    target_tlds: str = "",
     user: dict = Depends(require_user),
 ):
     """Stream lead search progress via Server-Sent Events."""
@@ -612,6 +614,10 @@ async def stream_leads(
         cmd.extend(["--exclude", exclude])
     if deep:
         cmd.append("--deep")
+    if domains:
+        cmd.extend(["--domains", domains])
+    if target_tlds:
+        cmd.extend(["--target-tlds", target_tlds])
 
     async def event_generator():
         proc = await asyncio.create_subprocess_exec(

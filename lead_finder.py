@@ -1038,6 +1038,8 @@ class LeadFinder:
         deep: bool = False,
         b2b_focus: bool = True,
         min_relevance: int = -50,
+        domains: Optional[List[str]] = None,
+        target_tlds: Optional[List[str]] = None,
     ) -> None:
         timestamp = datetime.now().isoformat()
         engine = self._resolve_engine()
@@ -1053,12 +1055,19 @@ class LeadFinder:
         print(f"  Pages   : {pages}")
         if deep:
             print(f"  Mode    : DEEP (skip first {skip_pages} pages)")
+        if domains:
+            print(f"  Mode    : DIRECT (using {len(domains)} provided domains)")
+        if target_tlds:
+            print(f"  Filter  : TLDs {target_tlds}")
         print(f"  Output  : {output}")
         print(f"{'='*60}\n")
 
-        # 1. Search
+        # 1. Search (skip if domains provided)
         print("PROGRESS: 5")
-        if engine == "serpapi" and self.serp:
+        if domains:
+            print(f"[1/5] Using {len(domains)} provided domains, skipping search engine...")
+            raw_results = [{"url": f"https://{d}", "title": "", "snippet": ""} for d in domains]
+        elif engine == "serpapi" and self.serp:
             print("[1/5] Searching Google via SerpAPI...")
             raw_results = self.serp.search(search_query, pages=pages, skip_pages=skip_pages)
         elif engine == "browser":
@@ -1091,6 +1100,12 @@ class LeadFinder:
             if domain in self.excluded_domains:
                 skipped += 1
                 continue
+            # TLD filter
+            if target_tlds:
+                domain_tld = "." + domain.rsplit(".", 1)[-1] if "." in domain else ""
+                if domain_tld and domain_tld not in target_tlds:
+                    skipped += 1
+                    continue
             score = score_search_result(title, snippet)
             # Keep the highest score for each domain
             if domain not in domain_scores or score > domain_scores[domain]:
@@ -1411,11 +1426,25 @@ def main():
         default=-50,
         help="Minimum content-relevance score for a domain to be processed (default: -50, use 0 for stricter filtering)",
     )
+    parser.add_argument(
+        "--domains",
+        type=str,
+        default="",
+        help="Comma-separated list of domains to process directly (skip search engine)",
+    )
+    parser.add_argument(
+        "--target-tlds",
+        type=str,
+        default="",
+        help="Comma-separated TLDs to keep, e.g. '.de,.fr,.uk' (default: all)",
+    )
     args = parser.parse_args()
 
     extra_excluded = set(d.strip().lower() for d in args.exclude.split(",") if d.strip())
     config = load_config()
     finder = LeadFinder(config, engine=args.engine, extra_excluded=extra_excluded)
+    domain_list = [d.strip() for d in args.domains.split(",") if d.strip()] if args.domains else None
+    tld_list = [t.strip() for t in args.target_tlds.split(",") if t.strip()] if args.target_tlds else None
     finder.run(
         keyword=args.keyword,
         pages=args.pages,
@@ -1425,6 +1454,8 @@ def main():
         deep=args.deep,
         b2b_focus=not args.no_b2b_focus,
         min_relevance=args.min_relevance,
+        domains=domain_list,
+        target_tlds=tld_list,
     )
 
 

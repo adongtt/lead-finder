@@ -318,9 +318,38 @@
 
         <div class="card">
           <form id="searchForm">
+            <!-- 搜索模式切换 -->
             <div style="margin-bottom:16px">
-              <label for="keyword">关键词</label>
-              <input type="text" id="keyword" name="keyword" placeholder='例如 "棒球手套 分销商"' required>
+              <label>搜索模式</label>
+              <div style="display:flex;gap:8px;">
+                <button type="button" id="modeKeyword" class="mode-btn active" onclick="setMode('keyword')" style="flex:1;padding:8px 12px;font-size:13px;background:var(--primary);color:#fff;border:none;border-radius:6px;cursor:pointer;">关键词搜索</button>
+                <button type="button" id="modeDomains" class="mode-btn" onclick="setMode('domains')" style="flex:1;padding:8px 12px;font-size:13px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;cursor:pointer;">批量导入域名</button>
+              </div>
+            </div>
+
+            <div style="margin-bottom:16px">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                <label for="keyword">关键词</label>
+                <select id="keywordTemplate" onchange="applyTemplate()" style="width:auto;padding:4px 8px;font-size:12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--muted);cursor:pointer;">
+                  <option value="">选择模板...</option>
+                  <option value="baseball gloves distributor">棒球手套分销商</option>
+                  <option value="football equipment importer">橄榄球装备进口商</option>
+                  <option value="sporting goods wholesaler USA">体育用品批发商美国</option>
+                  <option value="work gloves manufacturer Europe">劳保手套制造商欧洲</option>
+                  <option value="cycling gloves brand">骑行手套品牌商</option>
+                  <option value="softball gloves retailer">垒球手套零售商</option>
+                  <option value="gym gloves supplier">健身手套供应商</option>
+                  <option value="ski gloves distributor">滑雪手套分销商</option>
+                </select>
+              </div>
+              <input type="text" id="keyword" name="keyword" placeholder='例如 "baseball gloves distributor"' required>
+            </div>
+
+            <!-- 批量导入域名（默认隐藏） -->
+            <div id="domainsWrap" style="margin-bottom:16px;display:none;">
+              <label for="domainsInput">域名列表（每行一个或逗号分隔）</label>
+              <textarea id="domainsInput" rows="5" placeholder="example.com\nabc-inc.com\nsportsgear.de" style="width:100%;padding:12px 14px;background:var(--bg);border:1px solid var(--border);border-radius:8px;font-size:14px;resize:vertical;"></textarea>
+              <p class="hint">从展会名单、海关数据等渠道获取的域名，直接粘贴进来</p>
             </div>
 
             <div class="row">
@@ -340,6 +369,38 @@
               <label for="exclude">排除域名（可选）</label>
               <input type="text" id="exclude" name="exclude" placeholder="nike.com,adidas.com">
               <p class="hint">逗号分隔，跳过这些域名</p>
+            </div>
+
+            <!-- 目标国家过滤 -->
+            <div style="margin-bottom:20px">
+              <label>目标国家 / 地区（可选）</label>
+              <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;">
+                <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:13px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--text);">
+                  <input type="checkbox" name="target_tld" value=".com" checked style="width:auto;"> 美国 (.com)
+                </label>
+                <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:13px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--text);">
+                  <input type="checkbox" name="target_tld" value=".de" style="width:auto;"> 德国 (.de)
+                </label>
+                <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:13px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--text);">
+                  <input type="checkbox" name="target_tld" value=".uk" style="width:auto;"> 英国 (.uk)
+                </label>
+                <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:13px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--text);">
+                  <input type="checkbox" name="target_tld" value=".fr" style="width:auto;"> 法国 (.fr)
+                </label>
+                <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:13px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--text);">
+                  <input type="checkbox" name="target_tld" value=".au" style="width:auto;"> 澳大利亚 (.au)
+                </label>
+                <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:13px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--text);">
+                  <input type="checkbox" name="target_tld" value=".ca" style="width:auto;"> 加拿大 (.ca)
+                </label>
+                <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:13px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--text);">
+                  <input type="checkbox" name="target_tld" value=".nl" style="width:auto;"> 荷兰 (.nl)
+                </label>
+                <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:13px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--text);">
+                  <input type="checkbox" name="target_tld" value=".jp" style="width:auto;"> 日本 (.jp)
+                </label>
+              </div>
+              <p class="hint">不选则保留所有国家；.com 全球通用，默认勾选</p>
             </div>
 
             <div style="margin-bottom:20px">
@@ -472,6 +533,45 @@
     const progressFill = document.getElementById('progressFill');
     const progressPct = document.getElementById('progressPct');
     const progressStep = document.getElementById('progressStep');
+    let currentMode = 'keyword';
+
+    function setMode(mode) {
+      currentMode = mode;
+      const btnKeyword = document.getElementById('modeKeyword');
+      const btnDomains = document.getElementById('modeDomains');
+      const domainsWrap = document.getElementById('domainsWrap');
+      const keywordInput = document.getElementById('keyword');
+      if (mode === 'keyword') {
+        btnKeyword.style.background = 'var(--primary)';
+        btnKeyword.style.color = '#fff';
+        btnKeyword.style.border = 'none';
+        btnDomains.style.background = 'var(--bg)';
+        btnDomains.style.color = 'var(--text)';
+        btnDomains.style.border = '1px solid var(--border)';
+        domainsWrap.style.display = 'none';
+        keywordInput.required = true;
+      } else {
+        btnDomains.style.background = 'var(--primary)';
+        btnDomains.style.color = '#fff';
+        btnDomains.style.border = 'none';
+        btnKeyword.style.background = 'var(--bg)';
+        btnKeyword.style.color = 'var(--text)';
+        btnKeyword.style.border = '1px solid var(--border)';
+        domainsWrap.style.display = 'block';
+        keywordInput.required = false;
+      }
+    }
+
+    function applyTemplate() {
+      const tpl = document.getElementById('keywordTemplate').value;
+      if (tpl) {
+        document.getElementById('keyword').value = tpl;
+      }
+    }
+
+    function linkedinCompanyUrl(company) {
+      return 'https://www.linkedin.com/search/results/companies/?keywords=' + encodeURIComponent(company || '');
+    }
 
     function setProgress(pct) {
       progressFill.style.width = pct + '%';
@@ -494,16 +594,20 @@
       btn.disabled = true;
       btnText.innerHTML = '<span class="spinner"></span> 搜索中...';
 
-      const keyword = document.getElementById('keyword').value;
+      const keyword = document.getElementById('keyword').value || 'direct-import';
       const pages = document.getElementById('pages').value;
       const maxDomains = document.getElementById('max_domains').value;
       const exclude = document.getElementById('exclude').value;
       const deep = document.getElementById('deep').checked;
+      const domainsInput = document.getElementById('domainsInput').value;
+      const checkedTlds = Array.from(document.querySelectorAll('input[name="target_tld"]:checked')).map(cb => cb.value);
 
       const params = new URLSearchParams({ keyword, pages });
       if (maxDomains) params.append('max_domains', maxDomains);
       if (exclude) params.append('exclude', exclude);
       if (deep) params.append('deep', 'true');
+      if (domainsInput) params.append('domains', domainsInput);
+      if (checkedTlds.length > 0) params.append('target_tlds', checkedTlds.join(','));
 
       const es = new EventSource(`/api/leads/stream?${params.toString()}`);
 
@@ -550,17 +654,19 @@
       </div>`;
       if (data.preview && data.preview.length > 0) {
         html += '<table><thead><tr>' +
-          '<th>邮箱</th><th>姓名</th><th>职位</th><th>国家</th><th>域名</th><th>状态</th><th>操作</th>' +
+          '<th>邮箱</th><th>姓名</th><th>职位</th><th>国家</th><th>公司</th><th>域名</th><th>状态</th><th>操作</th>' +
           '</tr></thead><tbody>';
         for (let i = 0; i < data.preview.length; i++) {
           const row = data.preview[i];
           const contacted = row.contacted;
           const badge = statusBadge(row.status || (contacted ? '已发邮件' : '未联系'));
+          const liUrl = linkedinCompanyUrl(row.company || row.domain || '');
           html += `<tr data-idx="${i}">` +
             `<td>${escapeHtml(row.email || '')}</td>` +
             `<td>${escapeHtml((row.first_name || '') + ' ' + (row.last_name || ''))}</td>` +
             `<td>${escapeHtml(row.position || '')}</td>` +
             `<td>${escapeHtml(row.country || '')}</td>` +
+            `<td>${escapeHtml(row.company || '')} <a href="${liUrl}" target="_blank" rel="noopener" title="LinkedIn 搜索公司" style="color:#0a66c2;font-size:11px;margin-left:4px;">[in]</a></td>` +
             `<td>${escapeHtml(row.domain || '')}</td>` +
             `<td>${badge}</td>` +
             `<td>` +
