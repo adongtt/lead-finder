@@ -134,23 +134,18 @@ def strip_html_tags(text: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# DuckDuckGo search
+# Bing search (DDG blocked in China)
 # ---------------------------------------------------------------------------
 
-def search_ddg(keyword: str, site_domain: str, page: int = 0) -> str:
-    """
-    Search DuckDuckGo HTML interface for keyword restricted to a site.
-    Returns raw HTML.
-    """
+def search_bing(keyword: str, site_domain: str, page: int = 0) -> str:
+    """Search Bing for keyword restricted to a site. Returns raw HTML."""
     query = f'{keyword} site:{site_domain}'
     params = {"q": query}
     if page > 0:
-        params["s"] = page * 10  # DDG offset
-        params["dc"] = page * 10 + 1
-
+        params["first"] = page * 10
     try:
         resp = requests.get(
-            "https://html.duckduckgo.com/html/",
+            "https://www.bing.com/search",
             params=params,
             headers=HEADERS,
             timeout=30,
@@ -158,18 +153,18 @@ def search_ddg(keyword: str, site_domain: str, page: int = 0) -> str:
         resp.raise_for_status()
         return resp.text
     except Exception as e:
-        print(f"    [DDG ERROR] {query}: {e}")
+        print(f"    [Bing ERROR] {query}: {e}")
         return ""
 
 
 # ---------------------------------------------------------------------------
-# Company extraction from DDG HTML
+# Company extraction from Bing HTML
 # ---------------------------------------------------------------------------
 
-def extract_result_blocks(html: str) -> List[str]:
-    """Extract individual result blocks from DDG HTML."""
+def extract_bing_blocks(html: str) -> List[str]:
+    """Extract individual result blocks from Bing HTML."""
     blocks = re.findall(
-        r'<div[^>]*class="result results_links[^"]*"[^>]*>(.*?)</div>\s*(?=<div[^>]*class="result results_links|<div[^>]*class="clear">|<div class="nav-link")',
+        r'<li class="b_algo"[^>]*>(.*?)</li>',
         html,
         re.DOTALL,
     )
@@ -177,19 +172,19 @@ def extract_result_blocks(html: str) -> List[str]:
 
 
 def extract_company_from_block(block: str, site_key: str) -> Optional[str]:
-    """Try to extract a company name from a single DDG result block."""
-    # Extract title
-    title_match = re.search(r'<a[^>]*class="result__a"[^>]*>(.*?)</a>', block, re.DOTALL)
+    """Try to extract a company name from a single Bing result block."""
+    # Extract title (Bing: <h2><a href="...">Title</a></h2>)
+    title_match = re.search(r'<h2[^>]*><a[^>]*>(.*?)</a></h2>', block, re.DOTALL)
     if not title_match:
         return None
     title = strip_html_tags(title_match.group(1))
 
-    # Extract snippet (for backup context)
-    snippet_match = re.search(r'<a[^>]*class="result__snippet"[^>]*>(.*?)</a>', block, re.DOTALL)
+    # Extract snippet (Bing: <p> inside block)
+    snippet_match = re.search(r'<p[^>]*>(.*?)</p>', block, re.DOTALL)
     snippet = strip_html_tags(snippet_match.group(1)) if snippet_match else ""
 
-    # Extract URL
-    url_match = re.search(r'<a[^>]*class="result__url"[^>]*href="([^"]+)"', block)
+    # Extract URL (Bing: <h2><a href="...">)
+    url_match = re.search(r'<h2[^>]*><a[^>]+href="([^"]+)"', block)
     url = url_match.group(1) if url_match else ""
 
     company = None
@@ -240,11 +235,11 @@ def extract_company_from_block(block: str, site_key: str) -> Optional[str]:
 # Domain finding
 # ---------------------------------------------------------------------------
 
-def find_domain_ddg(company_name: str) -> Optional[str]:
+def find_domain_bing(company_name: str) -> Optional[str]:
     query = f"{company_name} official website"
     try:
         resp = requests.get(
-            "https://html.duckduckgo.com/html/",
+            "https://www.bing.com/search",
             params={"q": query},
             headers=HEADERS,
             timeout=20,
@@ -252,18 +247,12 @@ def find_domain_ddg(company_name: str) -> Optional[str]:
         resp.raise_for_status()
         html = resp.text
 
-        m = re.search(r'<a[^>]+class="result__a"[^>]+href="([^"]+)"', html)
-        if not m:
-            m = re.search(r'<a[^>]+href="(https?://[^"]+)"', html)
+        # Bing result: <li class="b_algo"><h2><a href="URL">...</a></h2>
+        m = re.search(r'<li class="b_algo"[^>]*>.*?<h2[^>]*><a[^>]+href="([^"]+)"', html, re.DOTALL)
         if not m:
             return None
 
         url = m.group(1)
-        if "duckduckgo.com/l/" in url or "duckduckgo.com/d.js" in url:
-            ru = re.search(r'uddg=([^&]+)', url)
-            if ru:
-                url = urllib.parse.unquote(ru.group(1))
-
         parsed = urllib.parse.urlparse(url)
         domain = parsed.netloc.lower()
         if domain.startswith("www."):
@@ -277,7 +266,7 @@ def find_domain_ddg(company_name: str) -> Optional[str]:
             return None
         return domain
     except Exception as e:
-        print(f"    [DDG ERROR] {company_name}: {e}")
+        print(f"    [Bing ERROR] {company_name}: {e}")
         return None
 
 
@@ -353,12 +342,12 @@ def main():
 
             for page in range(args.pages):
                 print(f"  [Page {page + 1}/{args.pages}] Searching...", end=" ", flush=True)
-                html = search_ddg(keyword, site_config["domain"], page)
+                html = search_bing(keyword, site_config["domain"], page)
                 if not html:
                     print("failed")
                     continue
 
-                blocks = extract_result_blocks(html)
+                blocks = extract_bing_blocks(html)
                 print(f"found {len(blocks)} results")
 
                 for block in blocks:
@@ -404,7 +393,7 @@ def main():
         print(f"\n[Domain Search] Finding websites for {len(filtered)} companies...")
         for idx, name in enumerate(filtered, 1):
             print(f"  [{idx}/{len(filtered)}] {name} ...", end=" ", flush=True)
-            domain = find_domain_ddg(name)
+            domain = find_domain_bing(name)
             if domain:
                 domains[name] = domain
                 print(domain)

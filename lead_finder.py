@@ -182,7 +182,7 @@ def detect_country(domain: str, email: str = "") -> str:
 # Big-brand / platform domains to exclude (no real decision-maker emails)
 EXCLUDED_DOMAINS = {
     # E-commerce giants
-    "amazon.com", "espn.com", "amazon.co.uk", "amazon.de", "amazon.fr", "amazon.ca", "amazon.in",
+    "made-in-china.com",
     "ebay.com", "ebay.co.uk", "ebay.de","nfl.com","rei.com",
     "walmart.com", "target.com", "bestbuy.com", "costco.com",
     "alibaba.com", "aliexpress.com", "taobao.com", "tmall.com", "jd.com",
@@ -281,10 +281,6 @@ B2B_CONTENT_POSITIVE = [
 ]
 
 B2B_CONTENT_NEGATIVE = [
-    "shop", "store", "buy now", "add to cart", "retail", "consumer",
-    "ecommerce", "e-commerce", "online store", "shopping", "reviews",
-    "blog", "news", "directory", "marketplace", "amazon", "ebay",
-    "personal use", "home use", "gift", "cart", "checkout",
 ]
 
 
@@ -299,9 +295,9 @@ def score_search_result(title: str = "", snippet: str = "") -> int:
     for signal in POSITIVE_SIGNALS:
         if signal in text:
             score += 10
-    for signal in NEGATIVE_SIGNALS:
-        if signal in text:
-            score -= 20
+    # for signal in NEGATIVE_SIGNALS:
+    #     if signal in text:
+    #         score -= 20
     return score
 
 
@@ -318,7 +314,7 @@ def build_enhanced_query(keyword: str, b2b_focus: bool = True) -> str:
     if any(t in lower for t in b2b_terms):
         return keyword
     # DuckDuckGo / Google compatible OR syntax
-    return f'{keyword} (manufacturer OR wholesale OR supplier OR factory OR "OEM" OR "ODM")'
+    return keyword
 
 
 def calculate_content_relevance(meta: dict, keyword: str) -> int:
