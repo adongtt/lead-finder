@@ -688,7 +688,7 @@
       </div>`;
       if (data.preview && data.preview.length > 0) {
         html += '<table><thead><tr>' +
-          '<th>邮箱</th><th>姓名</th><th>职位</th><th>国家</th><th>公司</th><th>域名</th><th>状态</th><th>操作</th>' +
+          '<th>邮箱</th><th>姓名</th><th>职位</th><th>国家</th><th>电话</th><th>公司</th><th>域名</th><th>状态</th><th>操作</th>' +
           '</tr></thead><tbody>';
         for (let i = 0; i < data.preview.length; i++) {
           const row = data.preview[i];
@@ -700,6 +700,7 @@
             `<td>${escapeHtml((row.first_name || '') + ' ' + (row.last_name || ''))}</td>` +
             `<td>${escapeHtml(row.position || '')}</td>` +
             `<td>${escapeHtml(row.country || '')}</td>` +
+            `<td>${escapeHtml(row.phone || '')}</td>` +
             `<td>${escapeHtml(row.company || '')} <a href="${liUrl}" target="_blank" rel="noopener" title="LinkedIn 搜索公司" style="color:#0a66c2;font-size:11px;margin-left:4px;">[in]</a></td>` +
             `<td>${escapeHtml(row.domain || '')}</td>` +
             `<td>${badge}</td>` +
