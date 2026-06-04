@@ -534,6 +534,7 @@ async def search_leads(
     exclude: str = Form(""),
     deep: bool = Form(False),
     amazon: bool = Form(False),
+    maps_region: str = Form(""),
     user: dict = Depends(require_user),
 ):
     """
@@ -556,6 +557,8 @@ async def search_leads(
         cmd.append("--deep")
     if amazon:
         cmd.append("--amazon")
+    if maps_region:
+        cmd.extend(["--maps-region", maps_region])
 
     result = subprocess.run(cmd, capture_output=True, text=True, cwd=".", encoding="utf-8", errors="replace")
 
@@ -601,6 +604,7 @@ async def stream_leads(
     domains: str = "",
     target_tlds: str = "",
     amazon: bool = False,
+    maps_region: str = "",
     user: dict = Depends(require_user),
 ):
     """Stream lead search progress via Server-Sent Events."""
@@ -624,6 +628,8 @@ async def stream_leads(
         cmd.extend(["--target-tlds", target_tlds])
     if amazon:
         cmd.append("--amazon")
+    if maps_region:
+        cmd.extend(["--maps-region", maps_region])
 
     async def event_generator():
         proc = await asyncio.create_subprocess_exec(

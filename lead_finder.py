@@ -374,6 +374,14 @@ class Lead:
     website_description: str = ""
     relevance_score: int = 0
     linkedin_url: str = ""
+    # Google Maps enrichment
+    phone: str = ""
+    address: str = ""
+    google_rating: float = 0.0
+    google_reviews_count: int = 0
+    google_maps_url: str = ""
+    place_id: str = ""
+    source_type: str = "search"        # search | google_maps
 
 
 # ---------------------------------------------------------------------------
@@ -558,6 +566,7 @@ def load_config() -> dict:
     # HUNTER_KEY can be a comma-separated list of keys for rotation
     env_config = {
         "serpapi_key": os.environ.get("SERPAPI_KEY", ""),
+        "google_maps_key": os.environ.get("GOOGLE_MAPS_KEY", ""),
         "hunter_key": os.environ.get("HUNTER_KEY", ""),
         "snov_key": os.environ.get("SNOV_KEY", ""),
         "apollo_key": os.environ.get("APOLLO_KEY", ""),
@@ -979,6 +988,101 @@ class ZeroBounceClient:
             return {"status": "unknown", "error": str(e)}
 
 
+class GoogleMapsClient:
+    """Google Places API (New) — search businesses via Google Maps."""
+
+    def __init__(self, api_key: str):
+        self.api_key = api_key
+        self.base_url = "https://places.googleapis.com/v1/places:searchText"
+
+    def search(self, query: str, region: str = "", max_results: int = 60) -> List[dict]:
+        """
+        Search businesses via Google Maps Text Search.
+        Returns result dicts with url, title, snippet, plus _maps_meta.
+        """
+        results = []
+        page_token = None
+        count = 0
+        text_query = query
+        if region and region.lower() not in query.lower():
+            text_query = f"{query} in {region}"
+
+        while count < max_results:
+            body: dict = {"textQuery": text_query, "pageSize": min(20, max_results - count)}
+            if page_token:
+                body["pageToken"] = page_token
+
+            headers = {
+                "Content-Type": "application/json",
+                "X-Goog-Api-Key": self.api_key,
+                "X-Goog-FieldMask": (
+                    "places.displayName,places.formattedAddress,places.websiteUri,"
+                    "places.internationalPhoneNumber,places.nationalPhoneNumber,"
+                    "places.rating,places.userRatingCount,places.types,"
+                    "places.googleMapsUri,places.location,places.businessStatus,"
+                    "places.id,places.primaryTypeDisplayName"
+                ),
+            }
+
+            try:
+                resp = requests.post(self.base_url, headers=headers, json=body, timeout=30)
+                if resp.status_code != 200:
+                    print(f"  [GoogleMaps ERROR] HTTP {resp.status_code}: {resp.text[:200]}")
+                    break
+                data = resp.json()
+            except Exception as e:
+                print(f"  [GoogleMaps ERROR] {e}")
+                break
+
+            places = data.get("places", [])
+            for place in places:
+                website = place.get("websiteUri", "")
+                if not website:
+                    continue
+                domain = extract_domain(website)
+                if not domain:
+                    continue
+
+                # Build a search-result-compatible dict
+                display_name = place.get("displayName", {}).get("text", "")
+                primary_type = place.get("primaryTypeDisplayName", {}).get("text", "")
+                types = place.get("types", [])
+                address = place.get("formattedAddress", "")
+                snippet_parts = [address]
+                if primary_type:
+                    snippet_parts.insert(0, primary_type)
+
+                result = {
+                    "url": website,
+                    "title": display_name or domain,
+                    "snippet": " — ".join(snippet_parts),
+                    "_maps_meta": {
+                        "place_id": place.get("id", ""),
+                        "phone": place.get("internationalPhoneNumber", place.get("nationalPhoneNumber", "")),
+                        "address": address,
+                        "rating": place.get("rating", 0) or 0,
+                        "reviews_count": place.get("userRatingCount", 0) or 0,
+                        "types": types,
+                        "google_maps_url": place.get("googleMapsUri", ""),
+                        "location": place.get("location", {}),
+                        "business_status": place.get("businessStatus", ""),
+                        "primary_type": primary_type,
+                    },
+                }
+                results.append(result)
+
+            count += len(places)
+            print(f"  [GoogleMaps] Fetched {len(places)} places (total {count})")
+
+            page_token = data.get("nextPageToken")
+            if not page_token:
+                break
+            time.sleep(1.5)  # Be polite between pages
+
+        print(f"  [GoogleMaps] Total usable results: {len(results)}")
+        return results
+
+
 # ---------------------------------------------------------------------------
 # Amazon brand search helpers
 # ---------------------------------------------------------------------------
@@ -1093,9 +1197,13 @@ class LeadFinder:
         self.serp = None
         self.ddg = DuckDuckGoClient()
         self.browser = BrowserClient()
+        self.google_maps = None
 
         if config.get("serpapi_key") and config["serpapi_key"] not in ("", "YOUR_SERPAPI_KEY_HERE"):
             self.serp = SerpAPIClient(config["serpapi_key"])
+
+        if config.get("google_maps_key") and config["google_maps_key"] not in ("", "YOUR_GOOGLE_MAPS_KEY_HERE"):
+            self.google_maps = GoogleMapsClient(config["google_maps_key"])
 
         self.hunter = HunterClient(config["hunter_key"])
         self.snov = None
@@ -1108,8 +1216,10 @@ class LeadFinder:
         if config.get("zerobounce_key"):
             self.zerobounce = ZeroBounceClient(config["zerobounce_key"])
 
-    def _resolve_engine(self) -> str:
+    def _resolve_engine(self, force_maps: bool = False) -> str:
         """Pick the best available search engine."""
+        if force_maps and self.google_maps is not None:
+            return "google_maps"
         if self.engine != "auto":
             return self.engine
         # Priority: duckduckgo > browser > serpapi
@@ -1135,9 +1245,11 @@ class LeadFinder:
         domains: Optional[List[str]] = None,
         target_tlds: Optional[List[str]] = None,
         amazon: bool = False,
+        maps_region: str = "",
     ) -> None:
         timestamp = datetime.now().isoformat()
-        engine = self._resolve_engine()
+        use_maps = bool(maps_region) or self.engine == "google_maps"
+        engine = self._resolve_engine(force_maps=use_maps)
         skip_pages = 5 if deep else 0
         search_query = build_enhanced_query(keyword, b2b_focus=b2b_focus)
 
@@ -1154,14 +1266,31 @@ class LeadFinder:
             print(f"  Mode    : DIRECT (using {len(domains)} provided domains)")
         if target_tlds:
             print(f"  Filter  : TLDs {target_tlds}")
+        if engine == "google_maps":
+            print(f"  Region  : {maps_region or 'Global'}")
         print(f"  Output  : {output}")
         print(f"{'='*60}\n")
 
+        # Validate Google Maps availability early
+        if engine == "google_maps" and self.google_maps is None:
+            print("[ERROR] Google Maps engine selected but no API key configured.")
+            print("        Set google_maps_key in config.yaml or GOOGLE_MAPS_KEY env var.")
+            sys.exit(1)
+
         # 1. Search (skip if domains provided)
         print("PROGRESS: 5")
+        domain_maps_meta: Dict[str, dict] = {}
         if domains:
             print(f"[1/5] Using {len(domains)} provided domains, skipping search engine...")
             raw_results = [{"url": f"https://{d}", "title": "", "snippet": ""} for d in domains]
+        elif engine == "google_maps" and self.google_maps:
+            print("[1/5] Searching via Google Maps (Places API)...")
+            raw_results = self.google_maps.search(keyword, region=maps_region, max_results=pages * 10)
+            # Store maps metadata keyed by domain for later enrichment
+            for r in raw_results:
+                d = extract_domain(r.get("url", ""))
+                if d and "_maps_meta" in r:
+                    domain_maps_meta[d] = r["_maps_meta"]
         elif engine == "serpapi" and self.serp:
             print("[1/5] Searching Google via SerpAPI...")
             raw_results = self.serp.search(search_query, pages=pages, skip_pages=skip_pages)
@@ -1220,7 +1349,18 @@ class LeadFinder:
                 if domain_tld and domain_tld not in target_tlds:
                     skipped += 1
                     continue
-            score = score_search_result(title, snippet)
+            if engine == "google_maps":
+                meta = item.get("_maps_meta", {})
+                score = 20
+                if meta.get("rating", 0) >= 4.0:
+                    score += 10
+                if meta.get("reviews_count", 0) >= 10:
+                    score += 5
+                b2b_types = {"wholesale", "store", "supplier", "manufacturer", "factory", "distributor", "importer", "equipment_supplier"}
+                if any(t in b2b_types for t in meta.get("types", [])):
+                    score += 15
+            else:
+                score = score_search_result(title, snippet)
             # Keep the highest score for each domain
             if domain not in domain_scores or score > domain_scores[domain]:
                 domain_scores[domain] = score
@@ -1392,6 +1532,7 @@ class LeadFinder:
                         e.get("first_name", ""), e.get("last_name", ""), links
                     )
 
+                maps_meta = domain_maps_meta.get(domain, {})
                 lead = Lead(
                     domain=domain,
                     company=e.get("domain", domain),
@@ -1409,6 +1550,13 @@ class LeadFinder:
                     website_description=domain_descriptions.get(domain, ""),
                     relevance_score=domain_relevance.get(domain, 0),
                     linkedin_url=linkedin_url,
+                    phone=maps_meta.get("phone", ""),
+                    address=maps_meta.get("address", ""),
+                    google_rating=maps_meta.get("rating", 0.0),
+                    google_reviews_count=maps_meta.get("reviews_count", 0),
+                    google_maps_url=maps_meta.get("google_maps_url", ""),
+                    place_id=maps_meta.get("place_id", ""),
+                    source_type="google_maps" if maps_meta else "search",
                 )
                 all_leads.append(lead)
                 kept += 1
@@ -1478,6 +1626,8 @@ class LeadFinder:
             "company", "domain", "country", "confidence_score", "email_type",
             "validation_status", "sources", "search_keyword", "found_at",
             "website_description", "relevance_score", "linkedin_url",
+            "phone", "address", "google_rating", "google_reviews_count",
+            "google_maps_url", "place_id", "source_type",
         ]
         with open(path, "w", newline="", encoding="utf-8-sig") as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -1524,8 +1674,8 @@ def main():
         "--engine",
         type=str,
         default="auto",
-        choices=["auto", "duckduckgo", "browser", "serpapi"],
-        help="Search engine: auto (default), duckduckgo, browser (Playwright), or serpapi",
+        choices=["auto", "duckduckgo", "browser", "serpapi", "google_maps"],
+        help="Search engine: auto (default), duckduckgo, browser (Playwright), serpapi, or google_maps",
     )
     parser.add_argument(
         "--exclude",
@@ -1566,6 +1716,12 @@ def main():
         action="store_true",
         help="Also search Amazon for product brands and find their official websites",
     )
+    parser.add_argument(
+        "--maps-region",
+        type=str,
+        default="",
+        help="Google Maps search region, e.g. 'USA', 'Germany', 'Southeast Asia' (requires --engine google_maps or auto with google_maps_key configured)",
+    )
     args = parser.parse_args()
 
     extra_excluded = set(d.strip().lower() for d in args.exclude.split(",") if d.strip())
@@ -1585,6 +1741,7 @@ def main():
         domains=domain_list,
         target_tlds=tld_list,
         amazon=args.amazon,
+        maps_region=getattr(args, "maps_region", ""),
     )
 
 

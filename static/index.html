@@ -321,9 +321,10 @@
             <!-- 搜索模式切换 -->
             <div style="margin-bottom:16px">
               <label>搜索模式</label>
-              <div style="display:flex;gap:8px;">
-                <button type="button" id="modeKeyword" class="mode-btn active" onclick="setMode('keyword')" style="flex:1;padding:8px 12px;font-size:13px;background:var(--primary);color:#fff;border:none;border-radius:6px;cursor:pointer;">关键词搜索</button>
-                <button type="button" id="modeDomains" class="mode-btn" onclick="setMode('domains')" style="flex:1;padding:8px 12px;font-size:13px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;cursor:pointer;">批量导入域名</button>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <button type="button" id="modeKeyword" class="mode-btn active" onclick="setMode('keyword')" style="flex:1;padding:8px 12px;font-size:13px;background:var(--primary);color:#fff;border:none;border-radius:6px;cursor:pointer;min-width:120px;">关键词搜索</button>
+                <button type="button" id="modeGoogleMaps" class="mode-btn" onclick="setMode('google_maps')" style="flex:1;padding:8px 12px;font-size:13px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;cursor:pointer;min-width:120px;">谷歌地图搜索</button>
+                <button type="button" id="modeDomains" class="mode-btn" onclick="setMode('domains')" style="flex:1;padding:8px 12px;font-size:13px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;cursor:pointer;min-width:120px;">批量导入域名</button>
               </div>
             </div>
 
@@ -343,6 +344,13 @@
                 </select>
               </div>
               <input type="text" id="keyword" name="keyword" placeholder='例如 "baseball gloves distributor"' required>
+            </div>
+
+            <!-- Google Maps 地区输入（默认隐藏） -->
+            <div id="mapsRegionWrap" style="margin-bottom:16px;display:none;">
+              <label for="mapsRegion">目标地区（如 USA、Germany、Japan）</label>
+              <input type="text" id="mapsRegion" name="maps_region" placeholder='例如 "USA" 或 "Southeast Asia"'>
+              <p class="hint">Google Maps 会优先搜索该地区的商家</p>
             </div>
 
             <!-- 批量导入域名（默认隐藏） -->
@@ -546,25 +554,37 @@
     function setMode(mode) {
       currentMode = mode;
       const btnKeyword = document.getElementById('modeKeyword');
+      const btnGoogleMaps = document.getElementById('modeGoogleMaps');
       const btnDomains = document.getElementById('modeDomains');
       const domainsWrap = document.getElementById('domainsWrap');
+      const mapsRegionWrap = document.getElementById('mapsRegionWrap');
       const keywordInput = document.getElementById('keyword');
+
+      // Reset all buttons
+      [btnKeyword, btnGoogleMaps, btnDomains].forEach(btn => {
+        btn.style.background = 'var(--bg)';
+        btn.style.color = 'var(--text)';
+        btn.style.border = '1px solid var(--border)';
+      });
+
+      // Hide all mode-specific sections
+      domainsWrap.style.display = 'none';
+      mapsRegionWrap.style.display = 'none';
+      keywordInput.required = true;
+
       if (mode === 'keyword') {
         btnKeyword.style.background = 'var(--primary)';
         btnKeyword.style.color = '#fff';
         btnKeyword.style.border = 'none';
-        btnDomains.style.background = 'var(--bg)';
-        btnDomains.style.color = 'var(--text)';
-        btnDomains.style.border = '1px solid var(--border)';
-        domainsWrap.style.display = 'none';
-        keywordInput.required = true;
+      } else if (mode === 'google_maps') {
+        btnGoogleMaps.style.background = 'var(--primary)';
+        btnGoogleMaps.style.color = '#fff';
+        btnGoogleMaps.style.border = 'none';
+        mapsRegionWrap.style.display = 'block';
       } else {
         btnDomains.style.background = 'var(--primary)';
         btnDomains.style.color = '#fff';
         btnDomains.style.border = 'none';
-        btnKeyword.style.background = 'var(--bg)';
-        btnKeyword.style.color = 'var(--text)';
-        btnKeyword.style.border = '1px solid var(--border)';
         domainsWrap.style.display = 'block';
         keywordInput.required = false;
       }
@@ -618,6 +638,10 @@
       if (amazon) params.append('amazon', 'true');
       if (domainsInput) params.append('domains', domainsInput);
       if (checkedTlds.length > 0) params.append('target_tlds', checkedTlds.join(','));
+      if (currentMode === 'google_maps') {
+        const region = document.getElementById('mapsRegion').value.trim();
+        if (region) params.append('maps_region', region);
+      }
 
       const es = new EventSource(`/api/leads/stream?${params.toString()}`);
 
