@@ -1321,6 +1321,7 @@ class LeadFinder:
         target_tlds: Optional[List[str]] = None,
         amazon: bool = False,
         maps_region: str = "",
+        keep_no_email: bool = False,
     ) -> None:
         timestamp = datetime.now().isoformat()
         use_maps = bool(maps_region) or self.engine == "google_maps"
@@ -1579,7 +1580,38 @@ class LeadFinder:
             source_name = " + ".join(source_tags) if source_tags else "none"
 
             if not raw_emails:
-                print("0 found")
+                if keep_no_email:
+                    # Preserve domain info even when no email is found
+                    maps_meta = domain_maps_meta.get(domain, {})
+                    lead = Lead(
+                        domain=domain,
+                        company=domain,
+                        email="",
+                        first_name="",
+                        last_name="",
+                        position="",
+                        department="",
+                        confidence_score=0,
+                        email_type="",
+                        sources=["none"],
+                        search_keyword=keyword,
+                        found_at=timestamp,
+                        country=detect_country(domain, ""),
+                        website_description=domain_descriptions.get(domain, ""),
+                        relevance_score=domain_relevance.get(domain, 0),
+                        linkedin_url="",
+                        phone=maps_meta.get("phone", ""),
+                        address=maps_meta.get("address", ""),
+                        google_rating=maps_meta.get("rating", 0.0),
+                        google_reviews_count=maps_meta.get("reviews_count", 0),
+                        google_maps_url=maps_meta.get("google_maps_url", ""),
+                        place_id=maps_meta.get("place_id", ""),
+                        source_type="google_maps" if maps_meta else "search",
+                    )
+                    all_leads.append(lead)
+                    print("0 email, kept domain")
+                else:
+                    print("0 found")
                 time.sleep(0.7)
                 continue
 
@@ -1679,12 +1711,13 @@ class LeadFinder:
         else:
             print("\n[6/6] Skipping email validation (pass --validate to enable)")
 
-        # 6. Deduplicate by email
-        seen_emails: Set[str] = set()
+        # 6. Deduplicate by email (for leads with email) or domain (for no-email leads)
+        seen_keys: Set[str] = set()
         unique_leads: List[Lead] = []
         for lead in all_leads:
-            if lead.email not in seen_emails:
-                seen_emails.add(lead.email)
+            key = lead.email.lower().strip() if lead.email else f"__no_email__:{lead.domain}"
+            if key not in seen_keys:
+                seen_keys.add(key)
                 unique_leads.append(lead)
 
         # 6. Export
@@ -1719,12 +1752,15 @@ class LeadFinder:
         personal = sum(1 for l in leads if l.email_type == "personal")
         high_conf = sum(1 for l in leads if l.confidence_score >= 80)
         validated = sum(1 for l in leads if l.validation_status == "valid")
+        no_email = sum(1 for l in leads if not l.email)
         print(f"\n{'='*60}")
         print(f"  SUMMARY")
         print(f"{'='*60}")
         print(f"  Keyword          : {keyword}")
         print(f"  Domains searched : {domains_searched}")
         print(f"  Unique leads     : {len(leads)}")
+        if no_email:
+            print(f"  No-email leads   : {no_email} (kept for phone/address)")
         print(f"  Personal emails  : {personal}")
         print(f"  High confidence  : {high_conf}")
         if validated:
@@ -1797,6 +1833,11 @@ def main():
         default="",
         help="Google Maps search region, e.g. 'USA', 'Germany', 'Southeast Asia' (requires --engine google_maps or auto with google_maps_key configured)",
     )
+    parser.add_argument(
+        "--keep-no-email",
+        action="store_true",
+        help="Keep leads even when no email is found (useful for phone-based outreach)",
+    )
     args = parser.parse_args()
 
     extra_excluded = set(d.strip().lower() for d in args.exclude.split(",") if d.strip())
@@ -1817,6 +1858,7 @@ def main():
         target_tlds=tld_list,
         amazon=args.amazon,
         maps_region=getattr(args, "maps_region", ""),
+        keep_no_email=getattr(args, "keep_no_email", False),
     )
 
 
