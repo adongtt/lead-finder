@@ -481,9 +481,59 @@ def _match_linkedin_by_name(first_name: str, last_name: str, links: List[str]) -
     return ""
 
 
+def _extract_og_description(html: str) -> str:
+    """Extract Open Graph or Twitter Card description."""
+    for pattern in [
+        r'<meta[^>]+property=["\']og:description["\'][^>]+content=["\'](.*?)["\']',
+        r'<meta[^>]+content=["\'](.*?)["\'][^>]+property=["\']og:description["\']',
+        r'<meta[^>]+name=["\']twitter:description["\'][^>]+content=["\'](.*?)["\']',
+        r'<meta[^>]+content=["\'](.*?)["\'][^>]+name=["\']twitter:description["\']',
+    ]:
+        m = re.search(pattern, html, flags=re.IGNORECASE)
+        if m:
+            return unescape(m.group(1)).strip()
+    return ""
+
+
+def _search_engine_snippet(domain: str) -> str:
+    """Use DuckDuckGo to get a snippet for a domain as fallback."""
+    if DDGS is None:
+        return ""
+    try:
+        with DDGS() as ddgs:
+            raw = ddgs.text(f"{domain}", max_results=3)
+            for r in raw:
+                snippet = r.get("body", "")
+                if snippet and len(snippet) > 20:
+                    return snippet
+    except Exception:
+        pass
+    return ""
+
+
+def _fetch_with_browser(domain: str, timeout: int = 15) -> str:
+    """Fallback: use Playwright to render JS-heavy pages."""
+    if sync_playwright is None:
+        return ""
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page(
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            )
+            page.goto(f"https://{domain}", timeout=timeout * 1000, wait_until="domcontentloaded")
+            time.sleep(1.5)  # Allow JS frameworks to hydrate
+            html = page.content()
+            browser.close()
+            return html
+    except Exception:
+        return ""
+
+
 def fetch_domain_meta(domain: str, timeout: int = 10) -> dict:
     """
     Fetch homepage metadata (title, description, keywords, h1) plus about-page text.
+    Falls back to Open Graph, browser rendering, and search engine snippets.
 
     Returns a dict with keys: title, description, keywords, h1, about_text, linkedin_links.
     """
@@ -496,6 +546,7 @@ def fetch_domain_meta(domain: str, timeout: int = 10) -> dict:
     }
     result = {"title": "", "description": "", "keywords": "", "h1": "", "about_text": "", "linkedin_links": []}
     homepage_html = ""
+    used_browser = False
 
     # --- Homepage metadata ---
     try:
@@ -503,36 +554,49 @@ def fetch_domain_meta(domain: str, timeout: int = 10) -> dict:
         resp = requests.get(url, headers=headers, timeout=timeout, allow_redirects=True)
         if resp.status_code == 200:
             homepage_html = resp.text
-            # title
-            m = re.search(r"<title>(.*?)</title>", homepage_html, re.IGNORECASE | re.DOTALL)
-            result["title"] = unescape(m.group(1)).strip() if m else ""
-            # meta keywords
-            m = re.search(
-                r'<meta[^>]+name=["\']keywords["\'][^>]+content=["\'](.*?)["\']',
-                homepage_html, flags=re.IGNORECASE,
-            )
-            if not m:
-                m = re.search(
-                    r'<meta[^>]+content=["\'](.*?)["\'][^>]+name=["\']keywords["\']',
-                    homepage_html, flags=re.IGNORECASE,
-                )
-            result["keywords"] = unescape(m.group(1)).strip() if m else ""
-            # h1
-            m = re.search(r"<h1[^>]*>(.*?)</h1>", homepage_html, flags=re.IGNORECASE | re.DOTALL)
-            result["h1"] = _strip_html_tags(m.group(1)).strip() if m else ""
-            # meta description
-            m = re.search(
-                r'<meta[^>]+name=["\']description["\'][^>]+content=["\'](.*?)["\']',
-                homepage_html, flags=re.IGNORECASE,
-            )
-            if not m:
-                m = re.search(
-                    r'<meta[^>]+content=["\'](.*?)["\'][^>]+name=["\']description["\']',
-                    homepage_html, flags=re.IGNORECASE,
-                )
-            result["description"] = unescape(m.group(1)).strip() if m else ""
     except Exception:
         pass
+
+    # --- Playwright fallback if page looks blocked or too short (SPA/CF) ---
+    if len(homepage_html) < 800 or "challenge-platform" in homepage_html or "cf-browser-verification" in homepage_html:
+        browser_html = _fetch_with_browser(domain, timeout=timeout)
+        if browser_html and len(browser_html) > len(homepage_html):
+            homepage_html = browser_html
+            used_browser = True
+
+    if homepage_html:
+        # title
+        m = re.search(r"<title>(.*?)</title>", homepage_html, re.IGNORECASE | re.DOTALL)
+        result["title"] = unescape(m.group(1)).strip() if m else ""
+        # meta keywords
+        m = re.search(
+            r'<meta[^>]+name=["\']keywords["\'][^>]+content=["\'](.*?)["\']',
+            homepage_html, flags=re.IGNORECASE,
+        )
+        if not m:
+            m = re.search(
+                r'<meta[^>]+content=["\'](.*?)["\'][^>]+name=["\']keywords["\']',
+                homepage_html, flags=re.IGNORECASE,
+            )
+        result["keywords"] = unescape(m.group(1)).strip() if m else ""
+        # h1
+        m = re.search(r"<h1[^>]*>(.*?)</h1>", homepage_html, flags=re.IGNORECASE | re.DOTALL)
+        result["h1"] = _strip_html_tags(m.group(1)).strip() if m else ""
+        # meta description
+        m = re.search(
+            r'<meta[^>]+name=["\']description["\'][^>]+content=["\'](.*?)["\']',
+            homepage_html, flags=re.IGNORECASE,
+        )
+        if not m:
+            m = re.search(
+                r'<meta[^>]+content=["\'](.*?)["\'][^>]+name=["\']description["\']',
+                homepage_html, flags=re.IGNORECASE,
+            )
+        result["description"] = unescape(m.group(1)).strip() if m else ""
+
+        # Open Graph / Twitter fallback
+        if not result["description"]:
+            result["description"] = _extract_og_description(homepage_html)
 
     # --- About-page text + LinkedIn links ---
     about_html, about_text = _fetch_about_page(domain, headers, timeout)
@@ -543,6 +607,17 @@ def fetch_domain_meta(domain: str, timeout: int = 10) -> dict:
         if url not in seen:
             seen.add(url)
             result["linkedin_links"].append(url)
+
+    # --- Search engine snippet as last resort ---
+    best_desc = result["about_text"] or result["description"] or result["h1"] or ""
+    if len(best_desc) < 30:
+        snippet = _search_engine_snippet(domain)
+        if snippet:
+            result["description"] = snippet
+
+    if used_browser:
+        print(f"      [Browser fallback] {domain}")
+
     return result
 
 
