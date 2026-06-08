@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "skills": {
+    "upwork": {
+      "name": "Upwork",
+      "zip_url": "https://api.skillhub.cn/api/v1/download?slug=upwork",
+      "source": "community",
+      "version": "1.0.0",
+      "installedAt": "2026-06-04T07:14:32Z"
+    }
+  }
+}

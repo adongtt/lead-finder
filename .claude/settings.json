@@ -64,7 +64,23 @@
       "Bash(export HTTP_PROXY=http://127.0.0.1:7890)",
       "Bash(export HTTPS_PROXY=http://127.0.0.1:7890)",
       "Bash(python scrape_amazon_brands.py --keyword \"football gloves\" --pages 2 --find-domains --domain-list amazon_brands_domains.txt)",
-      "Bash(python generate_seed_domains.py)"
+      "Bash(python generate_seed_domains.py)",
+      "Bash(ls -la ~/.claude/projects/d--football-gloves-lead-finder/memory/ 2>/dev/null || echo \"Directory not found\")",
+      "Read(//c/Users/24073/.claude/projects/d--football-gloves-lead-finder/memory/**)",
+      "Bash(git check-ignore *)",
+      "WebFetch(domain:skillhub.cn)",
+      "Bash(ls -la ~/.claude/skills/ 2>/dev/null || echo \"No skills directory found\")",
+      "Read(//c/Users/24073/.claude/**)",
+      "Bash(curl -v https://skillhub.cn/install/skillhub.md)",
+      "Bash(nslookup skillhub.cn)",
+      "Bash(ping -n 4 skillhub.cn)",
+      "Bash(curl -fsSL https://skillhub-1388575217.cos.ap-guangzhou.myqcloud.com/install/install.sh)",
+      "Bash(bash)",
+      "Read(//c/Users/24073/.openclaw/workspace/skills//**)",
+      "Read(//c/Users/24073/.openclaw/workspace/skills/**)",
+      "Bash(find ~ -name \"*upwork*\" -type d 2>/dev/null | head -n 10)",
+      "Read(//c/Users/24073/**)",
+      "Bash(python lead_finder.py \"football gloves manufacturer\" --pages 1 --max-domains 1 --engine serpapi --output test_serpapi.csv)"
     ],
     "additionalDirectories": [
       "\\tmp"
