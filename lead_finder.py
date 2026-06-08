@@ -182,7 +182,7 @@ def detect_country(domain: str, email: str = "") -> str:
 # Big-brand / platform domains to exclude (no real decision-maker emails)
 EXCLUDED_DOMAINS = {
     # E-commerce giants
-    "made-in-china.com",
+    "made-in-china.com", "amazon.com", "espn.com",
     "ebay.com", "ebay.co.uk", "ebay.de","nfl.com","rei.com",
     "walmart.com", "target.com", "bestbuy.com", "costco.com",
     "alibaba.com", "aliexpress.com", "taobao.com", "tmall.com", "jd.com",
