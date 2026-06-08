@@ -274,13 +274,24 @@ NEGATIVE_SIGNALS = [
 
 # Content-relevance scoring: used after we fetch the homepage
 B2B_CONTENT_POSITIVE = [
-    "manufacturer", "factory", "wholesale", "wholesaler", "supplier",
-    "oem", "odm", "export", "exporter", "bulk", "b2b", "trade",
-    "trading", "custom", "private label", "moq", "production",
-    "mill", "plant", "workshop", "industrial", "processing",
+    # Distributor / importer signals (higher priority for lead finding)
+    "distributor", "wholesale", "wholesaler", "importer", "import",
+    "dealer", "reseller", "retailer", "stockist", "agent",
+    "distribution", "trading", "trading company",
+    # Manufacturing signals (still relevant but secondary)
+    "manufacturer", "factory", "supplier", "oem", "odm",
+    "export", "exporter", "bulk", "b2b", "trade",
+    "custom", "private label", "moq",
 ]
 
 B2B_CONTENT_NEGATIVE = [
+    "news", "blog", "article", "magazine", "press release",
+    "review", "top 10", "comparison", "guide", "tutorial",
+    "jobs", "careers", "hiring", "wikipedia",
+    "shop", "buy now", "add to cart", "online shop",
+    "ecommerce", "e-commerce", "consumer", "home delivery",
+    "marketplace", "directory", "listings", "yellow pages",
+    "coupon", "discount", "deal", "shopping", "cart", "checkout",
 ]
 
 
@@ -292,29 +303,39 @@ def score_search_result(title: str = "", snippet: str = "") -> int:
     """
     text = f"{title} {snippet}".lower()
     score = 0
-    for signal in POSITIVE_SIGNALS:
+    # Distributor/importer signals get higher weight
+    distributor_signals = ["distributor", "wholesale", "wholesaler", "importer", "import", "dealer", "reseller", "stockist"]
+    for signal in distributor_signals:
         if signal in text:
+            score += 20
+    # Other positive signals
+    for signal in POSITIVE_SIGNALS:
+        if signal in text and signal not in distributor_signals:
             score += 10
-    # for signal in NEGATIVE_SIGNALS:
-    #     if signal in text:
-    #         score -= 20
+    # Negative signals: actively penalize irrelevant results
+    for signal in NEGATIVE_SIGNALS:
+        if signal in text:
+            score -= 25
     return score
 
 
 def build_enhanced_query(keyword: str, b2b_focus: bool = True) -> str:
     """Enhance raw keyword with B2B qualifiers to improve result relevance.
 
-    If the user already included B2B terms, return as-is.
-    Otherwise append manufacturer/wholesale/etc. using OR syntax.
+    Prioritizes distributor/importer/dealer terms since those are the
+    actual buyers/decision-makers for lead generation.
     """
     if not b2b_focus:
         return keyword
     lower = keyword.lower()
-    b2b_terms = ["manufacturer", "factory", "wholesale", "supplier", "oem", "odm"]
+    # If user already specified B2B terms, don't overwrite
+    b2b_terms = ["manufacturer", "factory", "wholesale", "supplier", "oem", "odm",
+                 "distributor", "importer", "dealer", "reseller"]
     if any(t in lower for t in b2b_terms):
         return keyword
-    # DuckDuckGo / Google compatible OR syntax
-    return keyword
+    # Append distributor-focused qualifiers
+    enhanced = f"{keyword} (distributor OR importer OR wholesaler OR dealer)"
+    return enhanced
 
 
 def calculate_content_relevance(meta: dict, keyword: str) -> int:
@@ -335,9 +356,18 @@ def calculate_content_relevance(meta: dict, keyword: str) -> int:
         return 0
 
     score = 0
-    for term in B2B_CONTENT_POSITIVE:
+    # Distributor/importer terms get highest weight — these are our target buyers
+    buyer_terms = ["distributor", "wholesale", "wholesaler", "importer", "import",
+                   "dealer", "reseller", "retailer", "stockist", "agent",
+                   "distribution", "trading company"]
+    for term in buyer_terms:
         if term in text:
+            score += 25
+    # Other B2B terms (manufacturer, supplier, etc.)
+    for term in B2B_CONTENT_POSITIVE:
+        if term in text and term not in buyer_terms:
             score += 15
+    # Negative signals: retail, news, blogs
     for term in B2B_CONTENT_NEGATIVE:
         if term in text:
             score -= 30
@@ -1327,7 +1357,12 @@ class LeadFinder:
         use_maps = bool(maps_region) or self.engine == "google_maps"
         engine = self._resolve_engine(force_maps=use_maps)
         skip_pages = 5 if deep else 0
-        search_query = build_enhanced_query(keyword, b2b_focus=b2b_focus)
+
+        # Google Maps should use the exact raw keyword without enhancement
+        if engine == "google_maps":
+            search_query = keyword
+        else:
+            search_query = build_enhanced_query(keyword, b2b_focus=b2b_focus)
 
         print(f"\n{'='*60}")
         print(f"  B2B Lead Finder")
