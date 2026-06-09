@@ -703,12 +703,13 @@ def load_config() -> dict:
         "hunter_key": os.environ.get("HUNTER_KEY", ""),
         "snov_key": os.environ.get("SNOV_KEY", ""),
         "apollo_key": os.environ.get("APOLLO_KEY", ""),
+        "norbert_key": os.environ.get("NORBERT_KEY", ""),
         "zerobounce_key": os.environ.get("ZEROBOUNCE_KEY", ""),
     }
-    if not env_config["hunter_key"] and not env_config["snov_key"] and not env_config["apollo_key"]:
+    if not env_config["hunter_key"] and not env_config["snov_key"] and not env_config["apollo_key"] and not env_config["norbert_key"]:
         print(f"[ERROR] Config file not found: {CONFIG_PATH}")
         print("Please copy config.yaml.example to config.yaml and fill in your API keys.")
-        print("Or set HUNTER_KEY / SNOV_KEY / APOLLO_KEY environment variables.")
+        print("Or set HUNTER_KEY / SNOV_KEY / APOLLO_KEY / NORBERT_KEY environment variables.")
         sys.exit(1)
     return env_config
 
@@ -1119,6 +1120,55 @@ class ApolloClient:
             return []
         except Exception as e:
             print(f"    [Apollo ERROR] {domain}: {e}")
+            return []
+
+
+class NorbertClient:
+    """VoilaNorbert - Simple domain email enrichment (4th fallback)."""
+
+    def __init__(self, api_key: str):
+        self.api_key = api_key
+        self.base_url = "https://api.voilanorbert.com/2018-01-08"
+
+    def domain_search(self, domain: str, limit: int = 50) -> List[dict]:
+        """Search emails by domain. Returns list of email dicts."""
+        url = f"{self.base_url}/enrich/domain"
+        headers = {"Authorization": f"Token {self.api_key}"}
+        params = {"domain": domain}
+        try:
+            resp = requests.get(url, headers=headers, params=params, timeout=20)
+            if resp.status_code == 429:
+                print(f"    [Norbert] Rate limited on {domain}. Sleeping 3s...")
+                time.sleep(3)
+                return []
+            if resp.status_code == 401:
+                print("    [Norbert] Invalid API key.")
+                return []
+            resp.raise_for_status()
+            data = resp.json()
+            emails = data.get("emails", []) if isinstance(data, dict) else []
+            results = []
+            for e in emails:
+                email = (e.get("email") or "").lower().strip()
+                if not email:
+                    continue
+                results.append({
+                    "value": email,
+                    "type": "personal",
+                    "confidence": e.get("confidence", 80),
+                    "first_name": e.get("first_name", ""),
+                    "last_name": e.get("last_name", ""),
+                    "position": e.get("title", ""),
+                    "department": "",
+                    "linkedin_url": "",
+                    "sources": [{"domain": "voilanorbert.com"}],
+                })
+            return results
+        except requests.exceptions.HTTPError as e:
+            print(f"    [Norbert ERROR] {domain}: {e}")
+            return []
+        except Exception as e:
+            print(f"    [Norbert ERROR] {domain}: {e}")
             return []
 
 
@@ -1588,6 +1638,9 @@ class LeadFinder:
         self.apollo = None
         if config.get("apollo_key") and config["apollo_key"] not in ("", "YOUR_APOLLO_KEY_HERE"):
             self.apollo = ApolloClient(config["apollo_key"])
+        self.norbert = None
+        if config.get("norbert_key") and config["norbert_key"] not in ("", "YOUR_NORBERT_KEY_HERE"):
+            self.norbert = NorbertClient(config["norbert_key"])
         self.zerobounce = None
         if config.get("zerobounce_key"):
             self.zerobounce = ZeroBounceClient(config["zerobounce_key"])
@@ -1836,12 +1889,14 @@ class LeadFinder:
         if after_filter < before_filter:
             print(f"      Filtered out {before_filter - after_filter} low-relevance domains (min={min_relevance})")
 
-        # 4. Find emails via Hunter.io + Snov.io + Apollo.io (merge mode)
+        # 4. Find emails via Hunter.io + Snov.io + Apollo.io + Norbert (merge mode)
         sources_label = "Hunter.io"
         if self.snov:
             sources_label += " + Snov.io"
         if self.apollo:
             sources_label += " + Apollo.io"
+        if self.norbert:
+            sources_label += " + Norbert"
         print("PROGRESS: 50")
         print(f"\n[4/5] Finding emails via {sources_label} (merge & enrich)...")
         all_leads: List[Lead] = []
@@ -1909,6 +1964,25 @@ class LeadFinder:
                             else:
                                 email_map[email] = dict(e)
                                 email_map[email]["_sources"] = ["apollo.io"]
+
+            if self.norbert:
+                norbert_emails = self.norbert.domain_search(domain)
+                if norbert_emails:
+                    source_tags.append("norbert.io")
+                    for e in norbert_emails:
+                        email = (e.get("value") or "").lower().strip()
+                        if email and "@" in email:
+                            if email in email_map:
+                                email_map[email]["_sources"].append("norbert.io")
+                                if e.get("first_name") and not email_map[email].get("first_name"):
+                                    email_map[email]["first_name"] = e["first_name"]
+                                if e.get("last_name") and not email_map[email].get("last_name"):
+                                    email_map[email]["last_name"] = e["last_name"]
+                                if e.get("position") and not email_map[email].get("position"):
+                                    email_map[email]["position"] = e["position"]
+                            else:
+                                email_map[email] = dict(e)
+                                email_map[email]["_sources"] = ["norbert.io"]
 
             raw_emails = list(email_map.values())
             source_name = " + ".join(source_tags) if source_tags else "none"
