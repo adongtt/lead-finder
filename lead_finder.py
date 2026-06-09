@@ -1221,19 +1221,47 @@ def _is_valid_company_name(name: str) -> bool:
     # If it's all lowercase and no spaces, probably a parsing error
     if " " not in name and not name[0].isupper():
         return False
+    # Heuristic: filter out common job titles mistaken for company names
+    job_title_signals = [
+        "sales manager", "purchasing manager", "buyer", "procurement manager",
+        "account manager", "business development", "marketing manager",
+        "general manager", "managing director", "ceo", "cfo", "cto",
+        "director of", "head of", "vice president", "vp ",
+    ]
+    lowered = name_lower
+    for signal in job_title_signals:
+        if signal in lowered:
+            return False
     return True
 
 
-def _extract_company_from_linkedin_result(title: str, snippet: str) -> Optional[str]:
-    """Extract company name from LinkedIn search result title/snippet."""
-    # Pattern 1: title like "Name - Title - Company | LinkedIn"
-    m = re.search(r'-\s*([^-|]+?)\s*\|\s*LinkedIn', title)
+def _extract_company_from_linkedin_result(title: str, snippet: str, link: str = "") -> Optional[str]:
+    """Extract company name from LinkedIn search result title/snippet/link."""
+    # For /company/ pages, the title IS the company name (e.g. "Keeper Grip | LinkedIn")
+    if "/company/" in link:
+        company = re.sub(r'\s*\|\s*LinkedIn\s*$', '', title, flags=re.IGNORECASE).strip()
+        if _is_valid_company_name(company):
+            return company
+
+    # For /in/ personal profiles, try multiple patterns
+    # Pattern A: "Name - Title at Company Name | LinkedIn"
+    m = re.search(r'(?:at|–)\s+([A-Z][A-Za-z0-9\s&.,\-]+?)(?:\s*\||\s*$)', title)
     if m:
         candidate = m.group(1).strip()
         if _is_valid_company_name(candidate):
             return candidate
 
-    # Pattern 2: snippet like "... is a Buyer at Company Name. ..."
+    # Pattern B: "Name - Company Name" (single dash, no "at")
+    parts = title.split(' - ', 1)
+    if len(parts) == 2:
+        candidate = parts[1].strip()
+        # Remove trailing "..." or "| LinkedIn"
+        candidate = re.sub(r'\s*\.\.\.\s*$', '', candidate)
+        candidate = re.sub(r'\s*\|\s*LinkedIn\s*$', '', candidate, flags=re.IGNORECASE)
+        if _is_valid_company_name(candidate):
+            return candidate
+
+    # Pattern C: snippet like "... at Company Name. ..."
     m = re.search(
         r'(?:is|was|works?|working)\s+(?:as\s+[^.]+?)?at\s+([A-Z][A-Za-z0-9\s&.,\-]+?)'
         r'(?:\.|,|\s+\||\s+-\s+|\s+and\s+|\s+Location|\s+Connections|\s+Experience|\Z)',
@@ -1244,8 +1272,8 @@ def _extract_company_from_linkedin_result(title: str, snippet: str) -> Optional[
         if _is_valid_company_name(candidate):
             return candidate
 
-    # Pattern 3: snippet starts with "Company Name. Location: ..."
-    m = re.search(r'^([A-Z][A-Za-z0-9\s&.,\-]+?)(?:\.|,)\s*(?:Location|Connections|Experience)', snippet)
+    # Pattern D: snippet starts with "Company Name. manufacturer/supplier..."
+    m = re.search(r'^([A-Z][A-Za-z0-9\s&.,\-]+?)(?:\s+manufacturer|\s+supplier|\s+distributor)', snippet, re.IGNORECASE)
     if m:
         candidate = m.group(1).strip()
         if _is_valid_company_name(candidate):
@@ -1255,60 +1283,51 @@ def _extract_company_from_linkedin_result(title: str, snippet: str) -> Optional[
 
 
 def _resolve_company_website(company_name: str) -> Optional[str]:
-    """Find official website for a company name via Bing."""
+    """Find official website for a company name via DuckDuckGo (free, no key needed)."""
     if not company_name or len(company_name) < 2:
         return None
 
+    blocked = {
+        "facebook.com", "linkedin.com", "twitter.com", "x.com", "instagram.com",
+        "youtube.com", "wikipedia.org", "amazon.com", "ebay.com", "alibaba.com",
+        "aliexpress.com", "zoominfo.com", "crunchbase.com", "bbb.org",
+        "yellowpages.com", "yelp.com", "tripadvisor.com", "pinterest.com",
+        "reddit.com", "quora.com", "etsy.com", "walmart.com", "target.com",
+        "homedepot.com", "bestbuy.com", "costco.com", "wayfair.com", "macys.com",
+        "google.com", "bing.com", "baidu.com",
+    }
+
+    clean_name = company_name.strip().strip('"').strip("'")
+
+    # Try DuckDuckGo first (free, no API key)
     try:
-        clean_name = company_name.strip().strip('"').strip("'")
-        # First try with quotes for exact match
-        resp = requests.get(
-            "https://www.bing.com/search",
-            params={"q": f'"{clean_name}" official website'},
-            headers=HEADERS,
-            timeout=15,
-        )
-        html = resp.text
-        m = re.search(
-            r'<li class="b_algo"[^>]*>.*?<h2[^>]*><a[^>]+href="([^"]+)"',
-            html, re.DOTALL,
-        )
-        if not m:
-            # Fallback without quotes
-            resp = requests.get(
-                "https://www.bing.com/search",
-                params={"q": f'{clean_name} official website'},
-                headers=HEADERS,
-                timeout=15,
-            )
-            html = resp.text
-            m = re.search(
-                r'<li class="b_algo"[^>]*>.*?<h2[^>]*><a[^>]+href="([^"]+)"',
-                html, re.DOTALL,
-            )
-            if not m:
-                return None
-
-        url = m.group(1)
-        parsed = urlparse(url)
-        domain = parsed.netloc.lower()
-        if domain.startswith("www."):
-            domain = domain[4:]
-
-        blocked = {
-            "facebook.com", "linkedin.com", "twitter.com", "x.com", "instagram.com",
-            "youtube.com", "wikipedia.org", "amazon.com", "ebay.com", "alibaba.com",
-            "aliexpress.com", "zoominfo.com", "crunchbase.com", "bbb.org",
-            "yellowpages.com", "yelp.com", "tripadvisor.com", "pinterest.com",
-            "reddit.com", "quora.com", "etsy.com", "walmart.com", "target.com",
-            "homedepot.com", "bestbuy.com", "costco.com", "wayfair.com", "macys.com",
-            "google.com", "bing.com", "baidu.com",
-        }
-        if domain in blocked:
-            return None
-        return domain
+        if DDGS is not None:
+            with DDGS() as ddgs:
+                query = f'"{clean_name}" official website'
+                for r in ddgs.text(query, max_results=5):
+                    href = r.get("href", "")
+                    domain = extract_domain(href)
+                    if domain and domain not in blocked:
+                        return domain
     except Exception:
-        return None
+        pass
+
+    # Fallback: simple heuristic guesses
+    simple = re.sub(r'[^\w\-]', '', clean_name.lower().replace(' ', '').replace('&', 'and'))
+    candidates = [
+        f"{simple}.com",
+        f"{simple}.co.uk",
+        f"{simple}.net",
+    ]
+    for domain in candidates:
+        try:
+            resp = requests.head(f"https://{domain}", timeout=5, allow_redirects=True)
+            if resp.status_code < 400:
+                return domain
+        except Exception:
+            continue
+
+    return None
 
 
 class LinkedInDiscoveryClient:
@@ -1323,10 +1342,12 @@ class LinkedInDiscoveryClient:
         Search LinkedIn profiles and return list of dicts with:
         linkedin_url, name, company, domain
         """
-        # Build query: site:linkedin.com/in "keyword" (distributor OR ...)
+        # Broader query: any LinkedIn page (company or profile) matching keyword + B2B roles
+        # -pulse filters out LinkedIn Pulse articles which dominate results
         query = (
-            f'site:linkedin.com/in "{keyword}" '
-            f'(distributor OR importer OR wholesaler OR dealer OR buyer OR purchasing OR procurement)'
+            f'site:linkedin.com "{keyword}" '
+            f'(distributor OR importer OR wholesaler OR dealer OR buyer OR purchasing OR procurement) '
+            f'-pulse'
         )
 
         results: List[dict] = []
@@ -1349,10 +1370,13 @@ class LinkedInDiscoveryClient:
                     snippet = r.get("snippet") or r.get("description", "")
                     link = r.get("link", "")
 
-                    if not link or "linkedin.com/in/" not in link:
+                    if not link or "linkedin.com/" not in link:
+                        continue
+                    # Skip Pulse articles and posts that slip through
+                    if "/pulse/" in link or "/posts/" in link or "/activities/" in link:
                         continue
 
-                    company = _extract_company_from_linkedin_result(title, snippet)
+                    company = _extract_company_from_linkedin_result(title, snippet, link)
                     if not company:
                         continue
 
@@ -1443,40 +1467,41 @@ def _extract_brand_from_title(title: str) -> Optional[str]:
 
 
 def _find_brand_domain(brand: str) -> Optional[str]:
-    """Find official website for a brand via Bing."""
+    """Find official website for a brand via DuckDuckGo (free, no key needed)."""
+    blocked = {
+        "facebook.com", "linkedin.com", "twitter.com", "x.com", "instagram.com",
+        "youtube.com", "wikipedia.org", "amazon.com", "ebay.com", "alibaba.com",
+        "zoominfo.com", "crunchbase.com", "bbb.org", "yellowpages.com", "yelp.com",
+        "tripadvisor.com", "pinterest.com", "reddit.com", "quora.com",
+        "etsy.com", "walmart.com", "target.com", "homedepot.com",
+        "bestbuy.com", "costco.com", "wayfair.com", "macys.com",
+    }
+
+    # Try DuckDuckGo first (free)
     try:
-        resp = requests.get(
-            "https://www.bing.com/search",
-            params={"q": f"{brand} official website"},
-            headers=HEADERS,
-            timeout=15,
-        )
-        html = resp.text
-        m = re.search(
-            r'<li class="b_algo"[^>]*>.*?<h2[^>]*><a[^>]+href="([^"]+)"',
-            html,
-            re.DOTALL,
-        )
-        if not m:
-            return None
-        url = m.group(1)
-        parsed = urllib.parse.urlparse(url)
-        domain = parsed.netloc.lower()
-        if domain.startswith("www."):
-            domain = domain[4:]
-        blocked = {
-            "facebook.com", "linkedin.com", "twitter.com", "x.com", "instagram.com",
-            "youtube.com", "wikipedia.org", "amazon.com", "ebay.com", "alibaba.com",
-            "zoominfo.com", "crunchbase.com", "bbb.org", "yellowpages.com", "yelp.com",
-            "tripadvisor.com", "pinterest.com", "reddit.com", "quora.com",
-            "etsy.com", "walmart.com", "target.com", "homedepot.com",
-            "bestbuy.com", "costco.com", "wayfair.com", "macys.com",
-        }
-        if domain in blocked:
-            return None
-        return domain
+        if DDGS is not None:
+            with DDGS() as ddgs:
+                query = f'"{brand}" official website'
+                for r in ddgs.text(query, max_results=5):
+                    href = r.get("href", "")
+                    domain = extract_domain(href)
+                    if domain and domain not in blocked:
+                        return domain
     except Exception:
-        return None
+        pass
+
+    # Fallback: heuristic guesses
+    simple = re.sub(r'[^\w\-]', '', brand.lower().replace(' ', '').replace('&', 'and'))
+    candidates = [f"{simple}.com", f"{simple}.co.uk", f"{simple}.net"]
+    for domain in candidates:
+        try:
+            resp = requests.head(f"https://{domain}", timeout=5, allow_redirects=True)
+            if resp.status_code < 400:
+                return domain
+        except Exception:
+            continue
+
+    return None
 
 
 # ---------------------------------------------------------------------------
