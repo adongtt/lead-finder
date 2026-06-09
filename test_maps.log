@@ -1,0 +1,96 @@
+
+============================================================
+  B2B Lead Finder
+  Keyword : football gloves manufacturer
+  Engine  : google_maps
+  Pages   : 2
+  Region  : USA
+  Output  : test_maps.csv
+============================================================
+
+PROGRESS: 5
+[1/5] Searching via Google Maps (Places API)...
+  [GoogleMaps] Fetched 13 places (total 13)
+  [GoogleMaps] Total usable results: 12
+      Total results found: 12
+PROGRESS: 20
+PROGRESS: 25
+
+[2/5] Scoring and extracting domains...
+      Unique domains: 12 (excluded 0 big-brand domains)
+      Score distribution: 12 positive, 0 negative
+PROGRESS: 30
+
+[3/5] Fetching website metadata and scoring relevance...
+PROGRESS: 32
+PROGRESS: 35
+PROGRESS: 37
+PROGRESS: 40
+      [Browser fallback] northstarglove.com
+PROGRESS: 42
+PROGRESS: 45
+      Fetched descriptions for 12/12 domains
+      Relevance: 5 high, 0 low
+      LinkedIn profiles found on websites: 0
+PROGRESS: 50
+
+[4/5] Finding emails via Hunter.io + Apollo.io (merge & enrich)...
+PROGRESS: 52
+  [1/12] northstarglove.com ...     [Apollo] Free plan key cannot use People Search. Skipping Apollo.
+3 kept / 5 total (hunter.io)
+PROGRESS: 54
+  [2/12] usglove.com ...     [Apollo] Free plan key cannot use People Search. Skipping Apollo.
+3 kept / 4 total (hunter.io)
+PROGRESS: 56
+  [3/12] firstglove.com ...     [Apollo] Free plan key cannot use People Search. Skipping Apollo.
+2 kept / 3 total (hunter.io)
+PROGRESS: 58
+  [4/12] workglovesdepot.com ...     [Apollo] Free plan key cannot use People Search. Skipping Apollo.
+1 kept / 2 total (hunter.io)
+PROGRESS: 60
+  [5/12] mggloves.com ...     [Apollo] Free plan key cannot use People Search. Skipping Apollo.
+0 kept / 2 total (hunter.io)
+PROGRESS: 62
+  [6/12] unitedglove.com ...     [Apollo] Free plan key cannot use People Search. Skipping Apollo.
+3 kept / 4 total (hunter.io)
+PROGRESS: 64
+  [7/12] hjglove.com ...     [Apollo] Free plan key cannot use People Search. Skipping Apollo.
+0 kept / 1 total (hunter.io)
+PROGRESS: 66
+  [8/12] olympicglove.com ...     [Apollo] Free plan key cannot use People Search. Skipping Apollo.
+0 kept / 1 total (hunter.io)
+PROGRESS: 68
+  [9/12] glovesafeinc.com ...     [Apollo] Free plan key cannot use People Search. Skipping Apollo.
+2 kept / 2 total (hunter.io)
+PROGRESS: 70
+  [10/12] glovemaster.org ...     [Apollo] Free plan key cannot use People Search. Skipping Apollo.
+0 found
+PROGRESS: 72
+  [11/12] superfitglove.com ...     [Apollo] Free plan key cannot use People Search. Skipping Apollo.
+0 kept / 1 total (hunter.io)
+PROGRESS: 75
+  [12/12] glovesg.com ...     [Apollo] Free plan key cannot use People Search. Skipping Apollo.
+0 found
+
+      Total leads after filtering: 14
+PROGRESS: 80
+
+[4b/5] Searching LinkedIn via DuckDuckGo for 10 leads...
+      Found 2 LinkedIn profiles via DuckDuckGo
+PROGRESS: 90
+
+[6/6] Skipping email validation (pass --validate to enable)
+PROGRESS: 100
+
+[OK] Exported 14 leads to: test_maps.csv
+
+============================================================
+  SUMMARY
+============================================================
+  Keyword          : football gloves manufacturer
+  Domains searched : 12
+  Unique leads     : 14
+  Personal emails  : 14
+  High confidence  : 12
+============================================================
+

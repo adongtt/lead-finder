@@ -80,10 +80,43 @@
       "Read(//c/Users/24073/.openclaw/workspace/skills/**)",
       "Bash(find ~ -name \"*upwork*\" -type d 2>/dev/null | head -n 10)",
       "Read(//c/Users/24073/**)",
-      "Bash(python lead_finder.py \"football gloves manufacturer\" --pages 1 --max-domains 1 --engine serpapi --output test_serpapi.csv)"
+      "Bash(python lead_finder.py \"football gloves manufacturer\" --pages 1 --max-domains 1 --engine serpapi --output test_serpapi.csv)",
+      "Bash(python clear_history.py)",
+      "Bash(cd \"d:\\\\football gloves\\\\lead-finder\" && rm -f web_results/*.csv web_results/*.json.bak)",
+      "Bash(python -c \"import ddgs; print\\('ddgs ok'\\)\")",
+      "Bash(python -c \"from duckduckgo_search import DDGS; print\\('duckduckgo_search ok'\\)\")",
+      "Bash(python lead_finder.py \"football gloves distributor\" --pages 1 --max-domains 5 --output test_linkedin.csv)",
+      "Bash(python lead_finder.py \"football gloves distributor\" --pages 1 --max-domains 5 --output test_linkedin_v2.csv)",
+      "Bash(python lead_finder.py \"football gloves distributor\" --pages 1 --max-domains 5 --output test_linkedin_v3.csv)",
+      "Bash(python lead_finder.py \"football gloves distributor\" --engine google_maps --pages 1 --max-domains 5 --maps-region USA --output test_maps.csv)",
+      "Bash(python lead_finder.py \"football gloves manufacturer\" --pages 1 --output test_run.csv --max-domains 5 --no-b2b-focus)",
+      "Bash(python lead_finder.py \"football gloves\" --pages 1 --max-domains 3 --amazon --output test_amazon.csv)",
+      "Bash(python lead_finder.py \"football gloves\" --pages 1 --max-domains 3 --amazon --output test_amazon2.csv)",
+      "Bash(python lead_finder.py \"football gloves manufacturer\" --pages 2 --max-domains 15 --output test_ddg.csv --no-b2b-focus)",
+      "Bash(tee test_ddg.log)",
+      "Bash(python lead_finder.py \"football gloves manufacturer\" --pages 2 --max-domains 15 --output test_serpapi.csv --engine serpapi --no-b2b-focus)",
+      "Bash(tee test_serpapi.log)",
+      "Bash(python lead_finder.py \"football gloves manufacturer\" --pages 2 --max-domains 15 --output test_maps.csv --engine google_maps --maps-region USA)",
+      "Bash(tee test_maps.log)",
+      "Bash(python -c \"import csv; [print\\(r['domain']\\) for r in csv.DictReader\\(open\\('test_ddg.csv'\\)\\)]\")",
+      "Bash(python -c \"import csv; [print\\(r['domain']\\) for r in csv.DictReader\\(open\\('test_serpapi.csv'\\)\\)]\")",
+      "Bash(python -c \"import csv; [print\\(r['domain']\\) for r in csv.DictReader\\(open\\('test_maps.csv'\\)\\)]\")",
+      "Bash(python -c \"import csv; [print\\(r['domain'], r['email']\\) for r in csv.DictReader\\(open\\('test_ddg.csv', encoding='utf-8-sig'\\)\\)]\")",
+      "Bash(python -c \"import csv; [print\\(r['domain'], r['email']\\) for r in csv.DictReader\\(open\\('test_serpapi.csv', encoding='utf-8-sig'\\)\\)]\")",
+      "Bash(python -c \"import csv; [print\\(r['domain'], r['email']\\) for r in csv.DictReader\\(open\\('test_maps.csv', encoding='utf-8-sig'\\)\\)]\")",
+      "Bash(python lead_finder.py \"football gloves manufacturer\" --pages 2 --max-domains 15 --output test_serpapi_v2.csv --engine serpapi --no-b2b-focus)",
+      "Bash(tee test_serpapi_v2.log)",
+      "Bash(python lead_finder.py \"football gloves manufacturer\" --pages 2 --max-domains 15 --output test_serpapi_v3.csv --engine serpapi --no-b2b-focus)",
+      "Bash(tee test_serpapi_v3.log)",
+      "Bash(python lead_finder.py \"football gloves manufacturer\" --pages 2 --max-domains 15 --output test_final.csv --engine serpapi --no-b2b-focus)",
+      "Bash(tee test_final.log)",
+      "Bash(python lead_finder.py \"football gloves manufacturer\" --pages 2 --max-domains 15 --output test_final2.csv --engine serpapi --no-b2b-focus)",
+      "Bash(python lead_finder.py \"football gloves manufacturer\" --pages 2 --max-domains 15 --output test_final3.csv --engine serpapi --no-b2b-focus)",
+      "Bash(python -c \"html = open\\('static/index.html', encoding='utf-8'\\).read\\(\\); assert 'loadStats' in html; assert 'sourceTypeLabel' in html; assert 'rerunSearch' in html; print\\('All checks passed'\\)\")"
     ],
     "additionalDirectories": [
-      "\\tmp"
+      "\\tmp",
+      "D:\\football gloves\\lead-finder\\web_results"
     ]
   }
 }

@@ -1,0 +1,96 @@
+
+============================================================
+  B2B Lead Finder
+  Keyword : football gloves manufacturer
+  Engine  : duckduckgo
+  Pages   : 2
+  Output  : test_ddg.csv
+============================================================
+
+PROGRESS: 5
+[1/5] Searching via DuckDuckGo (free, no API key)...
+  [DuckDuckGo] Found 20 results
+      Total results found: 20
+PROGRESS: 20
+
+[1c/5] Discovering companies via LinkedIn profiles...
+  [LinkedInDiscovery] Page 1: 1 results, 0 companies resolved so far
+  [LinkedInDiscovery] Page 2: 0 results, 0 companies resolved so far
+      No LinkedIn profiles found
+PROGRESS: 25
+
+[2/5] Scoring and extracting domains...
+      Unique domains: 11 (excluded 5 big-brand domains)
+      Score distribution: 10 positive, 1 negative
+PROGRESS: 30
+
+[3/5] Fetching website metadata and scoring relevance...
+PROGRESS: 32
+PROGRESS: 35
+PROGRESS: 38
+      [Browser fallback] pamooinds.com
+PROGRESS: 40
+PROGRESS: 43
+PROGRESS: 45
+      Fetched descriptions for 11/11 domains
+      Relevance: 8 high, 0 low
+      LinkedIn profiles found on websites: 1
+PROGRESS: 50
+
+[4/5] Finding emails via Hunter.io + Apollo.io (merge & enrich)...
+PROGRESS: 52
+  [1/11] kneesupportfactory.com ...     [Apollo] Free plan key cannot use People Search. Skipping Apollo.
+0 found
+PROGRESS: 54
+  [2/11] sonicesafety.com ...     [Apollo] Free plan key cannot use People Search. Skipping Apollo.
+0 found
+PROGRESS: 56
+  [3/11] tryout-sports.com ...     [Apollo] Free plan key cannot use People Search. Skipping Apollo.
+0 found
+PROGRESS: 59
+  [4/11] bushisports.com ...     [Apollo] Free plan key cannot use People Search. Skipping Apollo.
+0 found
+PROGRESS: 61
+  [5/11] bhlsports.com ...     [Apollo] Free plan key cannot use People Search. Skipping Apollo.
+0 found
+PROGRESS: 63
+  [6/11] pamooinds.com ...     [Apollo] Free plan key cannot use People Search. Skipping Apollo.
+0 found
+PROGRESS: 65
+  [7/11] powergloves.com ...     [Apollo] Free plan key cannot use People Search. Skipping Apollo.
+0 found
+PROGRESS: 68
+  [8/11] qualityation.com ...     [Apollo] Free plan key cannot use People Search. Skipping Apollo.
+0 kept / 1 total (hunter.io)
+PROGRESS: 70
+  [9/11] vhsgloves.com ...     [Apollo] Free plan key cannot use People Search. Skipping Apollo.
+0 kept / 1 total (hunter.io)
+PROGRESS: 72
+  [10/11] meladsports.com ...     [Apollo] Free plan key cannot use People Search. Skipping Apollo.
+0 found
+PROGRESS: 75
+  [11/11] prodirectsport.com ...     [Apollo] Free plan key cannot use People Search. Skipping Apollo.
+10 kept / 10 total (hunter.io)
+
+      Total leads after filtering: 10
+PROGRESS: 80
+
+[4b/5] Searching LinkedIn via DuckDuckGo for 7 leads...
+      Found 1 LinkedIn profiles via DuckDuckGo
+PROGRESS: 90
+
+[6/6] Skipping email validation (pass --validate to enable)
+PROGRESS: 100
+
+[OK] Exported 10 leads to: test_ddg.csv
+
+============================================================
+  SUMMARY
+============================================================
+  Keyword          : football gloves manufacturer
+  Domains searched : 11
+  Unique leads     : 10
+  Personal emails  : 9
+  High confidence  : 10
+============================================================
+

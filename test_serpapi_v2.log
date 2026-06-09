@@ -1,0 +1,103 @@
+
+============================================================
+  B2B Lead Finder
+  Keyword : football gloves manufacturer
+  Engine  : serpapi
+  Pages   : 2
+  Output  : test_serpapi_v2.csv
+============================================================
+
+PROGRESS: 5
+[1/5] Searching Google via SerpAPI...
+  [SerpAPI] Page 1 (skipped first 0): 10 results
+  [SerpAPI] Page 2 (skipped first 0): 10 results
+      Total results found: 20
+PROGRESS: 20
+
+[1c/5] Discovering companies via LinkedIn profiles...
+  [LinkedInDiscovery] Page 1: 1 results, 1 companies resolved so far
+  [LinkedInDiscovery] Page 2: 0 results, 1 companies resolved so far
+      Found 1 LinkedIn profiles, resolved 0 unique domains
+PROGRESS: 25
+
+[2/5] Scoring and extracting domains...
+      Unique domains: 13 (excluded 7 big-brand domains)
+      Score distribution: 12 positive, 1 negative
+PROGRESS: 30
+
+[3/5] Fetching website metadata and scoring relevance...
+PROGRESS: 32
+PROGRESS: 34
+PROGRESS: 36
+PROGRESS: 39
+      [Browser fallback] dominatorhoop.com
+PROGRESS: 41
+      [Browser fallback] customglovesmaker.com
+PROGRESS: 43
+PROGRESS: 45
+      Fetched descriptions for 13/13 domains
+      Relevance: 6 high, 5 low
+      LinkedIn profiles found on websites: 0
+      Filtered out 1 low-relevance domains (min=-50)
+PROGRESS: 50
+
+[4/5] Finding emails via Hunter.io + Apollo.io (merge & enrich)...
+PROGRESS: 52
+  [1/12] customglovesmaker.com ...     [Apollo] Free plan key cannot use People Search. Skipping Apollo.
+0 found
+PROGRESS: 54
+  [2/12] vhsgloves.com ...     [Apollo] Free plan key cannot use People Search. Skipping Apollo.
+0 kept / 1 total (hunter.io)
+PROGRESS: 56
+  [3/12] bushisports.com ...     [Apollo] Free plan key cannot use People Search. Skipping Apollo.
+0 found
+PROGRESS: 58
+  [4/12] 3ellcompany.com ...     [Apollo] Free plan key cannot use People Search. Skipping Apollo.
+0 found
+PROGRESS: 60
+  [5/12] invictusgloves.com ...     [Apollo] Free plan key cannot use People Search. Skipping Apollo.
+1 kept / 2 total (hunter.io)
+PROGRESS: 62
+  [6/12] wooterapparel.com ...     [Apollo] Free plan key cannot use People Search. Skipping Apollo.
+5 kept / 6 total (hunter.io)
+PROGRESS: 64
+  [7/12] championgloves.com ...     [Apollo] Free plan key cannot use People Search. Skipping Apollo.
+4 kept / 4 total (hunter.io)
+PROGRESS: 66
+  [8/12] argusapparel.com ...     [Apollo] Free plan key cannot use People Search. Skipping Apollo.
+0 kept / 1 total (hunter.io)
+PROGRESS: 68
+  [9/12] dominatorhoop.com ...     [Apollo] Free plan key cannot use People Search. Skipping Apollo.
+1 kept / 2 total (hunter.io)
+PROGRESS: 70
+  [10/12] nxtrndusa.com ...     [Apollo] Free plan key cannot use People Search. Skipping Apollo.
+8 kept / 9 total (hunter.io)
+PROGRESS: 72
+  [11/12] sleefs.com ...     [Apollo] Free plan key cannot use People Search. Skipping Apollo.
+6 kept / 10 total (hunter.io)
+PROGRESS: 75
+  [12/12] phenomelitebrand.com ...     [Apollo] Free plan key cannot use People Search. Skipping Apollo.
+0 found
+
+      Total leads after filtering: 25
+PROGRESS: 80
+
+[4b/5] Searching LinkedIn via DuckDuckGo for 16 leads...
+      Found 2 LinkedIn profiles via DuckDuckGo
+PROGRESS: 90
+
+[6/6] Skipping email validation (pass --validate to enable)
+PROGRESS: 100
+
+[OK] Exported 25 leads to: test_serpapi_v2.csv
+
+============================================================
+  SUMMARY
+============================================================
+  Keyword          : football gloves manufacturer
+  Domains searched : 12
+  Unique leads     : 25
+  Personal emails  : 25
+  High confidence  : 22
+============================================================
+

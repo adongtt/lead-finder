@@ -1,0 +1,110 @@
+
+============================================================
+  B2B Lead Finder
+  Keyword : football gloves manufacturer
+  Engine  : serpapi
+  Pages   : 2
+  Output  : test_serpapi.csv
+============================================================
+
+PROGRESS: 5
+[1/5] Searching Google via SerpAPI...
+  [SerpAPI] Page 1 (skipped first 0): 10 results
+  [SerpAPI] Page 2 (skipped first 0): 10 results
+      Total results found: 20
+PROGRESS: 20
+
+[1c/5] Discovering companies via LinkedIn profiles...
+  [LinkedInDiscovery] Page 1: 1 results, 1 companies resolved so far
+  [LinkedInDiscovery] Page 2: 0 results, 1 companies resolved so far
+      Found 1 LinkedIn profiles, resolved 1 unique domains
+PROGRESS: 25
+
+[2/5] Scoring and extracting domains...
+      Unique domains: 15 (excluded 5 big-brand domains)
+      LinkedIn-sourced: 1 domains
+      Score distribution: 14 positive, 1 negative
+PROGRESS: 30
+
+[3/5] Fetching website metadata and scoring relevance...
+PROGRESS: 33
+PROGRESS: 36
+      [Browser fallback] dominatorhoop.com
+PROGRESS: 39
+PROGRESS: 42
+      [Browser fallback] customglovesmaker.com
+      [Browser fallback] bmwmotorcycles.com
+PROGRESS: 45
+      Fetched descriptions for 15/15 domains
+      Relevance: 5 high, 4 low
+      LinkedIn profiles found on websites: 0
+      Filtered out 1 low-relevance domains (min=-50)
+PROGRESS: 50
+
+[4/5] Finding emails via Hunter.io + Apollo.io (merge & enrich)...
+PROGRESS: 51
+  [1/14] customglovesmaker.com ...     [Apollo] Free plan key cannot use People Search. Skipping Apollo.
+0 found
+PROGRESS: 53
+  [2/14] vhsgloves.com ...     [Apollo] Free plan key cannot use People Search. Skipping Apollo.
+0 kept / 1 total (hunter.io)
+PROGRESS: 55
+  [3/14] bushisports.com ...     [Apollo] Free plan key cannot use People Search. Skipping Apollo.
+0 found
+PROGRESS: 57
+  [4/14] 3ellcompany.com ...     [Apollo] Free plan key cannot use People Search. Skipping Apollo.
+0 found
+PROGRESS: 58
+  [5/14] invictusgloves.com ...     [Apollo] Free plan key cannot use People Search. Skipping Apollo.
+1 kept / 2 total (hunter.io)
+PROGRESS: 60
+  [6/14] wooterapparel.com ...     [Apollo] Free plan key cannot use People Search. Skipping Apollo.
+5 kept / 6 total (hunter.io)
+PROGRESS: 62
+  [7/14] championgloves.com ...     [Apollo] Free plan key cannot use People Search. Skipping Apollo.
+4 kept / 4 total (hunter.io)
+PROGRESS: 64
+  [8/14] argusapparel.com ...     [Apollo] Free plan key cannot use People Search. Skipping Apollo.
+0 kept / 1 total (hunter.io)
+PROGRESS: 66
+  [9/14] bmwmotorcycles.com ...     [Apollo] Free plan key cannot use People Search. Skipping Apollo.
+3 kept / 4 total (hunter.io)
+PROGRESS: 67
+  [10/14] dominatorhoop.com ...     [Hunter ERROR]: ('Connection aborted.', ConnectionResetError(10054, '远程主机强迫关闭了一个现有的连接。', None, 10054, None))
+    [Apollo] Free plan key cannot use People Search. Skipping Apollo.
+0 found
+PROGRESS: 69
+  [11/14] nxtrndusa.com ...     [Apollo] Free plan key cannot use People Search. Skipping Apollo.
+8 kept / 9 total (hunter.io)
+PROGRESS: 71
+  [12/14] cutterssports.com ...     [Apollo] Free plan key cannot use People Search. Skipping Apollo.
+2 kept / 2 total (hunter.io)
+PROGRESS: 73
+  [13/14] sleefs.com ...     [Apollo] Free plan key cannot use People Search. Skipping Apollo.
+6 kept / 10 total (hunter.io)
+PROGRESS: 75
+  [14/14] matchory.com ...     [Apollo] Free plan key cannot use People Search. Skipping Apollo.
+10 kept / 10 total (hunter.io)
+
+      Total leads after filtering: 39
+PROGRESS: 80
+
+[4b/5] Searching LinkedIn via DuckDuckGo for 27 leads...
+      Found 12 LinkedIn profiles via DuckDuckGo
+PROGRESS: 90
+
+[6/6] Skipping email validation (pass --validate to enable)
+PROGRESS: 100
+
+[OK] Exported 39 leads to: test_serpapi.csv
+
+============================================================
+  SUMMARY
+============================================================
+  Keyword          : football gloves manufacturer
+  Domains searched : 14
+  Unique leads     : 39
+  Personal emails  : 37
+  High confidence  : 37
+============================================================
+

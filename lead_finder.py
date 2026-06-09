@@ -1447,7 +1447,6 @@ class LinkedInDiscoveryClient:
         # -pulse filters out LinkedIn Pulse articles which dominate results
         query = (
             f'site:linkedin.com "{product_kw}" '
-            f'(distributor OR importer OR wholesaler OR dealer OR buyer OR purchasing OR procurement) '
             f'-pulse'
         )
 
