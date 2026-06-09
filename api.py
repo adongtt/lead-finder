@@ -18,6 +18,7 @@ import os
 import os
 import psycopg2
 from psycopg2.extras import RealDictCursor
+from psycopg2 import pool as psycopg2_pool
 import subprocess
 import sys
 import uuid
@@ -49,14 +50,49 @@ USERS_FILE = Path("users.json")
 SESSION_SECRET = os.environ.get("SESSION_SECRET", "lead-finder-dev-secret-change-in-production")
 app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET, max_age=86400 * 7)
 
+# ---------------------------------------------------------------------------
+# Simple in-memory TTL cache for read-heavy endpoints (stats, searches)
+# ---------------------------------------------------------------------------
+_cache = {}
+_CACHE_TTL = 30  # seconds
+
+def _cache_get(key):
+    entry = _cache.get(key)
+    if entry and (datetime.now() - entry["ts"]).total_seconds() < _CACHE_TTL:
+        return entry["value"]
+    return None
+
+def _cache_set(key, value):
+    _cache[key] = {"value": value, "ts": datetime.now()}
+
 
 # ---------------------------------------------------------------------------
 # DB init
 # ---------------------------------------------------------------------------
 
+# Connection pool (min 1, max 10) — avoids reconnect overhead on every request
+_db_pool = None
+
+def _get_pool():
+    global _db_pool
+    if _db_pool is None:
+        sslmode = "require" if "sslmode" not in DATABASE_URL else None
+        kwargs = {"cursor_factory": RealDictCursor}
+        if sslmode:
+            kwargs["sslmode"] = sslmode
+        _db_pool = psycopg2_pool.ThreadedConnectionPool(
+            minconn=1, maxconn=10, dsn=DATABASE_URL, **kwargs
+        )
+    return _db_pool
+
 def _get_conn():
-    conn = psycopg2.connect(DATABASE_URL, sslmode="require", cursor_factory=RealDictCursor)
-    return conn
+    return _get_pool().getconn()
+
+def _put_conn(conn):
+    try:
+        _get_pool().putconn(conn)
+    except Exception:
+        pass
 
 
 def _init_db() -> None:
@@ -117,8 +153,17 @@ def _init_db() -> None:
         )
     """)
 
+    # Performance indexes for Render / production
+    c.execute("CREATE INDEX IF NOT EXISTS idx_searches_user_id ON searches(user_id)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_searches_searched_at ON searches(searched_at DESC)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_contacts_user_id ON contacts(user_id)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_contacts_email ON contacts(email)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_contacts_status ON contacts(status)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_followups_email ON followups(contact_email)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_followups_user_id ON followups(user_id)")
+
     conn.commit()
-    conn.close()
+    _put_conn(conn)
 
 
 def _migrate_json_to_postgres() -> None:
@@ -127,9 +172,9 @@ def _migrate_json_to_postgres() -> None:
     c = conn.cursor()
     c.execute("SELECT COUNT(*) FROM contacts")
     if c.fetchone()["count"] > 0:
-        conn.close()
+        _put_conn(conn)
         return  # Already has data, skip migration
-    conn.close()
+    _put_conn(conn)
 
     # Migrate searches
     searches_file = DATA_DIR / "searches.json"
@@ -146,7 +191,7 @@ def _migrate_json_to_postgres() -> None:
             """, (s.get("job_id"), s.get("keyword"), s.get("pages"), s.get("total"),
                   s.get("user_id"), s.get("user_name"), s.get("searched_at"), 1 if s.get("deep") else 0))
         conn.commit()
-        conn.close()
+        _put_conn(conn)
         searches_file.rename(searches_file.with_suffix(".json.bak"))
 
     # Migrate contacts and followups
@@ -187,7 +232,7 @@ def _migrate_json_to_postgres() -> None:
                         VALUES (%s, %s, %s, %s, %s, %s)
                     """, (email, h.get("action"), h.get("notes", ""), h.get("user_id", ""), h.get("user_name", ""), h.get("at")))
         conn.commit()
-        conn.close()
+        _put_conn(conn)
         contacted_file.rename(contacted_file.with_suffix(".json.bak"))
 
     # Migrate keywords
@@ -204,7 +249,7 @@ def _migrate_json_to_postgres() -> None:
                 ON CONFLICT(term) DO NOTHING
             """, (term, count))
         conn.commit()
-        conn.close()
+        _put_conn(conn)
         keywords_file.rename(keywords_file.with_suffix(".json.bak"))
 
 
@@ -265,7 +310,7 @@ def db_save_search(job_id: str, keyword: str, pages: int, total: int, user_id: s
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
     """, (job_id, keyword, pages, total, user_id, user_name, datetime.now().isoformat(), 1 if deep else 0, csv_content))
     conn.commit()
-    conn.close()
+    _put_conn(conn)
 
 
 def db_list_searches(user_id: str, role: str, keyword_filter: str = "") -> list:
@@ -276,7 +321,7 @@ def db_list_searches(user_id: str, role: str, keyword_filter: str = "") -> list:
     else:
         c.execute("SELECT * FROM searches WHERE user_id = %s ORDER BY searched_at DESC LIMIT 100", (user_id,))
     rows = c.fetchall()
-    conn.close()
+    _put_conn(conn)
     results = []
     for row in rows:
         d = dict(row)
@@ -291,7 +336,7 @@ def db_get_search(job_id: str) -> Optional[dict]:
     c = conn.cursor()
     c.execute("SELECT * FROM searches WHERE job_id = %s", (job_id,))
     row = c.fetchone()
-    conn.close()
+    _put_conn(conn)
     if not row:
         return None
     d = dict(row)
@@ -319,7 +364,7 @@ def db_create_contact(email: str, domain: str, user_id: str, user_name: str, not
         VALUES (%s, %s, %s, %s, %s, %s)
     """, (email.lower().strip(), "已发邮件", notes, user_id, user_name, now))
     conn.commit()
-    conn.close()
+    _put_conn(conn)
 
 
 def db_list_contacts(user_id: str, role: str) -> list:
@@ -330,7 +375,7 @@ def db_list_contacts(user_id: str, role: str) -> list:
     else:
         c.execute("SELECT * FROM contacts WHERE user_id = %s ORDER BY created_at DESC", (user_id,))
     rows = c.fetchall()
-    conn.close()
+    _put_conn(conn)
     return [dict(r) for r in rows]
 
 
@@ -339,7 +384,7 @@ def db_get_contact(email: str) -> Optional[dict]:
     c = conn.cursor()
     c.execute("SELECT * FROM contacts WHERE email = %s", (email.lower().strip(),))
     row = c.fetchone()
-    conn.close()
+    _put_conn(conn)
     if not row:
         return None
     contact = dict(row)
@@ -357,7 +402,7 @@ def db_update_contact_status(email: str, status: str) -> None:
     c = conn.cursor()
     c.execute("UPDATE contacts SET status = %s WHERE email = %s", (status, email.lower().strip()))
     conn.commit()
-    conn.close()
+    _put_conn(conn)
 
 
 def db_add_followup(email: str, action: str, notes: str, next_follow_up: str, user_id: str, user_name: str) -> None:
@@ -372,7 +417,7 @@ def db_add_followup(email: str, action: str, notes: str, next_follow_up: str, us
     if next_follow_up:
         c.execute("UPDATE contacts SET next_follow_up = %s WHERE email = %s", (next_follow_up, email.lower().strip()))
     conn.commit()
-    conn.close()
+    _put_conn(conn)
 
 
 def db_list_followups(email: str) -> list:
@@ -380,7 +425,7 @@ def db_list_followups(email: str) -> list:
     c = conn.cursor()
     c.execute("SELECT * FROM followups WHERE contact_email = %s ORDER BY created_at ASC", (email.lower().strip(),))
     rows = c.fetchall()
-    conn.close()
+    _put_conn(conn)
     results = []
     for r in rows:
         d = dict(r)
@@ -399,7 +444,7 @@ def db_enrich_leads(leads: list) -> list:
         c.execute(f"SELECT email, user_name, status, created_at FROM contacts WHERE email IN ({placeholders})", emails)
         for r in c.fetchall():
             contact_map[r["email"]] = {"user_name": r["user_name"], "status": r["status"], "created_at": r["created_at"]}
-    conn.close()
+    _put_conn(conn)
     for lead in leads:
         email = lead.get("email", "").lower().strip()
         info = contact_map.get(email)
@@ -455,7 +500,7 @@ def db_increment_keyword(term: str) -> None:
     c = conn.cursor()
     c.execute("INSERT INTO keywords (term, count) VALUES (%s, 1) ON CONFLICT(term) DO UPDATE SET count = keywords.count + 1", (term.strip().lower(),))
     conn.commit()
-    conn.close()
+    _put_conn(conn)
 
 
 def db_list_keywords() -> list:
@@ -463,7 +508,7 @@ def db_list_keywords() -> list:
     c = conn.cursor()
     c.execute("SELECT term, count FROM keywords ORDER BY count DESC")
     rows = c.fetchall()
-    conn.close()
+    _put_conn(conn)
     return [{"term": r["term"], "count": r["count"]} for r in rows]
 
 
@@ -505,7 +550,7 @@ def db_get_stats(user_id: str, role: str) -> dict:
     """, (datetime.now().isoformat(), role, user_id))
     followup = c.fetchone()["cnt"] or 0
 
-    conn.close()
+    _put_conn(conn)
     return {
         "total_leads": total_leads,
         "contacted": contacted,
@@ -775,7 +820,12 @@ async def download_leads(job_id: str, user: dict = Depends(require_user)):
 @app.get("/api/stats")
 async def get_stats(user: dict = Depends(require_user)):
     """Return dashboard stats: weekly leads, contacted, won, follow-up."""
+    cache_key = f"stats:{user['user_id']}:{user['role']}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
     stats = db_get_stats(user["user_id"], user["role"])
+    _cache_set(cache_key, stats)
     return stats
 
 
@@ -860,8 +910,14 @@ async def get_searches(
     user: dict = Depends(require_user),
 ):
     """Return search history (admin sees all, sales sees own)."""
+    cache_key = f"searches:{user['user_id']}:{user['role']}:{keyword}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
     results = db_list_searches(user["user_id"], user["role"], keyword)
-    return {"searches": results}
+    out = {"searches": results}
+    _cache_set(cache_key, out)
+    return out
 
 
 @app.get("/api/searches/{job_id}")
