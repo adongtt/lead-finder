@@ -301,6 +301,10 @@
 
     <div class="filter-bar" id="filterBar" style="display:none;">
       <input type="text" id="positionFilter" placeholder="输入职位关键词筛选，如 Buyer、Manager..." onkeydown="if(event.key==='Enter')applyFilter()">
+      <label style="display:flex;align-items:center;gap:6px;font-size:14px;color:var(--text);white-space:nowrap;">
+        关联度 ≥
+        <input type="number" id="relevanceFilter" value="" min="-50" max="100" placeholder="不限" style="width:70px;padding:6px 8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;font-size:14px;outline:none;">
+      </label>
       <button class="primary" onclick="applyFilter()">筛选</button>
       <button onclick="clearFilter()">重置</button>
     </div>
@@ -658,14 +662,26 @@
     }
 
     function applyFilter() {
-      const filter = document.getElementById('positionFilter').value.trim().toLowerCase();
-      if (!filter) {
+      const posFilter = document.getElementById('positionFilter').value.trim().toLowerCase();
+      const relFilter = document.getElementById('relevanceFilter').value;
+      const relMin = relFilter === '' ? null : parseFloat(relFilter);
+
+      filteredLeads = allLeads.slice();
+      if (posFilter) {
+        filteredLeads = filteredLeads.filter(l => (l.position || '').toLowerCase().includes(posFilter));
+      }
+      if (relMin !== null && !isNaN(relMin)) {
+        filteredLeads = filteredLeads.filter(l => (l.relevance_score || 0) >= relMin);
+      }
+      if (!posFilter && relMin === null) {
         clearFilter();
         return;
       }
-      filteredLeads = allLeads.filter(l => (l.position || '').toLowerCase().includes(filter));
       currentPage = 1;
-      document.getElementById('filterInfo').textContent = `职位筛选："${filter}" · 共 ${filteredLeads.length} 条结果`;
+      const parts = [];
+      if (posFilter) parts.push(`职位："${posFilter}"`);
+      if (relMin !== null) parts.push(`关联度 ≥ ${relMin}`);
+      document.getElementById('filterInfo').textContent = parts.join(' · ') + ` · 共 ${filteredLeads.length} 条结果`;
       document.getElementById('filterInfo').style.display = 'block';
       renderPage();
       renderPositionTags();
@@ -673,6 +689,7 @@
 
     function clearFilter() {
       document.getElementById('positionFilter').value = '';
+      document.getElementById('relevanceFilter').value = '';
       filteredLeads = allLeads.slice();
       currentPage = 1;
       document.getElementById('filterInfo').style.display = 'none';

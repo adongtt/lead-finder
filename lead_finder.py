@@ -242,6 +242,16 @@ EXCLUDED_DOMAINS = {
     "nike.com", "nike.cn",
     "adidas.com", "adidas.co.uk", "adidas.de",
     "underarmour.com", "underarmour.co.uk",
+    # Additional wholesale / marketplace platforms
+    "thomasnet.com", "kompass.com", " europages.com",
+    "yellowpages.com", "yellowpages.ca", "yelp.com",
+    "bbb.org", "manta.com", "zoominfo.com",
+    # Big generic manufacturers / OEM directories
+    "panjiva.com", "volza.com", "exportgenius.in",
+    # More social / content platforms
+    "crunchbase.com", "owler.com", "glassdoor.com",
+    "indeed.com", "simplyhired.com", "monster.com",
+
     "puma.com", "puma.de", "puma.co.uk",
     "newbalance.com", "newbalance.co.uk",
     "asics.com", "mizuno.com", "mizunousa.com",
@@ -258,6 +268,19 @@ EXCLUDED_DOMAINS = {
     "the-north-pole.com", "flighttothenorthpole.org",
     # Automotive (motorcycle brands with riding gear/gloves)
     "bmw.com", "bmwmotorcycles.com",
+}
+
+# Major B2B directories / wholesale platforms that flood results.
+# When "exclude big platforms" is enabled, these are appended as `-site:` exclusions.
+BIG_PLATFORMS = {
+    "alibaba.com", "aliexpress.com", "made-in-china.com",
+    "tradeindia.com", "indiamart.com", "globalsources.com",
+    "dhgate.com", "1688.com", "ec21.com", "ecplaza.net",
+    "thomasnet.com", "kompass.com", "europages.com",
+    "yellowpages.com", "yelp.com", "bbb.org",
+    "panjiva.com", "volza.com", "exportgenius.in",
+    "amazon.com", "ebay.com", "walmart.com",
+    "g2.com", "capterra.com", "trustpilot.com",
 }
 
 # ---------------------------------------------------------------------------
@@ -347,23 +370,93 @@ def score_search_result(title: str = "", snippet: str = "") -> int:
     return score
 
 
-def build_enhanced_query(keyword: str, b2b_focus: bool = True) -> str:
-    """Enhance raw keyword with B2B qualifiers to improve result relevance.
+def build_enhanced_query(
+    keyword: str,
+    b2b_focus: bool = True,
+    exclude_big_platforms: bool = False,
+    advanced_syntax: bool = False,
+) -> str:
+    """Enhance raw keyword with B2B qualifiers and optional exclusions.
 
     Prioritizes distributor/importer/dealer terms since those are the
     actual buyers/decision-makers for lead generation.
     """
-    if not b2b_focus:
-        return keyword
-    lower = keyword.lower()
-    # If user already specified B2B terms, don't overwrite
-    b2b_terms = ["manufacturer", "factory", "wholesale", "supplier", "oem", "odm",
-                 "distributor", "importer", "dealer", "reseller"]
-    if any(t in lower for t in b2b_terms):
-        return keyword
-    # Append distributor-focused qualifiers
-    enhanced = f"{keyword} (distributor OR importer OR wholesaler OR dealer)"
-    return enhanced
+    query = keyword.strip()
+    if not query:
+        return query
+
+    # Advanced syntax: wrap bare keyword in intitle for tighter matching
+    if advanced_syntax and not query.lower().startswith("intitle:"):
+        core = query.strip('"')
+        query = f'intitle:"{core}" {core}'
+
+    if b2b_focus:
+        lower = query.lower()
+        b2b_terms = ["manufacturer", "factory", "wholesale", "supplier", "oem", "odm",
+                     "distributor", "importer", "dealer", "reseller"]
+        if not any(t in lower for t in b2b_terms):
+            query = f"{query} (distributor OR importer OR wholesaler OR dealer)"
+
+    if exclude_big_platforms:
+        for site in sorted(BIG_PLATFORMS):
+            query += f" -site:{site}"
+
+    return query
+
+
+def _score_search_result_relevance(title: str, snippet: str, keyword: str) -> int:
+    """Score a single search result by its title + snippet.
+
+    Higher = more likely a small distributor/manufacturer.
+    Lower = generic directory, big brand, or unrelated content.
+    """
+    text = (title + " " + snippet).lower()
+    if not text.strip():
+        return 0
+
+    score = 0
+    # Title contains exact product keyword → strong signal
+    kw_lower = keyword.lower().strip('"')
+    if kw_lower in title.lower():
+        score += 20
+
+    # Distributor / importer / wholesale signals
+    b2b_signals = ["distributor", "wholesaler", "importer", "dealer",
+                   "reseller", "stockist", "agent", "supplier"]
+    for sig in b2b_signals:
+        if sig in text:
+            score += 15
+
+    # Manufacturer / factory signals
+    mfg_signals = ["manufacturer", "factory", "oem", "odm", "producer",
+                   "private label", "custom", "bespoke", "bulk"]
+    for sig in mfg_signals:
+        if sig in text:
+            score += 12
+
+    # Negative: big platform / directory signals
+    platform_signals = ["amazon", "alibaba", "ebay", "walmart", "shopify",
+                        "directory", "marketplace", "list of", "top 10",
+                        "best ", "review", "buying guide", "vs ", "compare"]
+    for sig in platform_signals:
+        if sig in text:
+            score -= 25
+
+    # Negative: news / blog / content farm
+    content_signals = ["news", "blog", "article", "magazine", "how to",
+                       "tips", "ultimate guide", "wikipedia"]
+    for sig in content_signals:
+        if sig in text:
+            score -= 20
+
+    # Small-business signals (great for finding small sites)
+    small_signals = ["family owned", "family-owned", "small business",
+                     "boutique", "specialty", "since 19", "established"]
+    for sig in small_signals:
+        if sig in text:
+            score += 10
+
+    return score
 
 
 def calculate_content_relevance(meta: dict, keyword: str) -> int:
@@ -1675,6 +1768,9 @@ class LeadFinder:
         amazon: bool = False,
         maps_region: str = "",
         keep_no_email: bool = False,
+        exclude_big_platforms: bool = False,
+        advanced_syntax: bool = False,
+        strict_mode: bool = False,
     ) -> None:
         timestamp = datetime.now().isoformat()
         domain_source_type: Dict[str, str] = {}
@@ -1682,11 +1778,22 @@ class LeadFinder:
         engine = self._resolve_engine(force_maps=use_maps)
         skip_pages = 5 if deep else 0
 
+        # Strict mode tightens relevance threshold and search strategy
+        if strict_mode:
+            min_relevance = max(min_relevance, 10)
+            exclude_big_platforms = True
+            advanced_syntax = True
+
         # Google Maps should use the exact raw keyword without enhancement
         if engine == "google_maps":
             search_query = keyword
         else:
-            search_query = build_enhanced_query(keyword, b2b_focus=b2b_focus)
+            search_query = build_enhanced_query(
+                keyword,
+                b2b_focus=b2b_focus,
+                exclude_big_platforms=exclude_big_platforms,
+                advanced_syntax=advanced_syntax,
+            )
 
         print(f"\n{'='*60}")
         print(f"  B2B Lead Finder")
@@ -1743,6 +1850,24 @@ class LeadFinder:
                 else:
                     print(f"  [DuckDuckGo] Only {len(raw_results)} results returned, keeping all (deep skip not applied).")
         print(f"      Total results found: {len(raw_results)}")
+
+        # Apply search-result-level relevance scoring (skip for direct domains or maps)
+        if not domains and engine != "google_maps" and (exclude_big_platforms or strict_mode or advanced_syntax):
+            before = len(raw_results)
+            scored_results = []
+            for r in raw_results:
+                title = r.get("title", "")
+                snippet = r.get("snippet", "")
+                sr_score = _score_search_result_relevance(title, snippet, keyword)
+                # In strict mode require at least modest search-result score
+                threshold = 5 if strict_mode else -10
+                if sr_score >= threshold:
+                    scored_results.append(r)
+            raw_results = scored_results
+            after = len(raw_results)
+            if after < before:
+                print(f"      Filtered out {before - after} low-relevance search results (title/snippet score)")
+
         print("PROGRESS: 20")
 
         # 1b. Amazon brand search (optional)
@@ -2245,6 +2370,21 @@ def main():
         action="store_true",
         help="Keep leads even when no email is found (useful for phone-based outreach)",
     )
+    parser.add_argument(
+        "--exclude-big-platforms",
+        action="store_true",
+        help="Exclude major B2B directory / marketplace platforms from search results (Alibaba, ThomasNet, etc.)",
+    )
+    parser.add_argument(
+        "--advanced-syntax",
+        action="store_true",
+        help="Use advanced search syntax (intitle:) for tighter keyword matching",
+    )
+    parser.add_argument(
+        "--strict-mode",
+        action="store_true",
+        help="Strict filtering: enables --exclude-big-platforms, --advanced-syntax, and raises min-relevance to 10",
+    )
     args = parser.parse_args()
 
     extra_excluded = set(d.strip().lower() for d in args.exclude.split(",") if d.strip())
@@ -2266,6 +2406,9 @@ def main():
         amazon=args.amazon,
         maps_region=getattr(args, "maps_region", ""),
         keep_no_email=getattr(args, "keep_no_email", False),
+        exclude_big_platforms=getattr(args, "exclude_big_platforms", False),
+        advanced_syntax=getattr(args, "advanced_syntax", False),
+        strict_mode=getattr(args, "strict_mode", False),
     )
 
 

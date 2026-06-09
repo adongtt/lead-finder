@@ -407,6 +407,29 @@
                   深度搜索 — 跳过前 5 页，避开大品牌
                 </label>
                 <p class="hint" style="margin-bottom:16px;">搜索小型分销商 / 零售商时建议开启</p>
+                <label style="display:flex;align-items:center;gap:8px;cursor:pointer;text-transform:none;letter-spacing:0;font-weight:500;color:var(--text);margin-bottom:12px;">
+                  <input type="checkbox" id="excludeBigPlatforms" name="exclude_big_platforms" style="width:auto;">
+                  排除大平台 — 过滤 Alibaba / ThomasNet 等目录站
+                </label>
+                <p class="hint" style="margin-bottom:16px;">减少综合站点，更容易找到独立分销商</p>
+                <label style="display:flex;align-items:center;gap:8px;cursor:pointer;text-transform:none;letter-spacing:0;font-weight:500;color:var(--text);margin-bottom:12px;">
+                  <input type="checkbox" id="advancedSyntax" name="advanced_syntax" style="width:auto;">
+                  高级搜索语法 — 标题必须包含关键词
+                </label>
+                <p class="hint" style="margin-bottom:16px;">使用 intitle: 限定，结果更精准但数量可能更少</p>
+                <label style="display:flex;align-items:center;gap:8px;cursor:pointer;text-transform:none;letter-spacing:0;font-weight:500;color:var(--text);margin-bottom:12px;">
+                  <input type="checkbox" id="strictMode" name="strict_mode" style="width:auto;">
+                  严格模式 — 综合过滤（推荐）
+                </label>
+                <p class="hint" style="margin-bottom:16px;">一键开启大平台排除 + 高级语法 + 提高关联度门槛</p>
+                <div style="margin-bottom:12px;">
+                  <label for="minRelevance" style="display:flex;justify-content:space-between;font-weight:500;color:var(--text);">
+                    <span>关联度最低分</span>
+                    <span id="minRelevanceVal" style="color:var(--primary);font-weight:700;">-50</span>
+                  </label>
+                  <input type="range" id="minRelevance" name="min_relevance" min="-50" max="50" value="-50" style="width:100%;margin-top:8px;" oninput="document.getElementById('minRelevanceVal').textContent = this.value">
+                  <p class="hint">调高可过滤低关联站点（严格模式自动设为 10）</p>
+                </div>
                 <label style="display:flex;align-items:center;gap:8px;cursor:pointer;text-transform:none;letter-spacing:0;font-weight:500;color:var(--text);">
                   <input type="checkbox" id="amazon" name="amazon" style="width:auto;">
                   同时搜索 Amazon 品牌
@@ -685,6 +708,10 @@
       const deep = document.getElementById('deep').checked;
       const amazon = document.getElementById('amazon').checked;
       const keepNoEmail = document.getElementById('keepNoEmail').checked;
+      const excludeBigPlatforms = document.getElementById('excludeBigPlatforms').checked;
+      const advancedSyntax = document.getElementById('advancedSyntax').checked;
+      const strictMode = document.getElementById('strictMode').checked;
+      const minRelevance = document.getElementById('minRelevance').value;
       const domainsInput = document.getElementById('domainsInput').value;
       const targetTldSelect = document.getElementById('targetTld');
       const checkedTlds = Array.from(targetTldSelect.selectedOptions).map(opt => opt.value);
@@ -695,6 +722,10 @@
       if (deep) params.append('deep', 'true');
       if (amazon) params.append('amazon', 'true');
       if (keepNoEmail) params.append('keep_no_email', 'true');
+      if (excludeBigPlatforms) params.append('exclude_big_platforms', 'true');
+      if (advancedSyntax) params.append('advanced_syntax', 'true');
+      if (strictMode) params.append('strict_mode', 'true');
+      if (minRelevance && minRelevance !== '-50') params.append('min_relevance', minRelevance);
       if (domainsInput) params.append('domains', domainsInput);
       if (checkedTlds.length > 0) params.append('target_tlds', checkedTlds.join(','));
       if (currentMode === 'google_maps') {
