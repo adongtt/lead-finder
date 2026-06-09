@@ -467,6 +467,53 @@ def db_list_keywords() -> list:
     return [{"term": r["term"], "count": r["count"]} for r in rows]
 
 
+def db_get_stats(user_id: str, role: str) -> dict:
+    """Return dashboard stats for the current user (or all if admin)."""
+    conn = _get_conn()
+    c = conn.cursor()
+
+    # Weekly leads (searches created this week)
+    c.execute("""
+        SELECT COALESCE(SUM(total), 0) as total
+        FROM searches
+        WHERE searched_at >= date_trunc('week', now()::timestamp)
+        AND (%s = 'admin' OR user_id = %s)
+    """, (role, user_id))
+    total_leads = c.fetchone()["total"] or 0
+
+    # Contacted count
+    c.execute("""
+        SELECT COUNT(*) as cnt FROM contacts
+        WHERE (%s = 'admin' OR user_id = %s)
+    """, (role, user_id))
+    contacted = c.fetchone()["cnt"] or 0
+
+    # Won count
+    c.execute("""
+        SELECT COUNT(*) as cnt FROM contacts
+        WHERE status = '成交'
+        AND (%s = 'admin' OR user_id = %s)
+    """, (role, user_id))
+    won = c.fetchone()["cnt"] or 0
+
+    # Follow-up needed (has next_follow_up in the future or no follow-up)
+    c.execute("""
+        SELECT COUNT(*) as cnt FROM contacts
+        WHERE (next_follow_up IS NULL OR next_follow_up = '' OR next_follow_up >= %s)
+        AND status NOT IN ('成交', '放弃')
+        AND (%s = 'admin' OR user_id = %s)
+    """, (datetime.now().isoformat(), role, user_id))
+    followup = c.fetchone()["cnt"] or 0
+
+    conn.close()
+    return {
+        "total_leads": total_leads,
+        "contacted": contacted,
+        "won": won,
+        "followup": followup,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Page endpoints
 # ---------------------------------------------------------------------------
@@ -723,6 +770,13 @@ async def download_leads(job_id: str, user: dict = Depends(require_user)):
         media_type="text/csv",
         headers={"Content-Disposition": f"attachment; filename=leads_{job_id}.csv"}
     )
+
+
+@app.get("/api/stats")
+async def get_stats(user: dict = Depends(require_user)):
+    """Return dashboard stats: weekly leads, contacted, won, follow-up."""
+    stats = db_get_stats(user["user_id"], user["role"])
+    return stats
 
 
 @app.get("/api/keywords")

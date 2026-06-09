@@ -473,12 +473,36 @@
             <button onclick="logout()" style="width:auto;padding:8px 14px;font-size:13px;background:var(--border);color:var(--text);">退出</button>
           </div>
         </div>
+        <!-- 数据看板 -->
+        <div class="card" id="statsCard" style="display:none;">
+          <h2>数据看板</h2>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px;">
+            <div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px;text-align:center;">
+              <div style="font-size:22px;font-weight:700;color:var(--primary);" id="statTotalLeads">0</div>
+              <div style="font-size:12px;color:var(--muted);margin-top:4px;">本周线索</div>
+            </div>
+            <div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px;text-align:center;">
+              <div style="font-size:22px;font-weight:700;color:#d97706;" id="statContacted">0</div>
+              <div style="font-size:12px;color:var(--muted);margin-top:4px;">已联系</div>
+            </div>
+            <div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px;text-align:center;">
+              <div style="font-size:22px;font-weight:700;color:var(--success);" id="statWon">0</div>
+              <div style="font-size:12px;color:var(--muted);margin-top:4px;">成交</div>
+            </div>
+            <div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px;text-align:center;">
+              <div style="font-size:22px;font-weight:700;color:#7c3aed;" id="statFollowup">0</div>
+              <div style="font-size:12px;color:var(--muted);margin-top:4px;">待跟进</div>
+            </div>
+          </div>
+        </div>
+
         <div class="card">
-          <h2>热门搜索</h2>
-          <ul id="keywordList" class="keyword-list">
+          <h2>最近搜索</h2>
+          <ul id="searchList" class="keyword-list">
             <li class="empty-hint">加载中...</li>
           </ul>
         </div>
+
         <div class="card">
           <h2>邮件签名</h2>
           <div class="sig-compact">
@@ -488,15 +512,10 @@
             <button onclick="saveSignature()">保存签名</button>
           </div>
         </div>
+
         <div class="card">
           <h2>已联系客户</h2>
           <ul id="contactedList" class="keyword-list">
-            <li class="empty-hint">加载中...</li>
-          </ul>
-        </div>
-        <div class="card">
-          <h2>历史搜索</h2>
-          <ul id="searchList" class="keyword-list">
             <li class="empty-hint">加载中...</li>
           </ul>
         </div>
@@ -728,7 +747,7 @@
       </div>`;
       if (data.preview && data.preview.length > 0) {
         html += '<table><thead><tr>' +
-          '<th>邮箱</th><th>姓名</th><th>职位</th><th>国家</th><th>电话</th><th>公司</th><th>域名</th><th>状态</th><th>操作</th>' +
+          '<th>邮箱</th><th>姓名</th><th>职位</th><th>国家</th><th>电话</th><th>公司</th><th>域名</th><th>来源</th><th>状态</th><th>操作</th>' +
           '</tr></thead><tbody>';
         for (let i = 0; i < data.preview.length; i++) {
           const row = data.preview[i];
@@ -743,6 +762,7 @@
             `<td>${escapeHtml(row.phone || '')}</td>` +
             `<td>${escapeHtml(row.company || '')} <a href="${liUrl}" target="_blank" rel="noopener" title="LinkedIn 搜索公司" style="color:#0a66c2;font-size:11px;margin-left:4px;">[in]</a></td>` +
             `<td>${escapeHtml(row.domain || '')}</td>` +
+            `<td>${sourceTypeLabel(row.source_type || '')}</td>` +
             `<td>${badge}</td>` +
             `<td>` +
               (row.email
@@ -849,6 +869,15 @@
       return div.innerHTML;
     }
 
+    function sourceTypeLabel(type) {
+      const map = {
+        'search': '<span style="font-size:11px;color:#64748b;background:#f1f5f9;padding:2px 6px;border-radius:4px;">搜索引擎</span>',
+        'google_maps': '<span style="font-size:11px;color:#059669;background:#d1fae5;padding:2px 6px;border-radius:4px;">Google Maps</span>',
+        'linkedin_discovery': '<span style="font-size:11px;color:#0a66c2;background:#dbeafe;padding:2px 6px;border-radius:4px;">LinkedIn</span>',
+      };
+      return map[type] || `<span style="font-size:11px;color:#64748b;background:#f1f5f9;padding:2px 6px;border-radius:4px;">${escapeHtml(type || '未知')}</span>`;
+    }
+
     function statusBadge(status) {
       const map = {
         '未联系': 'status-new',
@@ -863,27 +892,18 @@
       return `<span class="badge ${cls}">${escapeHtml(status || '未联系')}</span>`;
     }
 
-    async function loadKeywords() {
-      const list = document.getElementById('keywordList');
+    async function loadStats() {
       try {
-        const res = await fetch('/api/keywords');
+        const res = await fetch('/api/stats');
+        if (!res.ok) return;
         const data = await res.json();
-        if (!data.keywords || data.keywords.length === 0) {
-          list.innerHTML = '<li class="empty-hint">暂无搜索记录</li>';
-          return;
-        }
-        list.innerHTML = '';
-        for (const item of data.keywords) {
-          const li = document.createElement('li');
-          li.innerHTML = `<span class="term">${escapeHtml(item.term)}</span><span class="count">${item.count}</span>`;
-          li.addEventListener('click', () => {
-            document.getElementById('keyword').value = item.term;
-            document.getElementById('keyword').focus();
-          });
-          list.appendChild(li);
-        }
+        document.getElementById('statTotalLeads').textContent = data.total_leads || 0;
+        document.getElementById('statContacted').textContent = data.contacted || 0;
+        document.getElementById('statWon').textContent = data.won || 0;
+        document.getElementById('statFollowup').textContent = data.followup || 0;
+        document.getElementById('statsCard').style.display = 'block';
       } catch (err) {
-        list.innerHTML = '<li class="empty-hint">加载失败</li>';
+        // silently fail
       }
     }
 
@@ -1025,12 +1045,21 @@
           return;
         }
         list.innerHTML = '';
-        for (const s of data.searches.slice(0, 20)) {
+        for (const s of data.searches.slice(0, 15)) {
           const li = document.createElement('li');
-          li.style.cursor = 'pointer';
-          const time = s.searched_at ? s.searched_at.slice(0,16).replace('T',' ') : '';
-          li.innerHTML = `<span class="term">${escapeHtml(s.keyword)}</span><span class="count">${s.total || 0}</span>`;
-          li.title = `${escapeHtml(s.user_name || '')} · ${time}`;
+          li.style.display = 'block';
+          li.style.padding = '10px 12px';
+          const time = s.searched_at ? s.searched_at.slice(5,16).replace('T',' ') : '';
+          li.innerHTML =
+            `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">` +
+              `<span class="term" style="font-size:13px;word-break:break-all;">${escapeHtml(s.keyword)}</span>` +
+              `<span class="count" style="font-size:11px;">${s.total || 0} 条</span>` +
+            `</div>` +
+            `<div style="display:flex;justify-content:space-between;align-items:center;">` +
+              `<span style="font-size:11px;color:var(--muted);">${escapeHtml(time)}</span>` +
+              `<button onclick="event.stopPropagation();rerunSearch('${escapeHtml(s.keyword)}')" ` +
+              `style="width:auto;padding:3px 10px;font-size:11px;background:var(--bg);color:var(--primary);border:1px solid var(--primary);border-radius:4px;cursor:pointer;font-weight:600;">重跑</button>` +
+            `</div>`;
           li.addEventListener('click', () => {
             window.location.href = '/result?job_id=' + encodeURIComponent(s.job_id);
           });
@@ -1039,6 +1068,14 @@
       } catch (err) {
         list.innerHTML = '<li class="empty-hint">加载失败</li>';
       }
+    }
+
+    function rerunSearch(keyword) {
+      document.getElementById('keyword').value = keyword;
+      setMode('keyword');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      // Optional: auto submit
+      // document.getElementById('searchForm').dispatchEvent(new Event('submit'));
     }
 
     async function checkAuth() {
@@ -1067,7 +1104,7 @@
     }
 
     checkAuth();
-    loadKeywords();
+    loadStats();
     loadContacted();
     loadSearches();
     restoreSignatureInputs();
