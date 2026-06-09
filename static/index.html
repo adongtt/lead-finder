@@ -328,7 +328,8 @@
               </div>
             </div>
 
-            <div style="margin-bottom:16px">
+            <!-- 关键词（keyword / maps 模式） -->
+            <div id="keywordWrap" style="margin-bottom:16px">
               <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
                 <label for="keyword">关键词</label>
                 <select id="keywordTemplate" onchange="applyTemplate()" style="width:auto;padding:4px 8px;font-size:12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--muted);cursor:pointer;">
@@ -346,25 +347,26 @@
               <input type="text" id="keyword" name="keyword" placeholder='例如 "baseball gloves distributor"' required>
             </div>
 
-            <!-- Google Maps 地区输入（默认隐藏） -->
+            <!-- Google Maps 地区（maps 模式） -->
             <div id="mapsRegionWrap" style="margin-bottom:16px;display:none;">
               <label for="mapsRegion">目标地区（如 USA、Germany、Japan）</label>
               <input type="text" id="mapsRegion" name="maps_region" placeholder='例如 "USA" 或 "Southeast Asia"'>
               <p class="hint">Google Maps 会优先搜索该地区的商家</p>
             </div>
 
-            <!-- 批量导入域名（默认隐藏） -->
+            <!-- 批量导入域名（domains 模式） -->
             <div id="domainsWrap" style="margin-bottom:16px;display:none;">
               <label for="domainsInput">域名列表（每行一个或逗号分隔）</label>
               <textarea id="domainsInput" rows="5" placeholder="example.com\nabc-inc.com\nsportsgear.de" style="width:100%;padding:12px 14px;background:var(--bg);border:1px solid var(--border);border-radius:8px;font-size:14px;resize:vertical;"></textarea>
               <p class="hint">从展会名单、海关数据等渠道获取的域名，直接粘贴进来</p>
             </div>
 
-            <div class="row">
-              <div>
-                <label for="pages">搜索页数</label>
+            <!-- 搜索页数 + 最大域名数 -->
+            <div class="row" id="pagesWrap">
+              <div id="pagesCol">
+                <label for="pages" id="pagesLabel">搜索页数</label>
                 <input type="number" id="pages" name="pages" value="20" min="1">
-                <p class="hint">要扫描多少页搜索结果</p>
+                <p class="hint" id="pagesHint">要扫描多少页搜索结果</p>
               </div>
               <div>
                 <label for="max_domains">最大域名数</label>
@@ -373,66 +375,53 @@
               </div>
             </div>
 
+            <!-- 排除域名 -->
             <div style="margin-bottom:20px">
               <label for="exclude">排除域名（可选）</label>
               <input type="text" id="exclude" name="exclude" placeholder="nike.com,adidas.com">
               <p class="hint">逗号分隔，跳过这些域名</p>
             </div>
 
-            <!-- 目标国家过滤 -->
-            <div style="margin-bottom:20px">
+            <!-- 目标国家 / 地区（keyword 模式） -->
+            <div id="targetTldWrap" style="margin-bottom:20px">
               <label>目标国家 / 地区（可选）</label>
-              <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;">
-                <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:13px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--text);">
-                  <input type="checkbox" name="target_tld" value=".com" checked style="width:auto;"> 美国 (.com)
+              <select id="targetTld" multiple style="width:100%;padding:8px 12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;font-size:14px;height:auto;min-height:100px;outline:none;">
+                <option value=".com" selected>美国 / 全球通用 (.com)</option>
+                <option value=".de">德国 (.de)</option>
+                <option value=".uk">英国 (.uk)</option>
+                <option value=".fr">法国 (.fr)</option>
+                <option value=".au">澳大利亚 (.au)</option>
+                <option value=".ca">加拿大 (.ca)</option>
+                <option value=".nl">荷兰 (.nl)</option>
+                <option value=".jp">日本 (.jp)</option>
+              </select>
+              <p class="hint">按住 Ctrl/Cmd 多选；不选则保留所有国家</p>
+            </div>
+
+            <!-- 更多选项（keyword 模式） -->
+            <div id="advancedWrap" style="margin-bottom:20px">
+              <button type="button" onclick="toggleAdvanced()" id="advancedToggle" style="width:auto;padding:6px 14px;font-size:13px;background:var(--bg);color:var(--muted);border:1px solid var(--border);border-radius:6px;font-weight:500;cursor:pointer;">更多选项 ▼</button>
+              <div id="advancedContent" style="display:none;margin-top:12px;padding:16px;background:var(--bg);border:1px solid var(--border);border-radius:8px;">
+                <label style="display:flex;align-items:center;gap:8px;cursor:pointer;text-transform:none;letter-spacing:0;font-weight:500;color:var(--text);margin-bottom:12px;">
+                  <input type="checkbox" id="deep" name="deep" style="width:auto;">
+                  深度搜索 — 跳过前 5 页，避开大品牌
                 </label>
-                <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:13px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--text);">
-                  <input type="checkbox" name="target_tld" value=".de" style="width:auto;"> 德国 (.de)
+                <p class="hint" style="margin-bottom:16px;">搜索小型分销商 / 零售商时建议开启</p>
+                <label style="display:flex;align-items:center;gap:8px;cursor:pointer;text-transform:none;letter-spacing:0;font-weight:500;color:var(--text);">
+                  <input type="checkbox" id="amazon" name="amazon" style="width:auto;">
+                  同时搜索 Amazon 品牌
                 </label>
-                <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:13px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--text);">
-                  <input type="checkbox" name="target_tld" value=".uk" style="width:auto;"> 英国 (.uk)
-                </label>
-                <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:13px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--text);">
-                  <input type="checkbox" name="target_tld" value=".fr" style="width:auto;"> 法国 (.fr)
-                </label>
-                <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:13px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--text);">
-                  <input type="checkbox" name="target_tld" value=".au" style="width:auto;"> 澳大利亚 (.au)
-                </label>
-                <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:13px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--text);">
-                  <input type="checkbox" name="target_tld" value=".ca" style="width:auto;"> 加拿大 (.ca)
-                </label>
-                <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:13px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--text);">
-                  <input type="checkbox" name="target_tld" value=".nl" style="width:auto;"> 荷兰 (.nl)
-                </label>
-                <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:13px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--text);">
-                  <input type="checkbox" name="target_tld" value=".jp" style="width:auto;"> 日本 (.jp)
-                </label>
+                <p class="hint">从 Amazon 热门产品中发现潜在品牌客户（需要翻墙）</p>
               </div>
-              <p class="hint">不选则保留所有国家；.com 全球通用，默认勾选</p>
             </div>
 
-            <div style="margin-bottom:20px">
-              <label style="display:flex;align-items:center;gap:8px;cursor:pointer;text-transform:none;letter-spacing:0;font-weight:500;color:var(--text);">
-                <input type="checkbox" id="deep" name="deep" style="width:auto;">
-                深度搜索 — 跳过前 5 页，避开大品牌
-              </label>
-              <p class="hint">搜索小型分销商 / 零售商时建议开启</p>
-            </div>
-
-            <div style="margin-bottom:20px">
-              <label style="display:flex;align-items:center;gap:8px;cursor:pointer;text-transform:none;letter-spacing:0;font-weight:500;color:var(--text);">
-                <input type="checkbox" id="amazon" name="amazon" style="width:auto;">
-                同时搜索 Amazon 品牌 — 抓取亚马逊上的产品品牌并找官网
-              </label>
-              <p class="hint">从 Amazon 热门产品中发现潜在品牌客户（需要翻墙）</p>
-            </div>
-
+            <!-- 保留无邮箱 -->
             <div style="margin-bottom:20px">
               <label style="display:flex;align-items:center;gap:8px;cursor:pointer;text-transform:none;letter-spacing:0;font-weight:500;color:var(--text);">
                 <input type="checkbox" id="keepNoEmail" name="keep_no_email" style="width:auto;">
-                保留无邮箱客户 — 即使没找到决策人邮箱也保留公司信息
+                保留无邮箱客户
               </label>
-              <p class="hint">适合电话开发、LinkedIn 联系或发网站询盘表单</p>
+              <p class="hint">即使没找到决策人邮箱也保留公司信息，适合电话开发</p>
             </div>
 
             <button type="submit" id="submitBtn">
@@ -564,9 +553,6 @@
       const btnKeyword = document.getElementById('modeKeyword');
       const btnGoogleMaps = document.getElementById('modeGoogleMaps');
       const btnDomains = document.getElementById('modeDomains');
-      const domainsWrap = document.getElementById('domainsWrap');
-      const mapsRegionWrap = document.getElementById('mapsRegionWrap');
-      const keywordInput = document.getElementById('keyword');
 
       // Reset all buttons
       [btnKeyword, btnGoogleMaps, btnDomains].forEach(btn => {
@@ -575,11 +561,7 @@
         btn.style.border = '1px solid var(--border)';
       });
 
-      // Hide all mode-specific sections
-      domainsWrap.style.display = 'none';
-      mapsRegionWrap.style.display = 'none';
-      keywordInput.required = true;
-
+      // Highlight active button
       if (mode === 'keyword') {
         btnKeyword.style.background = 'var(--primary)';
         btnKeyword.style.color = '#fff';
@@ -588,13 +570,60 @@
         btnGoogleMaps.style.background = 'var(--primary)';
         btnGoogleMaps.style.color = '#fff';
         btnGoogleMaps.style.border = 'none';
-        mapsRegionWrap.style.display = 'block';
       } else {
         btnDomains.style.background = 'var(--primary)';
         btnDomains.style.color = '#fff';
         btnDomains.style.border = 'none';
+      }
+
+      // Field visibility by mode
+      const keywordWrap = document.getElementById('keywordWrap');
+      const mapsRegionWrap = document.getElementById('mapsRegionWrap');
+      const domainsWrap = document.getElementById('domainsWrap');
+      const pagesWrap = document.getElementById('pagesWrap');
+      const pagesLabel = document.getElementById('pagesLabel');
+      const pagesHint = document.getElementById('pagesHint');
+      const targetTldWrap = document.getElementById('targetTldWrap');
+      const advancedWrap = document.getElementById('advancedWrap');
+      const keywordInput = document.getElementById('keyword');
+
+      // Defaults (keyword mode)
+      keywordWrap.style.display = 'block';
+      pagesWrap.style.display = 'grid';
+      pagesLabel.textContent = '搜索页数';
+      pagesHint.textContent = '要扫描多少页搜索结果';
+      targetTldWrap.style.display = 'block';
+      advancedWrap.style.display = 'block';
+      mapsRegionWrap.style.display = 'none';
+      domainsWrap.style.display = 'none';
+      keywordInput.required = true;
+
+      if (mode === 'google_maps') {
+        // Maps: keyword + region + max_domains only
+        pagesWrap.style.display = 'none';
+        targetTldWrap.style.display = 'none';
+        advancedWrap.style.display = 'none';
+        mapsRegionWrap.style.display = 'block';
+      } else if (mode === 'domains') {
+        // Domains: paste list only
+        keywordWrap.style.display = 'none';
+        pagesWrap.style.display = 'none';
+        targetTldWrap.style.display = 'none';
+        advancedWrap.style.display = 'none';
         domainsWrap.style.display = 'block';
         keywordInput.required = false;
+      }
+    }
+
+    function toggleAdvanced() {
+      const content = document.getElementById('advancedContent');
+      const btn = document.getElementById('advancedToggle');
+      if (content.style.display === 'none') {
+        content.style.display = 'block';
+        btn.textContent = '更多选项 ▲';
+      } else {
+        content.style.display = 'none';
+        btn.textContent = '更多选项 ▼';
       }
     }
 
@@ -638,7 +667,8 @@
       const amazon = document.getElementById('amazon').checked;
       const keepNoEmail = document.getElementById('keepNoEmail').checked;
       const domainsInput = document.getElementById('domainsInput').value;
-      const checkedTlds = Array.from(document.querySelectorAll('input[name="target_tld"]:checked')).map(cb => cb.value);
+      const targetTldSelect = document.getElementById('targetTld');
+      const checkedTlds = Array.from(targetTldSelect.selectedOptions).map(opt => opt.value);
 
       const params = new URLSearchParams({ keyword, pages });
       if (maxDomains) params.append('max_domains', maxDomains);
