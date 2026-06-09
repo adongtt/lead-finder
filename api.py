@@ -46,7 +46,7 @@ DATA_DIR.mkdir(exist_ok=True)
 DATABASE_URL = os.environ.get(
     "DATABASE_URL",
     "postgresql://postgres:postgres@localhost:5432/leadfinder"
-)
+).strip()
 USERS_FILE = Path("users.json")
 
 SESSION_SECRET = os.environ.get("SESSION_SECRET", "lead-finder-dev-secret-change-in-production")
@@ -78,10 +78,10 @@ _db_pool = None
 def _get_pool():
     global _db_pool
     if _db_pool is None:
-        sslmode = "require" if "sslmode" not in DATABASE_URL else None
         kwargs = {"cursor_factory": RealDictCursor}
-        if sslmode:
-            kwargs["sslmode"] = sslmode
+        # Only add sslmode if the DSN doesn't already specify it
+        if "sslmode" not in DATABASE_URL:
+            kwargs["sslmode"] = "require"
         _db_pool = psycopg2_pool.ThreadedConnectionPool(
             minconn=1, maxconn=10, dsn=DATABASE_URL, **kwargs
         )
