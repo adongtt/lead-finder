@@ -53,6 +53,20 @@ except ImportError:
 
 CONFIG_PATH = Path(__file__).parent / "config.yaml"
 
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0.0.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.5",
+    "Accept-Encoding": "gzip, deflate, br",
+    "DNT": "1",
+    "Connection": "keep-alive",
+    "Upgrade-Insecure-Requests": "1",
+}
+
 # Generic email prefixes to filter out
 GENERIC_PREFIXES = {
     "info", "support", "sales", "contact", "hello", "admin", "noreply",
@@ -411,7 +425,7 @@ class Lead:
     google_reviews_count: int = 0
     google_maps_url: str = ""
     place_id: str = ""
-    source_type: str = "search"        # search | google_maps
+    source_type: str = "search"        # search | google_maps | linkedin_discovery
 
 
 # ---------------------------------------------------------------------------
@@ -1189,6 +1203,185 @@ class GoogleMapsClient:
 
 
 # ---------------------------------------------------------------------------
+# LinkedIn Discovery Helpers
+# ---------------------------------------------------------------------------
+
+def _is_valid_company_name(name: str) -> bool:
+    """Filter out obviously wrong company name extractions."""
+    name_lower = name.lower().strip()
+    invalid = {
+        "linkedin member", "self-employed", "freelance", "independent consultant",
+        "consultant", "looking for new opportunities", "open to work",
+        "student", "intern", "unemployed",
+    }
+    if name_lower in invalid:
+        return False
+    if len(name) < 3:
+        return False
+    # If it's all lowercase and no spaces, probably a parsing error
+    if " " not in name and not name[0].isupper():
+        return False
+    return True
+
+
+def _extract_company_from_linkedin_result(title: str, snippet: str) -> Optional[str]:
+    """Extract company name from LinkedIn search result title/snippet."""
+    # Pattern 1: title like "Name - Title - Company | LinkedIn"
+    m = re.search(r'-\s*([^-|]+?)\s*\|\s*LinkedIn', title)
+    if m:
+        candidate = m.group(1).strip()
+        if _is_valid_company_name(candidate):
+            return candidate
+
+    # Pattern 2: snippet like "... is a Buyer at Company Name. ..."
+    m = re.search(
+        r'(?:is|was|works?|working)\s+(?:as\s+[^.]+?)?at\s+([A-Z][A-Za-z0-9\s&.,\-]+?)'
+        r'(?:\.|,|\s+\||\s+-\s+|\s+and\s+|\s+Location|\s+Connections|\s+Experience|\Z)',
+        snippet, re.IGNORECASE,
+    )
+    if m:
+        candidate = m.group(1).strip()
+        if _is_valid_company_name(candidate):
+            return candidate
+
+    # Pattern 3: snippet starts with "Company Name. Location: ..."
+    m = re.search(r'^([A-Z][A-Za-z0-9\s&.,\-]+?)(?:\.|,)\s*(?:Location|Connections|Experience)', snippet)
+    if m:
+        candidate = m.group(1).strip()
+        if _is_valid_company_name(candidate):
+            return candidate
+
+    return None
+
+
+def _resolve_company_website(company_name: str) -> Optional[str]:
+    """Find official website for a company name via Bing."""
+    if not company_name or len(company_name) < 2:
+        return None
+
+    try:
+        clean_name = company_name.strip().strip('"').strip("'")
+        # First try with quotes for exact match
+        resp = requests.get(
+            "https://www.bing.com/search",
+            params={"q": f'"{clean_name}" official website'},
+            headers=HEADERS,
+            timeout=15,
+        )
+        html = resp.text
+        m = re.search(
+            r'<li class="b_algo"[^>]*>.*?<h2[^>]*><a[^>]+href="([^"]+)"',
+            html, re.DOTALL,
+        )
+        if not m:
+            # Fallback without quotes
+            resp = requests.get(
+                "https://www.bing.com/search",
+                params={"q": f'{clean_name} official website'},
+                headers=HEADERS,
+                timeout=15,
+            )
+            html = resp.text
+            m = re.search(
+                r'<li class="b_algo"[^>]*>.*?<h2[^>]*><a[^>]+href="([^"]+)"',
+                html, re.DOTALL,
+            )
+            if not m:
+                return None
+
+        url = m.group(1)
+        parsed = urlparse(url)
+        domain = parsed.netloc.lower()
+        if domain.startswith("www."):
+            domain = domain[4:]
+
+        blocked = {
+            "facebook.com", "linkedin.com", "twitter.com", "x.com", "instagram.com",
+            "youtube.com", "wikipedia.org", "amazon.com", "ebay.com", "alibaba.com",
+            "aliexpress.com", "zoominfo.com", "crunchbase.com", "bbb.org",
+            "yellowpages.com", "yelp.com", "tripadvisor.com", "pinterest.com",
+            "reddit.com", "quora.com", "etsy.com", "walmart.com", "target.com",
+            "homedepot.com", "bestbuy.com", "costco.com", "wayfair.com", "macys.com",
+            "google.com", "bing.com", "baidu.com",
+        }
+        if domain in blocked:
+            return None
+        return domain
+    except Exception:
+        return None
+
+
+class LinkedInDiscoveryClient:
+    """Discover B2B companies by searching LinkedIn profiles via SerpAPI."""
+
+    def __init__(self, serpapi_key: str):
+        self.serpapi_key = serpapi_key
+        self.base_url = "https://serpapi.com/search"
+
+    def search(self, keyword: str, pages: int = 2) -> List[dict]:
+        """
+        Search LinkedIn profiles and return list of dicts with:
+        linkedin_url, name, company, domain
+        """
+        # Build query: site:linkedin.com/in "keyword" (distributor OR ...)
+        query = (
+            f'site:linkedin.com/in "{keyword}" '
+            f'(distributor OR importer OR wholesaler OR dealer OR buyer OR purchasing OR procurement)'
+        )
+
+        results: List[dict] = []
+        for page in range(pages):
+            start = page * 10
+            params = {
+                "q": query,
+                "engine": "google",
+                "api_key": self.serpapi_key,
+                "num": 10,
+                "start": start,
+            }
+            try:
+                resp = requests.get(self.base_url, params=params, timeout=30)
+                resp.raise_for_status()
+                data = resp.json()
+                organic = data.get("organic_results", [])
+                for r in organic:
+                    title = r.get("title", "")
+                    snippet = r.get("snippet") or r.get("description", "")
+                    link = r.get("link", "")
+
+                    if not link or "linkedin.com/in/" not in link:
+                        continue
+
+                    company = _extract_company_from_linkedin_result(title, snippet)
+                    if not company:
+                        continue
+
+                    # Resolve company website via Bing
+                    domain = _resolve_company_website(company)
+                    if not domain:
+                        continue
+
+                    name = title.split("-")[0].strip() if "-" in title else ""
+                    results.append({
+                        "linkedin_url": link,
+                        "name": name,
+                        "company": company,
+                        "domain": domain,
+                    })
+                    time.sleep(0.5)  # Be polite to Bing
+
+                page_companies = len({r["domain"] for r in results})
+                print(f"  [LinkedInDiscovery] Page {page + 1}: {len(organic)} results, {page_companies} companies resolved so far")
+                if not organic:
+                    break
+            except requests.exceptions.RequestException as e:
+                print(f"  [LinkedInDiscovery ERROR] Page {page + 1}: {e}")
+                break
+            time.sleep(1)
+        return results
+
+
+# ---------------------------------------------------------------------------
 # Amazon brand search helpers
 # ---------------------------------------------------------------------------
 
@@ -1304,8 +1497,10 @@ class LeadFinder:
         self.browser = BrowserClient()
         self.google_maps = None
 
+        self.linkedin_discovery = None
         if config.get("serpapi_key") and config["serpapi_key"] not in ("", "YOUR_SERPAPI_KEY_HERE"):
             self.serp = SerpAPIClient(config["serpapi_key"])
+            self.linkedin_discovery = LinkedInDiscoveryClient(config["serpapi_key"])
 
         if config.get("google_maps_key") and config["google_maps_key"] not in ("", "YOUR_GOOGLE_MAPS_KEY_HERE"):
             self.google_maps = GoogleMapsClient(config["google_maps_key"])
@@ -1354,6 +1549,7 @@ class LeadFinder:
         keep_no_email: bool = False,
     ) -> None:
         timestamp = datetime.now().isoformat()
+        domain_source_type: Dict[str, str] = {}
         use_maps = bool(maps_region) or self.engine == "google_maps"
         engine = self._resolve_engine(force_maps=use_maps)
         skip_pages = 5 if deep else 0
@@ -1402,6 +1598,7 @@ class LeadFinder:
                 d = extract_domain(r.get("url", ""))
                 if d and "_maps_meta" in r:
                     domain_maps_meta[d] = r["_maps_meta"]
+                    domain_source_type[d] = "google_maps"
         elif engine == "serpapi" and self.serp:
             print("[1/5] Searching Google via SerpAPI...")
             raw_results = self.serp.search(search_query, pages=pages, skip_pages=skip_pages)
@@ -1439,6 +1636,21 @@ class LeadFinder:
             else:
                 print("      No brands found (Amazon may require a VPN/proxy or is blocking automated access)")
 
+        # 1c. LinkedIn profile discovery (SerpAPI only, skip in Maps mode)
+        linkedin_domains: Dict[str, int] = {}
+        if self.linkedin_discovery and not use_maps:
+            print("\n[1c/5] Discovering companies via LinkedIn profiles...")
+            linkedin_results = self.linkedin_discovery.search(keyword, pages=min(pages, 3))
+            if linkedin_results:
+                unique_domains = {r["domain"] for r in linkedin_results}
+                for domain in unique_domains:
+                    if domain not in self.excluded_domains:
+                        linkedin_domains[domain] = 18  # Strong positive score
+                        domain_source_type[domain] = "linkedin_discovery"
+                print(f"      Found {len(linkedin_results)} LinkedIn profiles, resolved {len(linkedin_domains)} unique domains")
+            else:
+                print("      No LinkedIn profiles found")
+
         # 2. Score, filter, and extract unique domains
         print("PROGRESS: 25")
         print("\n[2/5] Scoring and extracting domains...")
@@ -1475,9 +1687,18 @@ class LeadFinder:
             # Keep the highest score for each domain
             if domain not in domain_scores or score > domain_scores[domain]:
                 domain_scores[domain] = score
+            if domain not in domain_source_type:
+                domain_source_type[domain] = "search"
 
         # Merge Amazon domains
         for domain, score in amazon_domains.items():
+            if domain not in domain_scores:
+                domain_scores[domain] = score
+            else:
+                domain_scores[domain] = max(domain_scores[domain], score)
+
+        # Merge LinkedIn discovered domains
+        for domain, score in linkedin_domains.items():
             if domain not in domain_scores:
                 domain_scores[domain] = score
             else:
@@ -1491,6 +1712,8 @@ class LeadFinder:
         print(f"      Unique domains: {len(domains)} (excluded {skipped} big-brand domains)")
         if amazon_domains:
             print(f"      Amazon-sourced : {len(amazon_domains)} domains")
+        if linkedin_domains:
+            print(f"      LinkedIn-sourced: {len(linkedin_domains)} domains")
         pos = sum(1 for _, s in sorted_domains if s > 0)
         neg = sum(1 for _, s in sorted_domains if s < 0)
         if pos or neg:
@@ -1641,7 +1864,7 @@ class LeadFinder:
                         google_reviews_count=maps_meta.get("reviews_count", 0),
                         google_maps_url=maps_meta.get("google_maps_url", ""),
                         place_id=maps_meta.get("place_id", ""),
-                        source_type="google_maps" if maps_meta else "search",
+                        source_type="google_maps" if maps_meta else domain_source_type.get(domain, "search"),
                     )
                     all_leads.append(lead)
                     print("0 email, kept domain")
@@ -1698,7 +1921,7 @@ class LeadFinder:
                     google_reviews_count=maps_meta.get("reviews_count", 0),
                     google_maps_url=maps_meta.get("google_maps_url", ""),
                     place_id=maps_meta.get("place_id", ""),
-                    source_type="google_maps" if maps_meta else "search",
+                    source_type="google_maps" if maps_meta else domain_source_type.get(domain, "search"),
                 )
                 all_leads.append(lead)
                 kept += 1
