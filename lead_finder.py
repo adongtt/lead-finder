@@ -281,6 +281,8 @@ BIG_PLATFORMS = {
     "panjiva.com", "volza.com", "exportgenius.in",
     "amazon.com", "ebay.com", "walmart.com",
     "g2.com", "capterra.com", "trustpilot.com",
+    "faire.com", "faire.co.uk", "ankorstore.com",
+    "aboundwholesale.com", "tundra.com",
 }
 
 # ---------------------------------------------------------------------------
@@ -346,30 +348,6 @@ B2B_CONTENT_NEGATIVE = [
 ]
 
 
-def score_search_result(title: str = "", snippet: str = "") -> int:
-    """Score a search result based on title and snippet text.
-
-    Higher scores suggest small distributors / importers (good targets).
-    Lower / negative scores suggest news, blogs, big brands (bad targets).
-    """
-    text = f"{title} {snippet}".lower()
-    score = 0
-    # Distributor/importer signals get higher weight
-    distributor_signals = ["distributor", "wholesale", "wholesaler", "importer", "import", "dealer", "reseller", "stockist"]
-    for signal in distributor_signals:
-        if signal in text:
-            score += 20
-    # Other positive signals
-    for signal in POSITIVE_SIGNALS:
-        if signal in text and signal not in distributor_signals:
-            score += 10
-    # Negative signals: actively penalize irrelevant results
-    for signal in NEGATIVE_SIGNALS:
-        if signal in text:
-            score -= 25
-    return score
-
-
 def build_enhanced_query(
     keyword: str,
     b2b_focus: bool = True,
@@ -415,9 +393,22 @@ def _score_search_result_relevance(title: str, snippet: str, keyword: str) -> in
         return 0
 
     score = 0
-    # Title contains exact product keyword → strong signal
     kw_lower = keyword.lower().strip('"')
-    if kw_lower in title.lower():
+
+    # Extract product core words (exclude generic B2B filler words)
+    b2b_filler = {"wholesale", "supplier", "manufacturer", "distributor",
+                  "importer", "dealer", "reseller", "oem", "odm", "factory"}
+    kw_parts = [p for p in kw_lower.split() if len(p) > 3 and p not in b2b_filler]
+
+    # CRITICAL: If the title contains NONE of the product core words,
+    # it is very likely unrelated (e.g. "Packaging Wholesale Supplier"
+    # for "football gloves"). Penalize heavily.
+    title_lower = title.lower()
+    if kw_parts and not any(part in title_lower for part in kw_parts):
+        score -= 70
+
+    # Title contains exact product keyword → strong signal
+    if kw_lower in title_lower:
         score += 20
 
     # Distributor / importer / wholesale signals
@@ -1852,15 +1843,16 @@ class LeadFinder:
         print(f"      Total results found: {len(raw_results)}")
 
         # Apply search-result-level relevance scoring (skip for direct domains or maps)
-        if not domains and engine != "google_maps" and (exclude_big_platforms or strict_mode or advanced_syntax):
+        if not domains and engine != "google_maps":
             before = len(raw_results)
             scored_results = []
             for r in raw_results:
                 title = r.get("title", "")
                 snippet = r.get("snippet", "")
                 sr_score = _score_search_result_relevance(title, snippet, keyword)
-                # In strict mode require at least modest search-result score
-                threshold = 5 if strict_mode else -10
+                # Normal mode: filter obviously irrelevant results (title missing product keywords)
+                # Strict mode: require a modest positive score
+                threshold = 5 if strict_mode else -40
                 if sr_score >= threshold:
                     scored_results.append(r)
             raw_results = scored_results
@@ -1936,7 +1928,7 @@ class LeadFinder:
                 if any(t in b2b_types for t in meta.get("types", [])):
                     score += 15
             else:
-                score = score_search_result(title, snippet)
+                score = _score_search_result_relevance(title, snippet, keyword)
             # Keep the highest score for each domain
             if domain not in domain_scores or score > domain_scores[domain]:
                 domain_scores[domain] = score
