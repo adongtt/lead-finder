@@ -26,7 +26,7 @@ from datetime import datetime
 from html import unescape
 from pathlib import Path
 from typing import Dict, List, Optional, Set
-from urllib.parse import urlparse
+from urllib.parse import quote_plus, urlparse
 
 import requests
 import yaml
@@ -61,7 +61,7 @@ HEADERS = {
     ),
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
     "Accept-Language": "en-US,en;q=0.5",
-    "Accept-Encoding": "gzip, deflate, br",
+    "Accept-Encoding": "gzip, deflate",
     "DNT": "1",
     "Connection": "keep-alive",
     "Upgrade-Insecure-Requests": "1",
@@ -195,16 +195,17 @@ def detect_country(domain: str, email: str = "") -> str:
 
 # Big-brand / platform domains to exclude (no real decision-maker emails)
 EXCLUDED_DOMAINS = {
-    # E-commerce giants
+    # E-commerce giants / big retailers
     "made-in-china.com", "amazon.com", "espn.com",
     "ebay.com", "ebay.co.uk", "ebay.de","nfl.com","rei.com",
     "walmart.com", "target.com", "bestbuy.com", "costco.com",
     "alibaba.com", "aliexpress.com", "taobao.com", "tmall.com", "jd.com",
     "etsy.com", "wayfair.com", "overstock.com", "newegg.com",
-    # B2B wholesale platforms (not independent distributors)
+    "prodirectsport.com", "sportsdirect.com", "decathlon.com",
+    # B2B wholesale platforms / directories (not independent distributors)
     "tradeindia.com", "indiamart.com", "globalsources.com",
     "dhgate.com", "1688.com", "ec21.com", "ecplaza.net",
-    "b2bmit.com", "toboc.com", "impexlb.com",
+    "b2bmit.com", "toboc.com", "impexlb.com", "matchory.com",
     # Social media
     "facebook.com", "instagram.com", "twitter.com", "x.com", "linkedin.com",
     "tiktok.com", "youtube.com", "pinterest.com", "snapchat.com", "reddit.com",
@@ -222,6 +223,9 @@ EXCLUDED_DOMAINS = {
     "wordpress.com", "wordpress.org", "wix.com", "squarespace.com",
     "shopify.com", "weebly.com", "godaddy.com", "namecheap.com",
     "cloudflare.com", "aws.amazon.com", "heroku.com", "vercel.com", "netlify.com",
+    # Software review / B2B directory platforms
+    "g2.com", "g2crowd.com", "capterra.com", "trustpilot.com",
+    "getapp.com", "softwareadvice.com", "crows.com",
     # Video & streaming
     "netflix.com", "hulu.com", "disneyplus.com", "spotify.com", "twitch.tv",
     # Travel
@@ -244,10 +248,16 @@ EXCLUDED_DOMAINS = {
     "rawlings.com", "wilson.com", "wilsonsports.com",
     "easton.com", "demarini.com", "louisville-slugger.com",
     "franklinsports.com", "schutt.com", "riiddell.com",
-    "cuttersgloves.com", "gripboost.com", "battle.net",
+    "cuttersgloves.com", "cutterssports.com", "gripboost.com", "battle.net",
+    # Work-safety glove brands
+    "ironclad.com", "ironcladperformancewear.com",
     # Others
     "yelp.com", "trip.com", "glassdoor.com", "indeed.com", "monster.com",
     "ziprecruiter.com", "craigslist.org", "gumtree.com",
+    # Unrelated / false positives seen in tests
+    "the-north-pole.com", "flighttothenorthpole.org",
+    # Automotive (motorcycle brands with riding gear/gloves)
+    "bmw.com", "bmwmotorcycles.com",
 }
 
 # ---------------------------------------------------------------------------
@@ -709,12 +719,21 @@ def is_generic_email(email: str) -> bool:
     # Direct prefix match
     if prefix in GENERIC_PREFIXES:
         return True
-    # Contains generic substring
+    # Separator-based variants: sales-1, info_2, us.customer.service
     for gen in GENERIC_PREFIXES:
         if prefix == gen or prefix.startswith(gen + "-") or prefix.startswith(gen + "_"):
             return True
         if prefix.startswith(gen) and prefix[len(gen):].isdigit():
             return True  # sales1, info2
+    # Dot-separated parts: e.g. us.customer.service -> service is generic
+    for part in prefix.split("."):
+        if part in GENERIC_PREFIXES:
+            return True
+    # Substring match for longer generic prefixes (>=5 chars) to avoid false positives
+    # Catches hostadmin, webmasterhost, etc.
+    for gen in GENERIC_PREFIXES:
+        if len(gen) >= 5 and gen in prefix:
+            return True
     return False
 
 
@@ -742,6 +761,19 @@ def extract_domain(url: str) -> Optional[str]:
         return domain
     except Exception:
         return None
+
+
+def _is_excluded_domain(domain: str, excluded: Set[str]) -> bool:
+    """Check if domain or any of its parent domains are in the excluded set."""
+    if domain in excluded:
+        return True
+    parts = domain.split(".")
+    # Check progressively shorter suffixes: a.b.c.d -> b.c.d -> c.d
+    for i in range(1, len(parts) - 1):
+        parent = ".".join(parts[i:])
+        if parent in excluded:
+            return True
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -1334,6 +1366,18 @@ def _resolve_company_website(company_name: str) -> Optional[str]:
     return None
 
 
+def _extract_product_keyword(keyword: str) -> str:
+    """Strip B2B suffixes to get the core product term for LinkedIn search."""
+    b2b_terms = {
+        "manufacturer", "factory", "wholesale", "supplier", "oem", "odm",
+        "distributor", "importer", "dealer", "reseller", "exporter",
+        "company", "co", "ltd", "inc", "llc", "limited",
+    }
+    words = keyword.lower().split()
+    filtered = [w for w in words if w not in b2b_terms]
+    return " ".join(filtered) if filtered else keyword
+
+
 class LinkedInDiscoveryClient:
     """Discover B2B companies by searching LinkedIn profiles via SerpAPI."""
 
@@ -1346,10 +1390,13 @@ class LinkedInDiscoveryClient:
         Search LinkedIn profiles and return list of dicts with:
         linkedin_url, name, company, domain
         """
+        # Use product-only keyword (strip "manufacturer", "supplier", etc.)
+        # so we match profiles that mention the product but not the full B2B phrase.
+        product_kw = _extract_product_keyword(keyword)
         # Broader query: any LinkedIn page (company or profile) matching keyword + B2B roles
         # -pulse filters out LinkedIn Pulse articles which dominate results
         query = (
-            f'site:linkedin.com "{keyword}" '
+            f'site:linkedin.com "{product_kw}" '
             f'(distributor OR importer OR wholesaler OR dealer OR buyer OR purchasing OR procurement) '
             f'-pulse'
         )
@@ -1384,7 +1431,7 @@ class LinkedInDiscoveryClient:
                     if not company:
                         continue
 
-                    # Resolve company website via Bing
+                    # Resolve company website via DuckDuckGo
                     domain = _resolve_company_website(company)
                     if not domain:
                         continue
@@ -1417,7 +1464,7 @@ def _search_amazon_brands(keyword: str) -> Set[str]:
     """Search Amazon and extract brand names from product titles."""
     brands: Set[str] = set()
     try:
-        url = f"https://www.amazon.com/s?k={urllib.parse.quote_plus(keyword)}"
+        url = f"https://www.amazon.com/s?k={quote_plus(keyword)}"
         resp = requests.get(url, headers=HEADERS, timeout=20)
         if resp.status_code != 200:
             return brands
@@ -1657,7 +1704,7 @@ class LeadFinder:
                 found_domains = 0
                 for brand in amazon_brands:
                     domain = _find_brand_domain(brand)
-                    if domain and domain not in self.excluded_domains and domain not in amazon_domains:
+                    if domain and not _is_excluded_domain(domain, self.excluded_domains) and domain not in amazon_domains:
                         amazon_domains[domain] = 5  # Positive score for Amazon brands
                         found_domains += 1
                 if found_domains:
@@ -1673,7 +1720,7 @@ class LeadFinder:
             if linkedin_results:
                 unique_domains = {r["domain"] for r in linkedin_results}
                 for domain in unique_domains:
-                    if domain not in self.excluded_domains:
+                    if not _is_excluded_domain(domain, self.excluded_domains):
                         linkedin_domains[domain] = 18  # Strong positive score
                         domain_source_type[domain] = "linkedin_discovery"
                 print(f"      Found {len(linkedin_results)} LinkedIn profiles, resolved {len(linkedin_domains)} unique domains")
@@ -1692,7 +1739,7 @@ class LeadFinder:
             domain = extract_domain(url)
             if not domain:
                 continue
-            if domain in self.excluded_domains:
+            if _is_excluded_domain(domain, self.excluded_domains):
                 skipped += 1
                 continue
             # TLD filter
