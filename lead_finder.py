@@ -1650,13 +1650,13 @@ class LeadFinder:
             return "google_maps"
         if self.engine != "auto":
             return self.engine
-        # Priority: duckduckgo > browser > serpapi
+        # Priority: serpapi > duckduckgo > browser
+        if self.serp is not None:
+            return "serpapi"
         if DDGS is not None:
             return "duckduckgo"
         if sync_playwright is not None:
             return "browser"
-        if self.serp is not None:
-            return "serpapi"
         print("[FATAL] No search engine available. Install duckduckgo-search or playwright.")
         sys.exit(1)
 
