@@ -5,9 +5,11 @@ Lead Finder Web API — FastAPI wrapper around lead_finder.py
 Run locally:
     uvicorn api:app --reload --host 0.0.0.0 --port 8000
 
-Deploy:
-    pip install -r requirements.txt
+Deploy (single worker — dev only):
     uvicorn api:app --host 0.0.0.0 --port $PORT
+
+Deploy (multi-worker — production):
+    gunicorn api:app -w 4 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT --timeout 120 --keep-alive 5
 """
 
 import asyncio
