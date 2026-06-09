@@ -400,12 +400,22 @@ def _score_search_result_relevance(title: str, snippet: str, keyword: str) -> in
                   "importer", "dealer", "reseller", "oem", "odm", "factory"}
     kw_parts = [p for p in kw_lower.split() if len(p) > 3 and p not in b2b_filler]
 
-    # CRITICAL: If the title contains NONE of the product core words,
-    # it is very likely unrelated (e.g. "Packaging Wholesale Supplier"
-    # for "football gloves"). Penalize heavily.
+    # CRITICAL relevance check:
+    # If the search phrase has multiple product words (e.g. "football gloves"),
+    # the title must contain the FULL phrase OR all product words.
+    # A page titled "Basketball Training Gloves" should NOT match "football gloves".
     title_lower = title.lower()
-    if kw_parts and not any(part in title_lower for part in kw_parts):
-        score -= 70
+    if kw_parts:
+        has_full_phrase = kw_lower in title_lower
+        matched_parts = sum(1 for p in kw_parts if p in title_lower)
+        if len(kw_parts) >= 2:
+            # Multi-word product: require full phrase or ALL product words
+            if not has_full_phrase and matched_parts < len(kw_parts):
+                score -= 80
+        else:
+            # Single product word: must appear in title
+            if matched_parts == 0:
+                score -= 80
 
     # Title contains exact product keyword → strong signal
     if kw_lower in title_lower:
@@ -1696,7 +1706,7 @@ class LeadFinder:
     def __init__(self, config: dict, engine: str = "auto", extra_excluded: Optional[Set[str]] = None):
         self.config = config
         self.engine = engine
-        self.excluded_domains = set(EXCLUDED_DOMAINS)
+        self.excluded_domains = set(EXCLUDED_DOMAINS) | BIG_PLATFORMS
         if extra_excluded:
             self.excluded_domains.update(d.lower().strip() for d in extra_excluded)
 
