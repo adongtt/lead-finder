@@ -117,6 +117,16 @@
       font-size: 12px;
       margin-left: 4px;
     }
+    .desc-tooltip {
+      display: inline-block;
+      max-width: 180px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 13px;
+      color: #475569;
+      cursor: help;
+    }
     .position-tag.active .count { color: rgba(255,255,255,0.85); }
     .card {
       background: var(--card);
@@ -490,7 +500,7 @@
           `<td>${escapeHtml(row.phone || '')}</td>` +
           `<td>${escapeHtml(row.domain || '')}</td>` +
           `<td>${sourceTypeLabel(row.source_type || '')}</td>` +
-          `<td style="max-width:300px;white-space:normal;word-break:break-word;font-size:13px;color:#475569;">${escapeHtml(row.website_description || '')}</td>` +
+          `<td><span class="desc-tooltip" title="${attrEscape(row.website_description || '')}">${escapeHtml((row.website_description || '').length > 30 ? (row.website_description || '').slice(0,30) + '...' : (row.website_description || ''))}</span></td>` +
           `<td>${escapeHtml(row.relevance_score !== undefined ? row.relevance_score : '')}</td>` +
           `<td>${row.linkedin_url ? `<a href="${escapeHtml(row.linkedin_url)}" target="_blank" rel="noopener noreferrer" style="color:#0a66c2;font-weight:500;">查看</a>` : ''}</td>` +
           `<td>${escapeHtml(row.confidence_score || '')}</td>` +
