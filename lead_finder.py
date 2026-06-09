@@ -201,6 +201,10 @@ EXCLUDED_DOMAINS = {
     "walmart.com", "target.com", "bestbuy.com", "costco.com",
     "alibaba.com", "aliexpress.com", "taobao.com", "tmall.com", "jd.com",
     "etsy.com", "wayfair.com", "overstock.com", "newegg.com",
+    # B2B wholesale platforms (not independent distributors)
+    "tradeindia.com", "indiamart.com", "globalsources.com",
+    "dhgate.com", "1688.com", "ec21.com", "ecplaza.net",
+    "b2bmit.com", "toboc.com", "impexlb.com",
     # Social media
     "facebook.com", "instagram.com", "twitter.com", "x.com", "linkedin.com",
     "tiktok.com", "youtube.com", "pinterest.com", "snapchat.com", "reddit.com",
@@ -243,7 +247,7 @@ EXCLUDED_DOMAINS = {
     "cuttersgloves.com", "gripboost.com", "battle.net",
     # Others
     "yelp.com", "trip.com", "glassdoor.com", "indeed.com", "monster.com",
-    "ziprecruiter.com", "craigslist.org", " Gumtree.com",
+    "ziprecruiter.com", "craigslist.org", "gumtree.com",
 }
 
 # ---------------------------------------------------------------------------
