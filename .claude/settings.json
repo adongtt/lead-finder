@@ -112,7 +112,15 @@
       "Bash(tee test_final.log)",
       "Bash(python lead_finder.py \"football gloves manufacturer\" --pages 2 --max-domains 15 --output test_final2.csv --engine serpapi --no-b2b-focus)",
       "Bash(python lead_finder.py \"football gloves manufacturer\" --pages 2 --max-domains 15 --output test_final3.csv --engine serpapi --no-b2b-focus)",
-      "Bash(python -c \"html = open\\('static/index.html', encoding='utf-8'\\).read\\(\\); assert 'loadStats' in html; assert 'sourceTypeLabel' in html; assert 'rerunSearch' in html; print\\('All checks passed'\\)\")"
+      "Bash(python -c \"html = open\\('static/index.html', encoding='utf-8'\\).read\\(\\); assert 'loadStats' in html; assert 'sourceTypeLabel' in html; assert 'rerunSearch' in html; print\\('All checks passed'\\)\")",
+      "WebFetch(domain:www.apollo.io)",
+      "Bash(curl -s -X POST https://api.apollo.io/v1/mixed_people/search -H 'Content-Type: application/json' -d '{\"api_key\":\"y0g6J-wxzt2-anloCpvrzQ\",\"q_keywords\":\"football gloves\",\"person_titles\":[\"Buyer\"],\"per_page\":1}')",
+      "Bash(curl -s -X POST https://api.apollo.io/v1/mixed_people/search -H 'Content-Type: application/json' -H 'X-Api-Key: y0g6J-wxzt2-anloCpvrzQ' -d '{\"q_keywords\":\"football gloves\",\"person_titles\":[\"Buyer\"],\"per_page\":1}')",
+      "Bash(curl -s -X POST https://api.apollo.io/v1/mixed_people/api_search -H 'Content-Type: application/json' -H 'X-Api-Key: y0g6J-wxzt2-anloCpvrzQ' -d '{\"q_keywords\":\"football gloves\",\"person_titles\":[\"Buyer\"],\"per_page\":1}')",
+      "Bash(curl -s -X POST https://api.apollo.io/v1/mixed_people/api_search -H 'Content-Type: application/json' -H 'X-Api-Key: y0g6J-wxzt2-anloCpvrzQ' -d '{\"q_keywords\":\"football\",\"per_page\":5}')",
+      "Bash(curl -s -X POST https://api.apollo.io/v1/mixed_people/api_search -H 'Content-Type: application/json' -H 'X-Api-Key: y0g6J-wxzt2-anloCpvrzQ' -d '{\"q_keywords\":\"football gloves\",\"person_titles\":[\"Buyer\",\"Purchasing Manager\"],\"per_page\":3}')",
+      "Bash(curl -s -X POST https://api.apollo.io/v1/mixed_people/api_search -H 'Content-Type: application/json' -H 'X-Api-Key: y0g6J-wxzt2-anloCpvrzQ' -d '{\"person_titles\":[\"Buyer\"],\"organization_keywords\":[\"sporting goods\"],\"per_page\":3}')",
+      "Bash(curl -s -X POST https://api.apollo.io/v1/mixed_people/api_search -H 'Content-Type: application/json' -H 'X-Api-Key: y0g6J-wxzt2-anloCpvrzQ' -d '{\"person_titles\":[\"Buyer\",\"Purchasing Manager\",\"Sourcing Manager\"],\"organization_keywords\":[\"sporting goods\",\"sports equipment\",\"football\"],\"person_locations\":[\"United States\"],\"per_page\":3}')"
     ],
     "additionalDirectories": [
       "\\tmp",

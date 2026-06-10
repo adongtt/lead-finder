@@ -1033,7 +1033,17 @@ class HunterClient:
         self.api_keys = [k.strip() for k in api_keys.split(",") if k.strip()]
         self._idx = 0
         self.base_url = "https://api.hunter.io/v2"
-        self._dead_keys: set = set()  # keys that returned 429/403
+        self._dead_keys: set = set()
+        self._email_finder_cache: dict = {}
+
+    def _email_finder_cached(self, domain: str, first_name: str, last_name: str) -> Optional[dict]:
+        """Cached wrapper around email-finder to avoid repeated API calls."""
+        cache_key = f"{domain}:{first_name.lower()}:{last_name.lower()}"
+        if cache_key in self._email_finder_cache:
+            return self._email_finder_cache[cache_key]
+        result = self.email_finder(domain, first_name, last_name)
+        self._email_finder_cache[cache_key] = result
+        return result  # keys that returned 429/403
 
     def _current_key(self) -> str:
         return self.api_keys[self._idx % len(self.api_keys)]
@@ -1545,10 +1555,21 @@ def _extract_company_from_linkedin_result(title: str, snippet: str, link: str = 
     return None
 
 
+# In-memory cache for company website lookups (avoids repeated DDG searches)
+_company_website_cache: dict = {}
+
+
 def _resolve_company_website(company_name: str) -> Optional[str]:
-    """Find official website for a company name via DuckDuckGo (free, no key needed)."""
+    """Find official website for a company name via DuckDuckGo (free, no key needed).
+
+    Results are cached to avoid repeated network requests for the same company.
+    """
     if not company_name or len(company_name) < 2:
         return None
+
+    cache_key = company_name.strip().lower()
+    if cache_key in _company_website_cache:
+        return _company_website_cache[cache_key]
 
     blocked = {
         "facebook.com", "linkedin.com", "twitter.com", "x.com", "instagram.com",
@@ -1571,6 +1592,7 @@ def _resolve_company_website(company_name: str) -> Optional[str]:
                     href = r.get("href", "")
                     domain = extract_domain(href)
                     if domain and domain not in blocked:
+                        _company_website_cache[cache_key] = domain
                         return domain
     except Exception:
         pass
@@ -1586,10 +1608,12 @@ def _resolve_company_website(company_name: str) -> Optional[str]:
         try:
             resp = requests.head(f"https://{domain}", timeout=5, allow_redirects=True)
             if resp.status_code < 400:
+                _company_website_cache[cache_key] = domain
                 return domain
         except Exception:
             continue
 
+    _company_website_cache[cache_key] = None
     return None
 
 
@@ -2394,13 +2418,15 @@ class LeadFinder:
         keep_no_email: bool = False,
         employee_range: Optional[List[str]] = None,
     ) -> List[Lead]:
-        """Run an Apollo.io People Search and export leads."""
+        """Run an Apollo.io People Search and export leads.
+
+        Optimized with parallel domain resolution and Hunter enrichment to minimize wall-clock time.
+        """
         if not self.apollo:
             print("[ERROR] Apollo client not initialized. Please set APOLLO_KEY in config.")
             return []
 
         timestamp = datetime.now().isoformat()
-        all_leads: List[Lead] = []
 
         print(f"\n{'='*60}")
         print(f"  Apollo.io People Search")
@@ -2414,10 +2440,13 @@ class LeadFinder:
 
         per_page = min(max_results, 100)
         page = 1
-        total_fetched = 0
-        print("PROGRESS: 10")
+        print("PROGRESS: 5")
 
-        while len(all_leads) < max_results:
+        # -----------------------------------------------------------------------
+        # Stage 1: Fetch all people from Apollo (may span multiple pages)
+        # -----------------------------------------------------------------------
+        all_people: List[dict] = []
+        while len(all_people) < max_results:
             print(f"[Apollo] Fetching page {page}...")
             people = self.apollo.people_search(
                 organization_keywords=organization_keywords,
@@ -2430,88 +2459,162 @@ class LeadFinder:
             if not people:
                 print("  No more results.")
                 break
-
-            for person in people:
-                email = person.get("value", "")
-                org_name = person.get("organization_name", "")
-                org_website = person.get("organization_website", "")
-                has_email_flag = person.get("has_email", False)
-                has_direct_phone = person.get("has_direct_phone", False)
-                first_name = person.get("first_name", "")
-                last_name = person.get("last_name", "")
-
-                # Resolve domain from org website or name
-                domain = ""
-                if org_website:
-                    domain = extract_domain(org_website)
-                if not domain and org_name:
-                    domain = _resolve_company_website(org_name)
-                if not domain:
-                    continue
-
-                # Skip excluded domains
-                if _is_excluded_domain(domain, self.excluded_domains):
-                    continue
-
-                # Hunter enrichment: try to guess email when Apollo says has_email but didn't return it
-                hunter_confidence = 0
-                if not email and has_email_flag and first_name and last_name and domain:
-                    try:
-                        hunter_result = self.hunter.email_finder(domain, first_name, last_name)
-                        if hunter_result and hunter_result.get("email"):
-                            email = hunter_result["email"].lower().strip()
-                            hunter_confidence = hunter_result.get("score", 0) or hunter_result.get("confidence", 0) or 50
-                            print(f"      [Hunter enrichment] {first_name} {last_name} @ {domain} -> {email} (score={hunter_confidence})")
-                    except Exception as e:
-                        print(f"      [Hunter enrichment error] {e}")
-
-                # Skip if still no email and not keeping no-email leads
-                # But keep if Apollo indicates direct phone is available (valuable for phone outreach)
-                has_contact_signal = bool(email) or has_email_flag or has_direct_phone
-                if not has_contact_signal and not keep_no_email:
-                    continue
-
-                # Skip generic emails
-                if email and is_generic_email(email):
-                    continue
-
-                sources = person.get("sources", ["apollo.io"])
-                if hunter_confidence > 0:
-                    sources = sources + ["hunter.io (enriched)"]
-
-                lead = Lead(
-                    domain=domain,
-                    company=org_name or domain,
-                    email=email,
-                    first_name=first_name,
-                    last_name=last_name,
-                    position=person.get("position", ""),
-                    department=person.get("department", ""),
-                    confidence_score=hunter_confidence if hunter_confidence > 0 else (person.get("confidence", 70) if email else 0),
-                    email_type="personal" if email else "",
-                    sources=sources,
-                    search_keyword=" | ".join(organization_keywords),
-                    found_at=timestamp,
-                    country=detect_country(domain, email),
-                    website_description="",
-                    relevance_score=50,
-                    linkedin_url=person.get("linkedin_url", ""),
-                    source_type="apollo",
-                    has_direct_phone=has_direct_phone,
-                )
-                all_leads.append(lead)
-
-            total_fetched += len(people)
-            progress = min(10 + int((len(all_leads) / max_results) * 70), 80)
-            print(f"PROGRESS: {progress}")
-            print(f"  Page {page}: {len(people)} contacts, {len(all_leads)} leads kept")
+            all_people.extend(people)
+            print(f"  Page {page}: got {len(people)} contacts (total {len(all_people)})")
             if len(people) < per_page:
                 break
             page += 1
             time.sleep(1)
 
+        print(f"\n[Apollo] Total contacts fetched: {len(all_people)}")
+        if not all_people:
+            print("[WARNING] No contacts returned by Apollo.")
+            return []
+        print("PROGRESS: 15")
+
+        # -----------------------------------------------------------------------
+        # Stage 2: Parallel domain resolution
+        # -----------------------------------------------------------------------
+        print(f"\n[Stage 2/4] Resolving domains for {len(all_people)} contacts (parallel)...")
+        people_with_domains: List[tuple] = []
+        skipped_excluded = 0
+        skipped_no_domain = 0
+
+        def _resolve_domain_for_person(person: dict) -> Optional[tuple]:
+            """Return (person, domain) or None if excluded/unresolvable."""
+            org_name = person.get("organization_name", "")
+            org_website = person.get("organization_website", "")
+            domain = ""
+            if org_website:
+                domain = extract_domain(org_website)
+            if not domain and org_name:
+                domain = _resolve_company_website(org_name)
+            if not domain:
+                return None
+            if _is_excluded_domain(domain, self.excluded_domains):
+                return None
+            return (person, domain)
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+            future_to_person = {executor.submit(_resolve_domain_for_person, p): p for p in all_people}
+            completed = 0
+            total = len(all_people)
+            for future in concurrent.futures.as_completed(future_to_person):
+                completed += 1
+                if completed % max(1, total // 5) == 0 or completed == total:
+                    pct = 15 + int((completed / total) * 25)
+                    print(f"PROGRESS: {pct}")
+                result = future.result()
+                if result:
+                    people_with_domains.append(result)
+                else:
+                    skipped_no_domain += 1
+
+        print(f"  Resolved: {len(people_with_domains)} domains, skipped: {skipped_no_domain}")
+        if not people_with_domains:
+            print("[WARNING] No valid domains resolved.")
+            return []
+        print("PROGRESS: 40")
+
+        # -----------------------------------------------------------------------
+        # Stage 3: Parallel Hunter enrichment for contacts missing email
+        # -----------------------------------------------------------------------
+        print(f"\n[Stage 3/4] Hunter enrichment for missing emails (parallel)...")
+        hunter_targets = [
+            (person, domain) for person, domain in people_with_domains
+            if not person.get("value") and person.get("has_email") and person.get("first_name") and person.get("last_name")
+        ]
+        hunter_results: dict = {}
+
+        if hunter_targets and self.hunter:
+            def _enrich_one(args: tuple) -> tuple:
+                person, domain = args
+                fn = person.get("first_name", "")
+                ln = person.get("last_name", "")
+                try:
+                    res = self.hunter._email_finder_cached(domain, fn, ln)
+                    if res and res.get("email"):
+                        return (id(person), res.get("email"), res.get("score", 0) or res.get("confidence", 0) or 50)
+                except Exception:
+                    pass
+                return (id(person), None, 0)
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+                future_to_idx = {executor.submit(_enrich_one, item): item for item in hunter_targets}
+                completed = 0
+                total_h = len(hunter_targets)
+                for future in concurrent.futures.as_completed(future_to_idx):
+                    completed += 1
+                    if completed % max(1, total_h // 4) == 0 or completed == total_h:
+                        pct = 40 + int((completed / total_h) * 30)
+                        print(f"PROGRESS: {min(pct, 70)}")
+                    pid, email, score = future.result()
+                    hunter_results[pid] = (email, score)
+
+            enriched_count = sum(1 for e, _ in hunter_results.values() if e)
+            print(f"  Hunter enriched: {enriched_count}/{len(hunter_targets)}")
+        else:
+            print("  No enrichment needed or Hunter not configured.")
+        print("PROGRESS: 75")
+
+        # -----------------------------------------------------------------------
+        # Stage 4: Build Lead objects
+        # -----------------------------------------------------------------------
+        print(f"\n[Stage 4/4] Building leads...")
+        all_leads: List[Lead] = []
+        for person, domain in people_with_domains:
+            email = (person.get("value") or "").lower().strip()
+            has_email_flag = person.get("has_email", False)
+            has_direct_phone = person.get("has_direct_phone", False)
+            first_name = person.get("first_name", "")
+            last_name = person.get("last_name", "")
+            org_name = person.get("organization_name", "")
+
+            # Apply Hunter enrichment
+            hunter_confidence = 0
+            if not email and id(person) in hunter_results:
+                enriched_email, hunter_confidence = hunter_results[id(person)]
+                if enriched_email:
+                    email = enriched_email.lower().strip()
+
+            # Skip if no contact signal and not keeping no-email leads
+            has_contact_signal = bool(email) or has_email_flag or has_direct_phone
+            if not has_contact_signal and not keep_no_email:
+                continue
+
+            if email and is_generic_email(email):
+                continue
+
+            sources = person.get("sources", ["apollo.io"])
+            if hunter_confidence > 0:
+                sources = sources + ["hunter.io (enriched)"]
+
+            lead = Lead(
+                domain=domain,
+                company=org_name or domain,
+                email=email,
+                first_name=first_name,
+                last_name=last_name,
+                position=person.get("position", ""),
+                department=person.get("department", ""),
+                confidence_score=hunter_confidence if hunter_confidence > 0 else (person.get("confidence", 70) if email else 0),
+                email_type="personal" if email else "",
+                sources=sources,
+                search_keyword=" | ".join(organization_keywords),
+                found_at=timestamp,
+                country=detect_country(domain, email),
+                website_description="",
+                relevance_score=50,
+                linkedin_url=person.get("linkedin_url", ""),
+                source_type="apollo",
+                has_direct_phone=has_direct_phone,
+            )
+            all_leads.append(lead)
+
+        print(f"  Built {len(all_leads)} leads")
         print("PROGRESS: 85")
-        # Deduplicate by email (or domain for no-email)
+
+        # Deduplicate
         seen: Set[str] = set()
         unique_leads: List[Lead] = []
         for lead in all_leads:

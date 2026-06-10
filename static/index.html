@@ -755,7 +755,10 @@
       progressFill.style.width = pct + '%';
       progressPct.textContent = pct + '%';
       if (currentMode === 'apollo') {
-        if (pct < 100) progressStep.textContent = 'Apollo 搜索中...';
+        if (pct <= 15) progressStep.textContent = 'Apollo API 查询中...';
+        else if (pct <= 40) progressStep.textContent = '并行解析域名中...';
+        else if (pct <= 75) progressStep.textContent = 'Hunter 补全邮箱中...';
+        else if (pct < 100) progressStep.textContent = '构建线索与导出...';
         else progressStep.textContent = '完成';
         return;
       }
