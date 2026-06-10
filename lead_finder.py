@@ -1360,7 +1360,7 @@ class ApolloClient:
             "x-api-key": self.api_key,
         }
         payload: dict = {
-            "organization_keywords": organization_keywords,
+            "q_organization_keyword_tags": organization_keywords,
             "per_page": min(per_page, 100),
             "page": page,
         }
@@ -1411,10 +1411,14 @@ class ApolloClient:
                             person["email"] = enriched["email"]
                         if enriched.get("last_name"):
                             person["last_name"] = enriched["last_name"]
-                        # Save enriched org data for downstream relevance scoring
+                        # Save enriched org data for downstream relevance scoring + domain resolution
                         enriched_org = enriched.get("organization", {})
                         if enriched_org:
                             person["_enriched_org"] = enriched_org
+                            if enriched_org.get("primary_domain"):
+                                person["organization_website"] = f"http://{enriched_org['primary_domain']}"
+                            elif enriched_org.get("website_url"):
+                                person["organization_website"] = enriched_org["website_url"]
                 except Exception:
                     pass
                 return person
@@ -1433,6 +1437,8 @@ class ApolloClient:
                             original["last_name"] = p_enriched["last_name"]
                         if p_enriched.get("_enriched_org") and not original.get("_enriched_org"):
                             original["_enriched_org"] = p_enriched["_enriched_org"]
+                        if p_enriched.get("organization_website") and not original.get("organization_website"):
+                            original["organization_website"] = p_enriched["organization_website"]
                 if enriched_count:
                     print(f"    [Apollo] Enriched {enriched_count}/{len(people)} contacts via /people/match")
 
@@ -1451,6 +1457,8 @@ class ApolloClient:
                         last_name = " ".join(parts[1:])
 
                 org = p.get("organization", {}) or {}
+                # Prefer enriched website_url set by /people/match, fallback to original org data
+                org_website = p.get("organization_website") or org.get("website_url", "")
                 # Normalize sources to string list for downstream consumers
                 raw_sources = p.get("sources", [])
                 if raw_sources and isinstance(raw_sources[0], dict):
@@ -1467,7 +1475,7 @@ class ApolloClient:
                     "department": p.get("department") or "",
                     "linkedin_url": p.get("linkedin_url") or "",
                     "organization_name": org.get("name", ""),
-                    "organization_website": org.get("website_url", ""),
+                    "organization_website": org_website,
                     "has_email": p.get("has_email", False),
                     "has_direct_phone": p.get("has_direct_phone", False),
                     "sources": source_strs,
@@ -2670,7 +2678,7 @@ class LeadFinder:
                 return None
             return (person, domain)
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
             future_to_person = {executor.submit(_resolve_domain_for_person, p): p for p in all_people}
             completed = 0
             total = len(all_people)
