@@ -96,6 +96,120 @@ PERSONAL_PATTERNS = [
     re.compile(r"^[a-z]{2,20}[a-z]{2,20}$"),   # johnsmith (first+last concatenated)
 ]
 
+# ---------------------------------------------------------------------------
+# Apollo relevance scoring
+# ---------------------------------------------------------------------------
+
+APOLLO_POSITIVE_INDUSTRIES = {
+    "sporting goods", "sports", "retail", "wholesale", "apparel", "fashion",
+    "manufacturing", "consumer goods", "consumer products", "outdoor",
+    "recreation", "leisure", "fitness", "athletic", "footwear", "textiles",
+    "distribution", "import and export", "import/export",
+}
+
+APOLLO_NEGATIVE_INDUSTRIES = {
+    "healthcare", "health", "medical", "dental", "hospital", "clinic",
+    "software", "technology", "information technology", "it services",
+    "computer software", "internet", "telecommunications",
+    "finance", "financial services", "banking", "insurance", "investment",
+    "real estate", "construction", "hospitality", "hotel", "resort",
+    "restaurant", "food", "aviation", "aerospace", "airlines",
+    "government", "non-profit", "nonprofit", "education", "logistics",
+    "transportation", "oil", "energy", "mining", "pharmaceutical",
+    "biotechnology", "legal", "law practice", "accounting",
+}
+
+APOLLO_POSITIVE_KEYWORDS = {
+    "sport", "sports", "athletic", "athletics", "fitness", "outdoor",
+    "equipment", "gear", "apparel", "uniform", "glove", "gloves",
+    "football", "baseball", "cycling", "bike", "ski", "snowboard",
+    "gym", "workout", "training", "team", "game", "player",
+    "distributor", "wholesale", "importer", "supplier", "dealer",
+    "retail", "merchant", "trading", "trade",
+}
+
+APOLLO_NEGATIVE_KEYWORDS = {
+    "health", "medical", "dental", "hospital", "clinic", "patient",
+    "software", "saas", "tech", "technology", "cloud", "ai", "data",
+    "resort", "spa", "hotel", "hospitality", "restaurant", "cafe",
+    "aviation", "aircraft", "airline", "plane", "maintenance",
+    "government", "municipal", "county", "federal", "state",
+    "nonprofit", "charity", "foundation", "ngo",
+    "education", "school", "university", "college",
+    "pharmaceutical", "drug", "biotech", "laboratory", "lab",
+    "finance", "bank", "investment", "insurance", "mortgage",
+    "legal", "law firm", "attorney", "lawyer",
+    "construction", "contractor", "builder", "engineering",
+    "oil", "gas", "energy", "petroleum", "mining",
+    "real estate", "property", "rental",
+}
+
+def _score_apollo_contact_relevance(person: dict) -> int:
+    """Score Apollo contact relevance based on org industry, keywords, description.
+    Returns integer score. Negative = likely irrelevant.
+    """
+    score = 0
+    org = person.get("_enriched_org", {}) or {}
+    if not org:
+        return 0
+
+    org_name = (org.get("name") or "").lower()
+    industry = (org.get("industry") or "").lower()
+    industries = [i.lower() for i in org.get("industries", [])]
+    keywords = [k.lower() for k in org.get("keywords", [])]
+    description = (org.get("short_description") or "").lower()
+    person_title = (person.get("position") or "").lower()
+
+    # Industry scoring (soft penalties to avoid over-filtering)
+    if industry:
+        for pos in APOLLO_POSITIVE_INDUSTRIES:
+            if pos in industry:
+                score += 20
+        for neg in APOLLO_NEGATIVE_INDUSTRIES:
+            if neg in industry:
+                score -= 15
+    for ind in industries:
+        for pos in APOLLO_POSITIVE_INDUSTRIES:
+            if pos in ind:
+                score += 12
+        for neg in APOLLO_NEGATIVE_INDUSTRIES:
+            if neg in ind:
+                score -= 10
+
+    # Keywords scoring
+    all_text = " ".join(keywords)
+    for pos in APOLLO_POSITIVE_KEYWORDS:
+        if pos in all_text:
+            score += 10
+    for neg in APOLLO_NEGATIVE_KEYWORDS:
+        if neg in all_text:
+            score -= 8
+
+    # Description scoring
+    if description:
+        for pos in APOLLO_POSITIVE_KEYWORDS:
+            if pos in description:
+                score += 8
+        for neg in APOLLO_NEGATIVE_KEYWORDS:
+            if neg in description:
+                score -= 6
+
+    # Company name scoring
+    if org_name:
+        for pos in APOLLO_POSITIVE_KEYWORDS:
+            if pos in org_name:
+                score += 10
+        for neg in APOLLO_NEGATIVE_KEYWORDS:
+            if neg in org_name:
+                score -= 10
+
+    # Title scoring (bonus for purchasing roles)
+    if any(t in person_title for t in ["buyer", "purchasing", "procurement", "sourcing"]):
+        score += 5
+
+    return score
+
+
 # Country detection from TLD
 def detect_country(domain: str, email: str = "") -> str:
     """Guess country from domain TLD or email domain TLD."""
@@ -1274,16 +1388,67 @@ class ApolloClient:
             resp.raise_for_status()
             data = resp.json()
             people = data.get("people", []) if isinstance(data, dict) else []
+
+            # ------------------------------------------------------------------
+            # Parallel enrichment via /people/match to get real email + last_name
+            # ------------------------------------------------------------------
+            def _enrich_one(person: dict) -> dict:
+                """Call /people/match to reveal full contact details."""
+                pid = person.get("id")
+                if not pid:
+                    return person
+                try:
+                    match_resp = requests.post(
+                        f"{self.base_url}/people/match",
+                        headers=headers,
+                        json={"id": pid},
+                        timeout=15,
+                    )
+                    if match_resp.status_code == 200:
+                        match_data = match_resp.json()
+                        enriched = match_data.get("person", {})
+                        if enriched.get("email"):
+                            person["email"] = enriched["email"]
+                        if enriched.get("last_name"):
+                            person["last_name"] = enriched["last_name"]
+                        # Save enriched org data for downstream relevance scoring
+                        enriched_org = enriched.get("organization", {})
+                        if enriched_org:
+                            person["_enriched_org"] = enriched_org
+                except Exception:
+                    pass
+                return person
+
+            if people:
+                enriched_count = 0
+                with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+                    future_to_p = {executor.submit(_enrich_one, p.copy()): p for p in people}
+                    for future in concurrent.futures.as_completed(future_to_p):
+                        p_enriched = future.result()
+                        original = future_to_p[future]
+                        if p_enriched.get("email") and not original.get("email"):
+                            original["email"] = p_enriched["email"]
+                            enriched_count += 1
+                        if p_enriched.get("last_name") and not original.get("last_name"):
+                            original["last_name"] = p_enriched["last_name"]
+                        if p_enriched.get("_enriched_org") and not original.get("_enriched_org"):
+                            original["_enriched_org"] = p_enriched["_enriched_org"]
+                if enriched_count:
+                    print(f"    [Apollo] Enriched {enriched_count}/{len(people)} contacts via /people/match")
+
             results = []
             for p in people:
                 email = (p.get("email") or "").lower().strip()
                 name = p.get("name") or ""
                 first_name = p.get("first_name") or ""
                 last_name = p.get("last_name") or ""
-                if not first_name and name:
+                # Fallback: parse full name whenever parts are missing
+                if name and (not first_name or not last_name):
                     parts = name.split()
-                    first_name = parts[0]
-                    last_name = " ".join(parts[1:]) if len(parts) > 1 else ""
+                    if not first_name and parts:
+                        first_name = parts[0]
+                    if not last_name and len(parts) > 1:
+                        last_name = " ".join(parts[1:])
 
                 org = p.get("organization", {}) or {}
                 # Normalize sources to string list for downstream consumers
@@ -1292,7 +1457,7 @@ class ApolloClient:
                     source_strs = [s.get("domain", "apollo.io") for s in raw_sources if isinstance(s, dict)]
                 else:
                     source_strs = [str(s) for s in raw_sources] if raw_sources else ["apollo.io"]
-                results.append({
+                result_item = {
                     "value": email,
                     "type": "personal",
                     "confidence": 70,
@@ -1306,7 +1471,11 @@ class ApolloClient:
                     "has_email": p.get("has_email", False),
                     "has_direct_phone": p.get("has_direct_phone", False),
                     "sources": source_strs,
-                })
+                }
+                # Pass enriched org data for downstream relevance scoring
+                if p.get("_enriched_org"):
+                    result_item["_enriched_org"] = p["_enriched_org"]
+                results.append(result_item)
             return results
         except requests.exceptions.HTTPError as e:
             print(f"    [Apollo ERROR] people search: {e}")
@@ -2523,12 +2692,42 @@ class LeadFinder:
         print("PROGRESS: 40")
 
         # -----------------------------------------------------------------------
+        # Stage 2.5: Relevance filtering based on enriched org data
+        # -----------------------------------------------------------------------
+        print(f"\n[Stage 2.5/4] Scoring relevance for {len(people_with_domains)} contacts...")
+        scored_people: List[tuple] = []
+        filtered_out = 0
+        for person, domain in people_with_domains:
+            score = _score_apollo_contact_relevance(person)
+            has_org_data = bool(person.get("_enriched_org"))
+            if not has_org_data:
+                score = 0
+            if score >= -50:
+                scored_people.append((person, domain, score))
+            else:
+                filtered_out += 1
+                if filtered_out <= 5:
+                    org_name = person.get("organization_name", "")
+                    print(f"    [Filter] -'{org_name}' (score {score})")
+        # Sort by relevance score descending and attach score to person dict
+        scored_people.sort(key=lambda x: x[2], reverse=True)
+        people_with_domains = []
+        for p, d, s in scored_people:
+            p["_relevance_score"] = s
+            people_with_domains.append((p, d))
+        print(f"  Kept: {len(people_with_domains)}, Filtered out: {filtered_out}")
+        if not people_with_domains:
+            print("[WARNING] All contacts filtered out as irrelevant.")
+            return []
+        print("PROGRESS: 42")
+
+        # -----------------------------------------------------------------------
         # Stage 3: Parallel Hunter enrichment for contacts missing email
         # -----------------------------------------------------------------------
         print(f"\n[Stage 3/4] Hunter enrichment for missing emails (parallel)...")
         hunter_targets = [
             (person, domain) for person, domain in people_with_domains
-            if not person.get("value") and person.get("has_email") and person.get("first_name") and person.get("last_name")
+            if not person.get("value") and person.get("first_name") and person.get("last_name")
         ]
         hunter_results: dict = {}
 
@@ -2610,7 +2809,7 @@ class LeadFinder:
                 found_at=timestamp,
                 country=detect_country(domain, email),
                 website_description="",
-                relevance_score=50,
+                relevance_score=person.get("_relevance_score", 0),
                 linkedin_url=person.get("linkedin_url", ""),
                 source_type="apollo",
                 has_direct_phone=has_direct_phone,

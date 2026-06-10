@@ -120,7 +120,9 @@
       "Bash(curl -s -X POST https://api.apollo.io/v1/mixed_people/api_search -H 'Content-Type: application/json' -H 'X-Api-Key: y0g6J-wxzt2-anloCpvrzQ' -d '{\"q_keywords\":\"football\",\"per_page\":5}')",
       "Bash(curl -s -X POST https://api.apollo.io/v1/mixed_people/api_search -H 'Content-Type: application/json' -H 'X-Api-Key: y0g6J-wxzt2-anloCpvrzQ' -d '{\"q_keywords\":\"football gloves\",\"person_titles\":[\"Buyer\",\"Purchasing Manager\"],\"per_page\":3}')",
       "Bash(curl -s -X POST https://api.apollo.io/v1/mixed_people/api_search -H 'Content-Type: application/json' -H 'X-Api-Key: y0g6J-wxzt2-anloCpvrzQ' -d '{\"person_titles\":[\"Buyer\"],\"organization_keywords\":[\"sporting goods\"],\"per_page\":3}')",
-      "Bash(curl -s -X POST https://api.apollo.io/v1/mixed_people/api_search -H 'Content-Type: application/json' -H 'X-Api-Key: y0g6J-wxzt2-anloCpvrzQ' -d '{\"person_titles\":[\"Buyer\",\"Purchasing Manager\",\"Sourcing Manager\"],\"organization_keywords\":[\"sporting goods\",\"sports equipment\",\"football\"],\"person_locations\":[\"United States\"],\"per_page\":3}')"
+      "Bash(curl -s -X POST https://api.apollo.io/v1/mixed_people/api_search -H 'Content-Type: application/json' -H 'X-Api-Key: y0g6J-wxzt2-anloCpvrzQ' -d '{\"person_titles\":[\"Buyer\",\"Purchasing Manager\",\"Sourcing Manager\"],\"organization_keywords\":[\"sporting goods\",\"sports equipment\",\"football\"],\"person_locations\":[\"United States\"],\"per_page\":3}')",
+      "Bash(python lead_finder.py --apollo-keywords \"football equipment\" --apollo-locations \"United States\" --output test_football_equipment.csv --max-domains 50)",
+      "Bash(curl -s -X POST https://api.apollo.io/v1/mixed_people/api_search -H 'Content-Type: application/json' -H 'x-api-key: MZSQcnMhYXYORZwEBqHWRg' -d '{\"organization_keywords\":[\"football equipment\"],\"per_page\":5}')"
     ],
     "additionalDirectories": [
       "\\tmp",

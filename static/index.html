@@ -139,6 +139,24 @@
       word-break: break-word;
     }
     .hint { font-size: 12px; color: var(--muted); margin-top: 4px; }
+    .keyword-tags { }
+    .tag-group { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 8px; }
+    .tag-label { font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin-right: 4px; }
+    .tag-btn {
+      width: auto;
+      display: inline-block;
+      padding: 4px 10px;
+      font-size: 12px;
+      font-weight: 500;
+      background: var(--bg);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .tag-btn:hover { background: var(--primary); color: #fff; border-color: var(--primary); }
+    .apollo-tip { line-height: 1.6; }
     .log-box {
       margin-top: 16px;
       max-height: 320px;
@@ -335,6 +353,37 @@
                 <label for="apolloKeywords">公司关键词（如产品 / 行业）</label>
                 <input type="text" id="apolloKeywords" name="apollo_keywords" placeholder='例如 "sporting goods" 或 "football gloves"' required>
                 <p class="hint">Apollo 会根据这些关键词匹配公司，建议用英文</p>
+                <div class="keyword-tags" style="margin-top:10px;">
+                  <div style="font-size:12px;color:var(--muted);margin-bottom:6px;">点击快速填入推荐关键词（按产品分类）：</div>
+                  <div class="tag-group">
+                    <span class="tag-label">通用体育</span>
+                    <button type="button" class="tag-btn" onclick="setApolloKeyword('sporting goods')">sporting goods</button>
+                    <button type="button" class="tag-btn" onclick="setApolloKeyword('sports equipment')">sports equipment</button>
+                    <button type="button" class="tag-btn" onclick="setApolloKeyword('team sports')">team sports</button>
+                    <button type="button" class="tag-btn" onclick="setApolloKeyword('athletic apparel')">athletic apparel</button>
+                  </div>
+                  <div class="tag-group">
+                    <span class="tag-label">按产品</span>
+                    <button type="button" class="tag-btn" onclick="setApolloKeyword('football apparel')">football apparel</button>
+                    <button type="button" class="tag-btn" onclick="setApolloKeyword('baseball equipment')">baseball equipment</button>
+                    <button type="button" class="tag-btn" onclick="setApolloKeyword('cycling gear')">cycling gear</button>
+                    <button type="button" class="tag-btn" onclick="setApolloKeyword('fitness accessories')">fitness accessories</button>
+                    <button type="button" class="tag-btn" onclick="setApolloKeyword('ski equipment')">ski equipment</button>
+                    <button type="button" class="tag-btn" onclick="setApolloKeyword('workwear')">workwear</button>
+                  </div>
+                  <div class="tag-group">
+                    <span class="tag-label">渠道类型</span>
+                    <button type="button" class="tag-btn" onclick="setApolloKeyword('sporting goods distributor')">distributor</button>
+                    <button type="button" class="tag-btn" onclick="setApolloKeyword('sports wholesale')">wholesale</button>
+                    <button type="button" class="tag-btn" onclick="setApolloKeyword('outdoor retailer')">outdoor retailer</button>
+                  </div>
+                </div>
+                <div class="apollo-tip" style="margin-top:10px;padding:10px 12px;background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;font-size:12px;color:#92400e;">
+                  <strong>💡 提高精准度技巧：</strong><br>
+                  1. Apollo 的匹配较宽泛，结果中会有不相关公司（如酒店、软件公司），工具会自动过滤并打分<br>
+                  2. 建议先用 <strong>"sporting goods"</strong> 或 <strong>"athletic apparel"</strong> 测试，比 "football gloves" 更精准<br>
+                  3. 职位只选 <strong>Buyer + Purchasing Manager + Sourcing Manager</strong>，别选 CEO（会搜到大公司高管）
+                </div>
               </div>
               <div style="margin-bottom:16px">
                 <label for="apolloTitles">目标职位</label>
@@ -653,6 +702,12 @@
     const progressPct = document.getElementById('progressPct');
     const progressStep = document.getElementById('progressStep');
     let currentMode = 'apollo';
+
+    function setApolloKeyword(keyword) {
+      const input = document.getElementById('apolloKeywords');
+      input.value = keyword;
+      input.focus();
+    }
 
     function setMode(mode) {
       currentMode = mode;
