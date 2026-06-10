@@ -1369,7 +1369,18 @@ class ApolloClient:
         if person_locations:
             payload["person_locations"] = person_locations
         if organization_num_employees:
-            payload["organization_num_employees"] = organization_num_employees
+            # Apollo expects {"min": 2, "max": 50} format
+            if isinstance(organization_num_employees, list) and len(organization_num_employees) == 2:
+                payload["organization_num_employees"] = {
+                    "min": int(organization_num_employees[0]),
+                    "max": int(organization_num_employees[1]),
+                }
+            else:
+                payload["organization_num_employees"] = organization_num_employees
+        # Doc-recommended filters for relevance
+        payload["person_departments"] = ["Purchasing", "Procurement", "Operations", "Supply Chain"]
+        payload["prospected_by_current_team"] = ["no"]
+        payload["contact_email_status"] = ["verified", "likely_to_engage"]
 
         try:
             resp = requests.post(url, headers=headers, json=payload, timeout=30)
