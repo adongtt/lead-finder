@@ -322,14 +322,78 @@
             <div style="margin-bottom:16px">
               <label>搜索模式</label>
               <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                <button type="button" id="modeKeyword" class="mode-btn active" onclick="setMode('keyword')" style="flex:1;padding:8px 12px;font-size:13px;background:var(--primary);color:#fff;border:none;border-radius:6px;cursor:pointer;min-width:120px;">关键词搜索</button>
-                <button type="button" id="modeGoogleMaps" class="mode-btn" onclick="setMode('google_maps')" style="flex:1;padding:8px 12px;font-size:13px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;cursor:pointer;min-width:120px;">谷歌地图搜索</button>
-                <button type="button" id="modeDomains" class="mode-btn" onclick="setMode('domains')" style="flex:1;padding:8px 12px;font-size:13px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;cursor:pointer;min-width:120px;">批量导入域名</button>
+                <button type="button" id="modeApollo" class="mode-btn active" onclick="setMode('apollo')" style="flex:1;padding:8px 12px;font-size:13px;background:var(--primary);color:#fff;border:none;border-radius:6px;cursor:pointer;min-width:100px;">Apollo 搜索</button>
+                <button type="button" id="modeGoogleMaps" class="mode-btn" onclick="setMode('google_maps')" style="flex:1;padding:8px 12px;font-size:13px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;cursor:pointer;min-width:100px;">谷歌地图搜索</button>
+                <button type="button" id="modeKeyword" class="mode-btn" onclick="setMode('keyword')" style="flex:1;padding:8px 12px;font-size:13px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;cursor:pointer;min-width:100px;">关键词搜索</button>
+                <button type="button" id="modeDomains" class="mode-btn" onclick="setMode('domains')" style="flex:1;padding:8px 12px;font-size:13px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;cursor:pointer;min-width:100px;">批量导入域名</button>
+              </div>
+            </div>
+
+            <!-- Apollo 搜索 -->
+            <div id="apolloWrap" style="margin-bottom:16px">
+              <div style="margin-bottom:16px">
+                <label for="apolloKeywords">公司关键词（如产品 / 行业）</label>
+                <input type="text" id="apolloKeywords" name="apollo_keywords" placeholder='例如 "sporting goods" 或 "football gloves"' required>
+                <p class="hint">Apollo 会根据这些关键词匹配公司，建议用英文</p>
+              </div>
+              <div style="margin-bottom:16px">
+                <label for="apolloTitles">目标职位</label>
+                <select id="apolloTitles" multiple style="width:100%;padding:8px 12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;font-size:14px;height:auto;min-height:120px;outline:none;">
+                  <option value="Buyer" selected>Buyer / 采购员</option>
+                  <option value="Purchasing Manager" selected>Purchasing Manager / 采购经理</option>
+                  <option value="Procurement Manager" selected>Procurement Manager / 采购总监</option>
+                  <option value="Sourcing Manager" selected>Sourcing Manager / 供应链经理</option>
+                  <option value="Category Manager">Category Manager / 品类经理</option>
+                  <option value="Product Manager">Product Manager / 产品经理</option>
+                  <option value="Merchandiser">Merchandiser / 买手</option>
+                  <option value="Import Manager">Import Manager / 进口经理</option>
+                  <option value="General Manager">General Manager / 总经理</option>
+                  <option value="Managing Director">Managing Director / 董事总经理</option>
+                  <option value="CEO">CEO / 首席执行官</option>
+                  <option value="Owner">Owner / 企业主</option>
+                  <option value="Founder">Founder / 创始人</option>
+                </select>
+                <p class="hint">按住 Ctrl/Cmd 多选职位，只选采购相关可提高精准度</p>
+              </div>
+              <div style="margin-bottom:16px">
+                <label for="apolloEmployeeRange">公司规模（可选）</label>
+                <select id="apolloEmployeeRange" style="width:100%;padding:10px 12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;font-size:14px;outline:none;">
+                  <option value="">不限规模</option>
+                  <option value="1,10">1-10 人（微型企业 / 初创品牌）</option>
+                  <option value="11,50">11-50 人（小型经销商，最推荐）</option>
+                  <option value="2,50" selected>2-50 人（小经销商最佳区间）</option>
+                  <option value="51,200">51-200 人（中型企业）</option>
+                  <option value="201,500">201-500 人（中大型）</option>
+                  <option value="501,1000">501-1000 人（大型）</option>
+                  <option value="1000,10000">1000+ 人（大型企业）</option>
+                </select>
+                <p class="hint">小经销商通常 2-50 人，选这个范围最精准</p>
+              </div>
+              <div style="margin-bottom:16px">
+                <label for="apolloLocations">目标地区（可选）</label>
+                <input type="text" id="apolloLocations" name="apollo_locations" placeholder='例如 "United States,Germany,United Kingdom"'>
+                <p class="hint">逗号分隔多个国家，留空则不限制地区</p>
+              </div>
+              <div class="row">
+                <div>
+                  <label for="apolloMaxResults">最大结果数</label>
+                  <input type="number" id="apolloMaxResults" name="apollo_max_results" value="100" min="1" max="500">
+                  <p class="hint">Apollo 每页最多 100 条</p>
+                </div>
+                <div>
+                  <label for="apolloKeepNoEmail">保留无邮箱客户</label>
+                  <div style="padding:10px 0;">
+                    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;text-transform:none;letter-spacing:0;font-weight:500;color:var(--text);">
+                      <input type="checkbox" id="apolloKeepNoEmail" style="width:auto;">
+                      保留（适合电话开发）
+                    </label>
+                  </div>
+                </div>
               </div>
             </div>
 
             <!-- 关键词（keyword / maps 模式） -->
-            <div id="keywordWrap" style="margin-bottom:16px">
+            <div id="keywordWrap" style="margin-bottom:16px;display:none;">
               <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
                 <label for="keyword">关键词</label>
                 <select id="keywordTemplate" onchange="applyTemplate()" style="width:auto;padding:4px 8px;font-size:12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--muted);cursor:pointer;">
@@ -344,7 +408,7 @@
                   <option value="ski gloves distributor">滑雪手套分销商</option>
                 </select>
               </div>
-              <input type="text" id="keyword" name="keyword" placeholder='例如 "baseball gloves distributor"' required>
+              <input type="text" id="keyword" name="keyword" placeholder='例如 "baseball gloves distributor"'>
             </div>
 
             <!-- Google Maps 地区（maps 模式） -->
@@ -362,7 +426,7 @@
             </div>
 
             <!-- 搜索页数 + 最大域名数 -->
-            <div class="row" id="pagesWrap">
+            <div class="row" id="pagesWrap" style="display:none;">
               <div id="pagesCol">
                 <label for="pages" id="pagesLabel">搜索页数</label>
                 <input type="number" id="pages" name="pages" value="20" min="1">
@@ -376,14 +440,14 @@
             </div>
 
             <!-- 排除域名 -->
-            <div style="margin-bottom:20px">
+            <div id="excludeWrap" style="margin-bottom:20px;display:none;">
               <label for="exclude">排除域名（可选）</label>
               <input type="text" id="exclude" name="exclude" placeholder="nike.com,adidas.com">
               <p class="hint">逗号分隔，跳过这些域名</p>
             </div>
 
             <!-- 目标国家 / 地区（keyword 模式） -->
-            <div id="targetTldWrap" style="margin-bottom:20px">
+            <div id="targetTldWrap" style="margin-bottom:20px;display:none;">
               <label>目标国家 / 地区（可选）</label>
               <select id="targetTld" multiple style="width:100%;padding:8px 12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;font-size:14px;height:auto;min-height:100px;outline:none;">
                 <option value=".com" selected>美国 / 全球通用 (.com)</option>
@@ -399,7 +463,7 @@
             </div>
 
             <!-- 更多选项（keyword 模式） -->
-            <div id="advancedWrap" style="margin-bottom:20px">
+            <div id="advancedWrap" style="margin-bottom:20px;display:none;">
               <button type="button" onclick="toggleAdvanced()" id="advancedToggle" style="width:auto;padding:6px 14px;font-size:13px;background:var(--bg);color:var(--muted);border:1px solid var(--border);border-radius:6px;font-weight:500;cursor:pointer;">更多选项 ▼</button>
               <div id="advancedContent" style="display:none;margin-top:12px;padding:16px;background:var(--bg);border:1px solid var(--border);border-radius:8px;">
                 <label style="display:flex;align-items:center;gap:8px;cursor:pointer;text-transform:none;letter-spacing:0;font-weight:500;color:var(--text);margin-bottom:12px;">
@@ -438,8 +502,8 @@
               </div>
             </div>
 
-            <!-- 保留无邮箱 -->
-            <div style="margin-bottom:20px">
+            <!-- 保留无邮箱（keyword/maps 模式） -->
+            <div id="keepNoEmailWrap" style="margin-bottom:20px;display:none;">
               <label style="display:flex;align-items:center;gap:8px;cursor:pointer;text-transform:none;letter-spacing:0;font-weight:500;color:var(--text);">
                 <input type="checkbox" id="keepNoEmail" name="keep_no_email" style="width:auto;">
                 保留无邮箱客户
@@ -588,37 +652,32 @@
     const progressFill = document.getElementById('progressFill');
     const progressPct = document.getElementById('progressPct');
     const progressStep = document.getElementById('progressStep');
-    let currentMode = 'keyword';
+    let currentMode = 'apollo';
 
     function setMode(mode) {
       currentMode = mode;
+      const btnApollo = document.getElementById('modeApollo');
       const btnKeyword = document.getElementById('modeKeyword');
       const btnGoogleMaps = document.getElementById('modeGoogleMaps');
       const btnDomains = document.getElementById('modeDomains');
 
       // Reset all buttons
-      [btnKeyword, btnGoogleMaps, btnDomains].forEach(btn => {
+      [btnApollo, btnKeyword, btnGoogleMaps, btnDomains].forEach(btn => {
         btn.style.background = 'var(--bg)';
         btn.style.color = 'var(--text)';
         btn.style.border = '1px solid var(--border)';
       });
 
       // Highlight active button
-      if (mode === 'keyword') {
-        btnKeyword.style.background = 'var(--primary)';
-        btnKeyword.style.color = '#fff';
-        btnKeyword.style.border = 'none';
-      } else if (mode === 'google_maps') {
-        btnGoogleMaps.style.background = 'var(--primary)';
-        btnGoogleMaps.style.color = '#fff';
-        btnGoogleMaps.style.border = 'none';
-      } else {
-        btnDomains.style.background = 'var(--primary)';
-        btnDomains.style.color = '#fff';
-        btnDomains.style.border = 'none';
-      }
+      const activeBtn = mode === 'apollo' ? btnApollo :
+                        mode === 'keyword' ? btnKeyword :
+                        mode === 'google_maps' ? btnGoogleMaps : btnDomains;
+      activeBtn.style.background = 'var(--primary)';
+      activeBtn.style.color = '#fff';
+      activeBtn.style.border = 'none';
 
       // Field visibility by mode
+      const apolloWrap = document.getElementById('apolloWrap');
       const keywordWrap = document.getElementById('keywordWrap');
       const mapsRegionWrap = document.getElementById('mapsRegionWrap');
       const domainsWrap = document.getElementById('domainsWrap');
@@ -627,33 +686,45 @@
       const pagesHint = document.getElementById('pagesHint');
       const targetTldWrap = document.getElementById('targetTldWrap');
       const advancedWrap = document.getElementById('advancedWrap');
+      const excludeWrap = document.getElementById('excludeWrap');
+      const keepNoEmailWrap = document.getElementById('keepNoEmailWrap');
       const keywordInput = document.getElementById('keyword');
+      const apolloKeywords = document.getElementById('apolloKeywords');
 
-      // Defaults (keyword mode)
-      keywordWrap.style.display = 'block';
-      pagesWrap.style.display = 'grid';
-      pagesLabel.textContent = '搜索页数';
-      pagesHint.textContent = '要扫描多少页搜索结果';
-      targetTldWrap.style.display = 'block';
-      advancedWrap.style.display = 'block';
+      // Hide all first
+      apolloWrap.style.display = 'none';
+      keywordWrap.style.display = 'none';
       mapsRegionWrap.style.display = 'none';
       domainsWrap.style.display = 'none';
-      keywordInput.required = true;
+      pagesWrap.style.display = 'none';
+      targetTldWrap.style.display = 'none';
+      advancedWrap.style.display = 'none';
+      excludeWrap.style.display = 'none';
+      keepNoEmailWrap.style.display = 'none';
+      keywordInput.required = false;
+      apolloKeywords.required = false;
 
-      if (mode === 'google_maps') {
-        // Maps: keyword + region + max_domains only
-        pagesWrap.style.display = 'none';
-        targetTldWrap.style.display = 'none';
-        advancedWrap.style.display = 'none';
+      if (mode === 'apollo') {
+        apolloWrap.style.display = 'block';
+        apolloKeywords.required = true;
+      } else if (mode === 'google_maps') {
+        keywordWrap.style.display = 'block';
+        keywordInput.required = true;
         mapsRegionWrap.style.display = 'block';
+        keepNoEmailWrap.style.display = 'block';
+      } else if (mode === 'keyword') {
+        keywordWrap.style.display = 'block';
+        keywordInput.required = true;
+        pagesWrap.style.display = 'grid';
+        pagesLabel.textContent = '搜索页数';
+        pagesHint.textContent = '要扫描多少页搜索结果';
+        targetTldWrap.style.display = 'block';
+        advancedWrap.style.display = 'block';
+        excludeWrap.style.display = 'block';
+        keepNoEmailWrap.style.display = 'block';
       } else if (mode === 'domains') {
-        // Domains: paste list only
-        keywordWrap.style.display = 'none';
-        pagesWrap.style.display = 'none';
-        targetTldWrap.style.display = 'none';
-        advancedWrap.style.display = 'none';
         domainsWrap.style.display = 'block';
-        keywordInput.required = false;
+        keepNoEmailWrap.style.display = 'block';
       }
     }
 
@@ -683,6 +754,11 @@
     function setProgress(pct) {
       progressFill.style.width = pct + '%';
       progressPct.textContent = pct + '%';
+      if (currentMode === 'apollo') {
+        if (pct < 100) progressStep.textContent = 'Apollo 搜索中...';
+        else progressStep.textContent = '完成';
+        return;
+      }
       if (pct < 20) progressStep.textContent = '搜索引擎查询中...';
       else if (pct < 30) progressStep.textContent = '域名评分与提取...';
       else if (pct < 50) progressStep.textContent = '抓取网站元数据...';
@@ -701,39 +777,60 @@
       btn.disabled = true;
       btnText.innerHTML = '<span class="spinner"></span> 搜索中...';
 
-      const keyword = document.getElementById('keyword').value || 'direct-import';
-      const pages = document.getElementById('pages').value;
-      const maxDomains = document.getElementById('max_domains').value;
-      const exclude = document.getElementById('exclude').value;
-      const deep = document.getElementById('deep').checked;
-      const amazon = document.getElementById('amazon').checked;
-      const keepNoEmail = document.getElementById('keepNoEmail').checked;
-      const excludeBigPlatforms = document.getElementById('excludeBigPlatforms').checked;
-      const advancedSyntax = document.getElementById('advancedSyntax').checked;
-      const strictMode = document.getElementById('strictMode').checked;
-      const minRelevance = document.getElementById('minRelevance').value;
-      const domainsInput = document.getElementById('domainsInput').value;
-      const targetTldSelect = document.getElementById('targetTld');
-      const checkedTlds = Array.from(targetTldSelect.selectedOptions).map(opt => opt.value);
+      let streamUrl = '';
 
-      const params = new URLSearchParams({ keyword, pages });
-      if (maxDomains) params.append('max_domains', maxDomains);
-      if (exclude) params.append('exclude', exclude);
-      if (deep) params.append('deep', 'true');
-      if (amazon) params.append('amazon', 'true');
-      if (keepNoEmail) params.append('keep_no_email', 'true');
-      if (excludeBigPlatforms) params.append('exclude_big_platforms', 'true');
-      if (advancedSyntax) params.append('advanced_syntax', 'true');
-      if (strictMode) params.append('strict_mode', 'true');
-      if (minRelevance && minRelevance !== '-50') params.append('min_relevance', minRelevance);
-      if (domainsInput) params.append('domains', domainsInput);
-      if (checkedTlds.length > 0) params.append('target_tlds', checkedTlds.join(','));
-      if (currentMode === 'google_maps') {
-        const region = document.getElementById('mapsRegion').value.trim();
-        if (region) params.append('maps_region', region);
+      if (currentMode === 'apollo') {
+        const apolloKeywords = document.getElementById('apolloKeywords').value.trim();
+        const apolloTitlesSelect = document.getElementById('apolloTitles');
+        const checkedTitles = Array.from(apolloTitlesSelect.selectedOptions).map(opt => opt.value);
+        const apolloLocations = document.getElementById('apolloLocations').value.trim();
+        const apolloMaxResults = document.getElementById('apolloMaxResults').value;
+        const apolloKeepNoEmail = document.getElementById('apolloKeepNoEmail').checked;
+        const apolloEmployeeRange = document.getElementById('apolloEmployeeRange').value;
+
+        const params = new URLSearchParams({ apollo_keywords: apolloKeywords });
+        if (checkedTitles.length > 0) params.append('apollo_titles', checkedTitles.join(','));
+        if (apolloLocations) params.append('apollo_locations', apolloLocations);
+        if (apolloEmployeeRange) params.append('employee_range', apolloEmployeeRange);
+        if (apolloMaxResults) params.append('max_results', apolloMaxResults);
+        if (apolloKeepNoEmail) params.append('keep_no_email', 'true');
+        streamUrl = `/api/leads/apollo/stream?${params.toString()}`;
+      } else {
+        const keyword = document.getElementById('keyword').value || 'direct-import';
+        const pages = document.getElementById('pages').value;
+        const maxDomains = document.getElementById('max_domains').value;
+        const exclude = document.getElementById('exclude').value;
+        const deep = document.getElementById('deep').checked;
+        const amazon = document.getElementById('amazon').checked;
+        const keepNoEmail = document.getElementById('keepNoEmail').checked;
+        const excludeBigPlatforms = document.getElementById('excludeBigPlatforms').checked;
+        const advancedSyntax = document.getElementById('advancedSyntax').checked;
+        const strictMode = document.getElementById('strictMode').checked;
+        const minRelevance = document.getElementById('minRelevance').value;
+        const domainsInput = document.getElementById('domainsInput').value;
+        const targetTldSelect = document.getElementById('targetTld');
+        const checkedTlds = Array.from(targetTldSelect.selectedOptions).map(opt => opt.value);
+
+        const params = new URLSearchParams({ keyword, pages });
+        if (maxDomains) params.append('max_domains', maxDomains);
+        if (exclude) params.append('exclude', exclude);
+        if (deep) params.append('deep', 'true');
+        if (amazon) params.append('amazon', 'true');
+        if (keepNoEmail) params.append('keep_no_email', 'true');
+        if (excludeBigPlatforms) params.append('exclude_big_platforms', 'true');
+        if (advancedSyntax) params.append('advanced_syntax', 'true');
+        if (strictMode) params.append('strict_mode', 'true');
+        if (minRelevance && minRelevance !== '-50') params.append('min_relevance', minRelevance);
+        if (domainsInput) params.append('domains', domainsInput);
+        if (checkedTlds.length > 0) params.append('target_tlds', checkedTlds.join(','));
+        if (currentMode === 'google_maps') {
+          const region = document.getElementById('mapsRegion').value.trim();
+          if (region) params.append('maps_region', region);
+        }
+        streamUrl = `/api/leads/stream?${params.toString()}`;
       }
 
-      const es = new EventSource(`/api/leads/stream?${params.toString()}`);
+      const es = new EventSource(streamUrl);
 
       es.onmessage = (event) => {
         const data = JSON.parse(event.data);
@@ -790,7 +887,7 @@
             `<td>${escapeHtml((row.first_name || '') + ' ' + (row.last_name || ''))}</td>` +
             `<td>${escapeHtml(row.position || '')}</td>` +
             `<td>${escapeHtml(row.country || '')}</td>` +
-            `<td>${escapeHtml(row.phone || '')}</td>` +
+            `<td>${formatPhoneCell(row)}</td>` +
             `<td>${escapeHtml(row.company || '')} <a href="${liUrl}" target="_blank" rel="noopener" title="LinkedIn 搜索公司" style="color:#0a66c2;font-size:11px;margin-left:4px;">[in]</a></td>` +
             `<td>${escapeHtml(row.domain || '')}</td>` +
             `<td>${sourceTypeLabel(row.source_type || '')}</td>` +
@@ -905,8 +1002,16 @@
         'search': '<span style="font-size:11px;color:#64748b;background:#f1f5f9;padding:2px 6px;border-radius:4px;">搜索引擎</span>',
         'google_maps': '<span style="font-size:11px;color:#059669;background:#d1fae5;padding:2px 6px;border-radius:4px;">Google Maps</span>',
         'linkedin_discovery': '<span style="font-size:11px;color:#0a66c2;background:#dbeafe;padding:2px 6px;border-radius:4px;">LinkedIn</span>',
+        'apollo': '<span style="font-size:11px;color:#7c3aed;background:#ede9fe;padding:2px 6px;border-radius:4px;">Apollo</span>',
       };
       return map[type] || `<span style="font-size:11px;color:#64748b;background:#f1f5f9;padding:2px 6px;border-radius:4px;">${escapeHtml(type || '未知')}</span>`;
+    }
+
+    function formatPhoneCell(row) {
+      if (row.source_type === 'apollo' && (row.has_direct_phone === true || row.has_direct_phone === 'true' || row.has_direct_phone === 'True')) {
+        return '<span title="Apollo 有直拨电话" style="font-size:13px;">📞 Apollo</span>';
+      }
+      return escapeHtml(row.phone || '');
     }
 
     function statusBadge(status) {
@@ -1139,6 +1244,7 @@
     loadContacted();
     loadSearches();
     restoreSignatureInputs();
+    setMode('apollo');
   </script>
 </body>
 </html>

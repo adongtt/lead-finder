@@ -402,8 +402,16 @@
         'search': '<span style="font-size:11px;color:#64748b;background:#f1f5f9;padding:2px 6px;border-radius:4px;">搜索引擎</span>',
         'google_maps': '<span style="font-size:11px;color:#059669;background:#d1fae5;padding:2px 6px;border-radius:4px;">Google Maps</span>',
         'linkedin_discovery': '<span style="font-size:11px;color:#0a66c2;background:#dbeafe;padding:2px 6px;border-radius:4px;">LinkedIn</span>',
+        'apollo': '<span style="font-size:11px;color:#7c3aed;background:#ede9fe;padding:2px 6px;border-radius:4px;">Apollo</span>',
       };
       return map[type] || `<span style="font-size:11px;color:#64748b;background:#f1f5f9;padding:2px 6px;border-radius:4px;">${escapeHtml(type || '未知')}</span>`;
+    }
+
+    function formatPhoneCell(row) {
+      if (row.source_type === 'apollo' && (row.has_direct_phone === true || row.has_direct_phone === 'true' || row.has_direct_phone === 'True')) {
+        return '<span title="Apollo 有直拨电话" style="font-size:13px;">📞 Apollo</span>';
+      }
+      return escapeHtml(row.phone || '');
     }
 
     function statusBadge(status) {
@@ -501,7 +509,7 @@
           `<td>${escapeHtml((row.first_name || '') + ' ' + (row.last_name || ''))}</td>` +
           `<td>${escapeHtml(row.position || '')}</td>` +
           `<td>${escapeHtml(row.company || '')} <a href="https://www.linkedin.com/search/results/companies/?keywords=${encodeURIComponent(row.company || row.domain || '')}" target="_blank" rel="noopener" title="LinkedIn 搜索公司" style="color:#0a66c2;font-size:11px;margin-left:4px;">[in]</a></td>` +
-          `<td>${escapeHtml(row.phone || '')}</td>` +
+          `<td>${formatPhoneCell(row)}</td>` +
           `<td>${escapeHtml(row.domain || '')}</td>` +
           `<td>${sourceTypeLabel(row.source_type || '')}</td>` +
           `<td><span class="desc-tooltip" title="${attrEscape(row.website_description || '')}">${escapeHtml((row.website_description || '').length > 30 ? (row.website_description || '').slice(0,30) + '...' : (row.website_description || ''))}</span></td>` +

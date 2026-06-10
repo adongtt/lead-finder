@@ -816,6 +816,96 @@ async def stream_leads(
     )
 
 
+@app.get("/api/leads/apollo/stream")
+async def stream_apollo_leads(
+    request: Request,
+    apollo_keywords: str,
+    apollo_titles: str = "Buyer,Purchasing Manager,Procurement Manager,Sourcing Manager",
+    apollo_locations: str = "",
+    max_results: int = 100,
+    keep_no_email: bool = False,
+    employee_range: str = "",
+    user: dict = Depends(require_user),
+):
+    """Stream Apollo.io People Search progress via Server-Sent Events."""
+    job_id = str(uuid.uuid4())[:8]
+    output_file = DATA_DIR / f"{job_id}.csv"
+
+    cmd = [
+        sys.executable or "python", "lead_finder.py", "apollo-search",
+        "--apollo-keywords", apollo_keywords,
+        "--apollo-titles", apollo_titles,
+        "--output", str(output_file),
+    ]
+    if apollo_locations:
+        cmd.extend(["--apollo-locations", apollo_locations])
+    if employee_range:
+        cmd.extend(["--apollo-employee-range", employee_range])
+    if max_results:
+        cmd.extend(["--max-domains", str(max_results)])
+    if keep_no_email:
+        cmd.append("--keep-no-email")
+
+    async def event_generator():
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
+        try:
+            while True:
+                line = await proc.stdout.readline()
+                if not line:
+                    break
+                text = line.decode("utf-8", errors="replace").rstrip()
+                if text:
+                    payload = json.dumps({"type": "log", "content": text}, ensure_ascii=False)
+                    yield f"data: {payload}\n\n"
+
+            await proc.wait()
+
+            if output_file.exists():
+                csv_content = output_file.read_text(encoding="utf-8")
+                leads = []
+                lines = csv_content.splitlines()
+                if lines:
+                    lines[0] = lines[0].lstrip('﻿')
+                reader = csv.DictReader(lines)
+                for row in reader:
+                    leads.append({k: v for k, v in row.items()})
+                leads = db_enrich_leads(leads)
+                leads = _sort_leads_by_position(leads)
+                db_save_search(job_id, f"Apollo: {apollo_keywords}", 0, len(leads), user["user_id"], user["name"], False, csv_content)
+
+                payload = json.dumps({
+                    "type": "done",
+                    "status": "success",
+                    "job_id": job_id,
+                    "total": len(leads),
+                    "download_url": f"/api/leads/download/{job_id}",
+                    "preview": leads[:5] if leads else [],
+                    "leads": leads,
+                }, ensure_ascii=False)
+                yield f"data: {payload}\n\n"
+            else:
+                payload = json.dumps({
+                    "type": "done",
+                    "status": "error",
+                    "message": "Apollo search completed but no output file was generated.",
+                }, ensure_ascii=False)
+                yield f"data: {payload}\n\n"
+        finally:
+            if proc.returncode is None:
+                proc.kill()
+                await proc.wait()
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
+    )
+
+
 @app.get("/api/leads/download/{job_id}")
 async def download_leads(job_id: str, user: dict = Depends(require_user)):
     """Download the CSV result file from database."""

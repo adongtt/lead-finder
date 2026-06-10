@@ -533,7 +533,8 @@ class Lead:
     google_reviews_count: int = 0
     google_maps_url: str = ""
     place_id: str = ""
-    source_type: str = "search"        # search | google_maps | linkedin_discovery
+    source_type: str = "search"        # search | google_maps | linkedin_discovery | apollo
+    has_direct_phone: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -1159,7 +1160,7 @@ class ApolloClient:
 
     def domain_search(self, domain: str, limit: int = 50) -> List[dict]:
         """Search contacts by domain. Returns list of email dicts."""
-        url = f"{self.base_url}/mixed_people/search"
+        url = f"{self.base_url}/mixed_people/api_search"
         headers = {
             "Content-Type": "application/json",
             "x-api-key": self.api_key,
@@ -1214,6 +1215,88 @@ class ApolloClient:
             return []
         except Exception as e:
             print(f"    [Apollo ERROR] {domain}: {e}")
+            return []
+
+    def people_search(
+        self,
+        organization_keywords: List[str],
+        person_titles: Optional[List[str]] = None,
+        person_locations: Optional[List[str]] = None,
+        organization_num_employees: Optional[List[str]] = None,
+        per_page: int = 100,
+        page: int = 1,
+    ) -> List[dict]:
+        """Search people via Apollo.io People Search API.
+
+        Returns list of standardized contact dicts with organization info.
+        """
+        url = f"{self.base_url}/mixed_people/api_search"
+        headers = {
+            "Content-Type": "application/json",
+            "x-api-key": self.api_key,
+        }
+        payload: dict = {
+            "organization_keywords": organization_keywords,
+            "per_page": min(per_page, 100),
+            "page": page,
+        }
+        if person_titles:
+            payload["person_titles"] = person_titles
+        if person_locations:
+            payload["person_locations"] = person_locations
+        if organization_num_employees:
+            payload["organization_num_employees"] = organization_num_employees
+
+        try:
+            resp = requests.post(url, headers=headers, json=payload, timeout=30)
+            if resp.status_code == 429:
+                print(f"    [Apollo] Rate limited on people search. Sleeping 5s...")
+                time.sleep(5)
+                return []
+            if resp.status_code == 403:
+                data = resp.json() if resp.text else {}
+                err = data.get("error", "")
+                if "free plan" in err.lower():
+                    print("    [Apollo] Free plan key cannot use People Search. Skipping.")
+                else:
+                    print(f"    [Apollo] Forbidden (403): {err}")
+                return []
+            resp.raise_for_status()
+            data = resp.json()
+            people = data.get("people", []) if isinstance(data, dict) else []
+            results = []
+            for p in people:
+                email = (p.get("email") or "").lower().strip()
+                name = p.get("name") or ""
+                first_name = p.get("first_name") or ""
+                last_name = p.get("last_name") or ""
+                if not first_name and name:
+                    parts = name.split()
+                    first_name = parts[0]
+                    last_name = " ".join(parts[1:]) if len(parts) > 1 else ""
+
+                org = p.get("organization", {}) or {}
+                results.append({
+                    "value": email,
+                    "type": "personal",
+                    "confidence": 70,
+                    "first_name": first_name,
+                    "last_name": last_name,
+                    "position": p.get("title") or p.get("job_title") or "",
+                    "department": p.get("department") or "",
+                    "linkedin_url": p.get("linkedin_url") or "",
+                    "organization_name": org.get("name", ""),
+                    "organization_website": org.get("website_url", ""),
+                    "has_email": p.get("has_email", False),
+                    "has_direct_phone": p.get("has_direct_phone", False),
+                    "sources": [{"domain": "apollo.io"}],
+                })
+            return results
+        except requests.exceptions.HTTPError as e:
+            print(f"    [Apollo ERROR] people search: {e}")
+            return []
+        except Exception as e:
+            print(f"    [Apollo ERROR] people search: {e}")
             return []
 
 
@@ -2269,7 +2352,7 @@ class LeadFinder:
             "validation_status", "sources", "search_keyword", "found_at",
             "website_description", "relevance_score", "linkedin_url",
             "phone", "address", "google_rating", "google_reviews_count",
-            "google_maps_url", "place_id", "source_type",
+            "google_maps_url", "place_id", "source_type", "has_direct_phone",
         ]
         with open(path, "w", newline="", encoding="utf-8-sig") as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -2301,6 +2384,149 @@ class LeadFinder:
             print(f"  Validated (OK)   : {validated}")
         print(f"{'='*60}\n")
 
+    def run_apollo_search(
+        self,
+        organization_keywords: List[str],
+        person_titles: List[str],
+        person_locations: List[str],
+        max_results: int = 100,
+        output: str = "leads.csv",
+        keep_no_email: bool = False,
+        employee_range: Optional[List[str]] = None,
+    ) -> List[Lead]:
+        """Run an Apollo.io People Search and export leads."""
+        if not self.apollo:
+            print("[ERROR] Apollo client not initialized. Please set APOLLO_KEY in config.")
+            return []
+
+        timestamp = datetime.now().isoformat()
+        all_leads: List[Lead] = []
+
+        print(f"\n{'='*60}")
+        print(f"  Apollo.io People Search")
+        print(f"  Org Keywords : {organization_keywords}")
+        print(f"  Titles       : {person_titles}")
+        print(f"  Locations    : {person_locations}")
+        print(f"  Employee Range: {employee_range or 'Any'}")
+        print(f"  Max Results  : {max_results}")
+        print(f"  Output       : {output}")
+        print(f"{'='*60}\n")
+
+        per_page = min(max_results, 100)
+        page = 1
+        total_fetched = 0
+        print("PROGRESS: 10")
+
+        while len(all_leads) < max_results:
+            print(f"[Apollo] Fetching page {page}...")
+            people = self.apollo.people_search(
+                organization_keywords=organization_keywords,
+                person_titles=person_titles or None,
+                person_locations=person_locations or None,
+                organization_num_employees=employee_range or None,
+                per_page=per_page,
+                page=page,
+            )
+            if not people:
+                print("  No more results.")
+                break
+
+            for person in people:
+                email = person.get("value", "")
+                org_name = person.get("organization_name", "")
+                org_website = person.get("organization_website", "")
+                has_email_flag = person.get("has_email", False)
+                has_direct_phone = person.get("has_direct_phone", False)
+                first_name = person.get("first_name", "")
+                last_name = person.get("last_name", "")
+
+                # Resolve domain from org website or name
+                domain = ""
+                if org_website:
+                    domain = extract_domain(org_website)
+                if not domain and org_name:
+                    domain = _resolve_company_website(org_name)
+                if not domain:
+                    continue
+
+                # Skip excluded domains
+                if _is_excluded_domain(domain, self.excluded_domains):
+                    continue
+
+                # Hunter enrichment: try to guess email when Apollo says has_email but didn't return it
+                hunter_confidence = 0
+                if not email and has_email_flag and first_name and last_name and domain:
+                    try:
+                        hunter_result = self.hunter.email_finder(domain, first_name, last_name)
+                        if hunter_result and hunter_result.get("email"):
+                            email = hunter_result["email"].lower().strip()
+                            hunter_confidence = hunter_result.get("score", 0) or hunter_result.get("confidence", 0) or 50
+                            print(f"      [Hunter enrichment] {first_name} {last_name} @ {domain} -> {email} (score={hunter_confidence})")
+                    except Exception as e:
+                        print(f"      [Hunter enrichment error] {e}")
+
+                # Skip if still no email and not keeping no-email leads
+                # But keep if Apollo indicates direct phone is available (valuable for phone outreach)
+                has_contact_signal = bool(email) or has_email_flag or has_direct_phone
+                if not has_contact_signal and not keep_no_email:
+                    continue
+
+                # Skip generic emails
+                if email and is_generic_email(email):
+                    continue
+
+                sources = person.get("sources", ["apollo.io"])
+                if hunter_confidence > 0:
+                    sources = sources + ["hunter.io (enriched)"]
+
+                lead = Lead(
+                    domain=domain,
+                    company=org_name or domain,
+                    email=email,
+                    first_name=first_name,
+                    last_name=last_name,
+                    position=person.get("position", ""),
+                    department=person.get("department", ""),
+                    confidence_score=hunter_confidence if hunter_confidence > 0 else (person.get("confidence", 70) if email else 0),
+                    email_type="personal" if email else "",
+                    sources=sources,
+                    search_keyword=" | ".join(organization_keywords),
+                    found_at=timestamp,
+                    country=detect_country(domain, email),
+                    website_description="",
+                    relevance_score=50,
+                    linkedin_url=person.get("linkedin_url", ""),
+                    source_type="apollo",
+                    has_direct_phone=has_direct_phone,
+                )
+                all_leads.append(lead)
+
+            total_fetched += len(people)
+            progress = min(10 + int((len(all_leads) / max_results) * 70), 80)
+            print(f"PROGRESS: {progress}")
+            print(f"  Page {page}: {len(people)} contacts, {len(all_leads)} leads kept")
+            if len(people) < per_page:
+                break
+            page += 1
+            time.sleep(1)
+
+        print("PROGRESS: 85")
+        # Deduplicate by email (or domain for no-email)
+        seen: Set[str] = set()
+        unique_leads: List[Lead] = []
+        for lead in all_leads:
+            key = lead.email.lower().strip() if lead.email else f"__no_email__:{lead.domain}"
+            if key not in seen:
+                seen.add(key)
+                unique_leads.append(lead)
+
+        print(f"\n[Apollo] Total unique leads: {len(unique_leads)}")
+        print("PROGRESS: 95")
+        self._export_csv(unique_leads, output)
+        print("PROGRESS: 100")
+        self._print_summary(unique_leads, "Apollo People Search", len(set(l.domain for l in unique_leads)))
+        return unique_leads
+
 
 # ---------------------------------------------------------------------------
 # CLI Entry Point
@@ -2310,7 +2536,7 @@ def main():
     parser = argparse.ArgumentParser(
         description="B2B Lead Finder - Discover decision-maker emails from Google searches."
     )
-    parser.add_argument("keyword", help="Search keyword(s), e.g. 'football gloves manufacturer'")
+    parser.add_argument("keyword", nargs="?", default="", help="Search keyword(s), e.g. 'football gloves manufacturer'")
     parser.add_argument("--pages", type=int, default=5, help="Number of Google result pages to scan (default: 5)")
     parser.add_argument("--output", type=str, default="leads.csv", help="Output CSV file path (default: leads.csv)")
     parser.add_argument("--validate", action="store_true", help="Validate emails via ZeroBounce (requires API key)")
@@ -2387,11 +2613,61 @@ def main():
         action="store_true",
         help="Strict filtering: enables --exclude-big-platforms, --advanced-syntax, and raises min-relevance to 10",
     )
+    parser.add_argument(
+        "--apollo-keywords",
+        type=str,
+        default="",
+        help="Apollo.io organization keywords, comma-separated (enables Apollo People Search mode)",
+    )
+    parser.add_argument(
+        "--apollo-titles",
+        type=str,
+        default="Buyer,Purchasing Manager,Procurement Manager,Sourcing Manager",
+        help="Apollo.io person titles, comma-separated",
+    )
+    parser.add_argument(
+        "--apollo-locations",
+        type=str,
+        default="",
+        help="Apollo.io person locations, comma-separated, e.g. 'United States,Germany'",
+    )
+    parser.add_argument(
+        "--apollo-employee-range",
+        type=str,
+        default="",
+        help="Apollo.io company size range, e.g. '2,50' or '51,200'",
+    )
     args = parser.parse_args()
 
     extra_excluded = set(d.strip().lower() for d in args.exclude.split(",") if d.strip())
     config = load_config()
     finder = LeadFinder(config, engine=args.engine, extra_excluded=extra_excluded)
+
+    # Apollo People Search mode
+    if args.apollo_keywords:
+        org_keywords = [k.strip() for k in args.apollo_keywords.split(",") if k.strip()]
+        titles = [t.strip() for t in args.apollo_titles.split(",") if t.strip()]
+        locations = [l.strip() for l in args.apollo_locations.split(",") if l.strip()]
+        employee_range = None
+        if args.apollo_employee_range:
+            parts = [p.strip() for p in args.apollo_employee_range.split(",") if p.strip()]
+            if len(parts) == 2:
+                employee_range = parts
+        finder.run_apollo_search(
+            organization_keywords=org_keywords,
+            person_titles=titles,
+            person_locations=locations,
+            max_results=args.max_domains or 100,
+            output=args.output,
+            keep_no_email=getattr(args, "keep_no_email", False),
+            employee_range=employee_range,
+        )
+        return
+
+    if not args.keyword:
+        parser.print_help()
+        sys.exit(1)
+
     domain_list = [d.strip() for d in args.domains.split(",") if d.strip()] if args.domains else None
     tld_list = [t.strip() for t in args.target_tlds.split(",") if t.strip()] if args.target_tlds else None
     finder.run(
