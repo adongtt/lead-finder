@@ -1217,7 +1217,7 @@ class ApolloClient:
                     "position": p.get("title") or p.get("job_title") or "",
                     "department": p.get("department") or "",
                     "linkedin_url": p.get("linkedin_url") or "",
-                    "sources": [{"domain": "apollo.io"}],
+                    "sources": ["apollo.io"],
                 })
             return results
         except requests.exceptions.HTTPError as e:
@@ -1286,6 +1286,12 @@ class ApolloClient:
                     last_name = " ".join(parts[1:]) if len(parts) > 1 else ""
 
                 org = p.get("organization", {}) or {}
+                # Normalize sources to string list for downstream consumers
+                raw_sources = p.get("sources", [])
+                if raw_sources and isinstance(raw_sources[0], dict):
+                    source_strs = [s.get("domain", "apollo.io") for s in raw_sources if isinstance(s, dict)]
+                else:
+                    source_strs = [str(s) for s in raw_sources] if raw_sources else ["apollo.io"]
                 results.append({
                     "value": email,
                     "type": "personal",
@@ -1299,7 +1305,7 @@ class ApolloClient:
                     "organization_website": org.get("website_url", ""),
                     "has_email": p.get("has_email", False),
                     "has_direct_phone": p.get("has_direct_phone", False),
-                    "sources": [{"domain": "apollo.io"}],
+                    "sources": source_strs,
                 })
             return results
         except requests.exceptions.HTTPError as e:
