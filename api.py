@@ -523,7 +523,7 @@ def db_get_stats(user_id: str, role: str) -> dict:
     c.execute("""
         SELECT COALESCE(SUM(total), 0) as total
         FROM searches
-        WHERE searched_at >= date_trunc('week', now()::timestamp)
+        WHERE searched_at::timestamp >= date_trunc('week', now()::timestamp)
         AND (%s = 'admin' OR user_id = %s)
     """, (role, user_id))
     total_leads = c.fetchone()["total"] or 0
