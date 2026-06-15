@@ -1360,16 +1360,18 @@ class ApolloClient:
 
     def people_search(
         self,
-        organization_keywords: List[str],
+        organization_keywords: Optional[List[str]] = None,
         person_titles: Optional[List[str]] = None,
         person_locations: Optional[List[str]] = None,
         organization_num_employees: Optional[List[str]] = None,
+        organization_domains: Optional[List[str]] = None,
         per_page: int = 100,
         page: int = 1,
     ) -> List[dict]:
         """Search people via Apollo.io People Search API.
 
-        Returns list of standardized contact dicts with organization info.
+        Supports both keyword-based discovery (q_organization_keyword_tags)
+        and domain-based expansion (q_organization_domains).
         """
         url = f"{self.base_url}/mixed_people/api_search"
         headers = {
@@ -1377,10 +1379,13 @@ class ApolloClient:
             "x-api-key": self.api_key,
         }
         payload: dict = {
-            "q_organization_keyword_tags": organization_keywords,
             "per_page": min(per_page, 100),
             "page": page,
         }
+        if organization_domains:
+            payload["organization_domains"] = organization_domains
+        elif organization_keywords:
+            payload["q_organization_keyword_tags"] = organization_keywords
         if person_titles:
             payload["person_titles"] = person_titles
         if person_locations:
@@ -2622,32 +2627,36 @@ class LeadFinder:
 
     def run_apollo_search(
         self,
-        organization_keywords: List[str],
-        person_titles: List[str],
-        person_locations: List[str],
+        organization_keywords: Optional[List[str]] = None,
+        person_titles: Optional[List[str]] = None,
+        person_locations: Optional[List[str]] = None,
         max_results: int = 100,
         output: str = "leads.csv",
         keep_no_email: bool = False,
         employee_range: Optional[List[str]] = None,
+        organization_domains: Optional[List[str]] = None,
     ) -> List[Lead]:
         """Run an Apollo.io People Search and export leads.
 
-        Optimized with parallel domain resolution and Hunter enrichment to minimize wall-clock time.
+        Supports keyword discovery or domain-based expansion.
+        Optimized with parallel domain resolution and Hunter enrichment.
         """
         if not self.apollo:
             print("[ERROR] Apollo client not initialized. Please set APOLLO_KEY in config.")
             return []
 
         timestamp = datetime.now().isoformat()
+        mode_label = "Domain Expansion" if organization_domains else "Keyword Search"
+        mode_value = organization_domains or organization_keywords or []
 
         print(f"\n{'='*60}")
-        print(f"  Apollo.io People Search")
-        print(f"  Org Keywords : {organization_keywords}")
-        print(f"  Titles       : {person_titles}")
-        print(f"  Locations    : {person_locations}")
-        print(f"  Employee Range: {employee_range or 'Any'}")
-        print(f"  Max Results  : {max_results}")
-        print(f"  Output       : {output}")
+        print(f"  Apollo.io People Search - {mode_label}")
+        print(f"  Input          : {mode_value}")
+        print(f"  Titles         : {person_titles}")
+        print(f"  Locations      : {person_locations}")
+        print(f"  Employee Range : {employee_range or 'Any'}")
+        print(f"  Max Results    : {max_results}")
+        print(f"  Output         : {output}")
         print(f"{'='*60}\n")
 
         per_page = min(max_results, 100)
@@ -2665,6 +2674,7 @@ class LeadFinder:
                 person_titles=person_titles or None,
                 person_locations=person_locations or None,
                 organization_num_employees=employee_range or None,
+                organization_domains=organization_domains or None,
                 per_page=per_page,
                 page=page,
             )
@@ -2842,7 +2852,7 @@ class LeadFinder:
                 confidence_score=hunter_confidence if hunter_confidence > 0 else (person.get("confidence", 70) if email else 0),
                 email_type="personal" if email else "",
                 sources=sources,
-                search_keyword=" | ".join(organization_keywords),
+                search_keyword=" | ".join(organization_keywords or organization_domains or []),
                 found_at=timestamp,
                 country=detect_country(domain, email),
                 website_description="",
@@ -2982,6 +2992,12 @@ def main():
         default="",
         help="Apollo.io company size range, e.g. '2,50' or '51,200'",
     )
+    parser.add_argument(
+        "--apollo-domains",
+        type=str,
+        default="",
+        help="Apollo.io organization domains for expansion, comma-separated (e.g. 'example.com,sports.com')",
+    )
     args = parser.parse_args()
 
     extra_excluded = set(d.strip().lower() for d in args.exclude.split(",") if d.strip())
@@ -2989,8 +3005,9 @@ def main():
     finder = LeadFinder(config, engine=args.engine, extra_excluded=extra_excluded)
 
     # Apollo People Search mode
-    if args.apollo_keywords:
+    if args.apollo_keywords or args.apollo_domains:
         org_keywords = [k.strip() for k in args.apollo_keywords.split(",") if k.strip()]
+        org_domains = [d.strip().lower() for d in args.apollo_domains.split(",") if d.strip()]
         titles = [t.strip() for t in args.apollo_titles.split(",") if t.strip()]
         locations = [l.strip() for l in args.apollo_locations.split(",") if l.strip()]
         employee_range = None
@@ -2999,13 +3016,14 @@ def main():
             if len(parts) == 2:
                 employee_range = parts
         finder.run_apollo_search(
-            organization_keywords=org_keywords,
+            organization_keywords=org_keywords or None,
             person_titles=titles,
             person_locations=locations,
             max_results=args.max_domains or 100,
             output=args.output,
             keep_no_email=getattr(args, "keep_no_email", False),
             employee_range=employee_range,
+            organization_domains=org_domains or None,
         )
         return
 

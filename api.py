@@ -819,7 +819,8 @@ async def stream_leads(
 @app.get("/api/leads/apollo/stream")
 async def stream_apollo_leads(
     request: Request,
-    apollo_keywords: str,
+    apollo_keywords: str = "",
+    apollo_domains: str = "",
     apollo_titles: str = "Buyer,Purchasing Manager,Procurement Manager,Sourcing Manager",
     apollo_locations: str = "",
     max_results: int = 100,
@@ -827,16 +828,25 @@ async def stream_apollo_leads(
     employee_range: str = "",
     user: dict = Depends(require_user),
 ):
-    """Stream Apollo.io People Search progress via Server-Sent Events."""
+    """Stream Apollo.io People Search progress via Server-Sent Events.
+
+    Supports either keyword discovery (apollo_keywords) or domain expansion (apollo_domains).
+    """
+    if not apollo_keywords and not apollo_domains:
+        raise HTTPException(status_code=400, detail="Either apollo_keywords or apollo_domains is required.")
+
     job_id = str(uuid.uuid4())[:8]
     output_file = DATA_DIR / f"{job_id}.csv"
 
     cmd = [
         sys.executable or "python", "lead_finder.py", "apollo-search",
-        "--apollo-keywords", apollo_keywords,
         "--apollo-titles", apollo_titles,
         "--output", str(output_file),
     ]
+    if apollo_keywords:
+        cmd.extend(["--apollo-keywords", apollo_keywords])
+    if apollo_domains:
+        cmd.extend(["--apollo-domains", apollo_domains])
     if apollo_locations:
         cmd.extend(["--apollo-locations", apollo_locations])
     if employee_range:
@@ -875,7 +885,8 @@ async def stream_apollo_leads(
                     leads.append({k: v for k, v in row.items()})
                 leads = db_enrich_leads(leads)
                 leads = _sort_leads_by_position(leads)
-                db_save_search(job_id, f"Apollo: {apollo_keywords}", 0, len(leads), user["user_id"], user["name"], False, csv_content)
+                search_label = f"Apollo domains: {apollo_domains}" if apollo_domains else f"Apollo: {apollo_keywords}"
+                db_save_search(job_id, search_label, 0, len(leads), user["user_id"], user["name"], False, csv_content)
 
                 payload = json.dumps({
                     "type": "done",

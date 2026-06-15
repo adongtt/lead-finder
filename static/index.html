@@ -398,6 +398,11 @@
                     <button type="button" class="tag-btn" onclick="setApolloKeyword('team sports supplier')">team sports supplier</button>
                   </div>
                 </div>
+                <div style="margin-top:16px;padding:12px;background:#f0fdf4;border:1px solid #86efac;border-radius:8px;">
+                  <label for="apolloDomains" style="color:#166534;margin-bottom:6px;">📥 已有客户域名扩量（可选）</label>
+                  <textarea id="apolloDomains" name="apollo_domains" rows="3" placeholder="每行一个域名，例如：\nsportsunlimitedinc.com\nrawlings.com" style="width:100%;padding:10px 12px;background:#fff;border:1px solid #bbf7d0;border-radius:8px;font-size:14px;resize:vertical;"></textarea>
+                  <p class="hint" style="color:#166534;">粘贴已合作客户的域名，Apollo 会找出这些公司的联系人，用于老客户深挖或相似客户拓展</p>
+                </div>
                 <div class="apollo-tip" style="margin-top:10px;padding:10px 12px;background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;font-size:12px;color:#92400e;">
                   <strong>💡 提高精准度技巧：</strong><br>
                   1. Apollo 的匹配较宽泛，结果中会有不相关公司（如酒店、软件公司），工具会自动过滤并打分<br>
@@ -795,7 +800,7 @@
 
       if (mode === 'apollo') {
         apolloWrap.style.display = 'block';
-        apolloKeywords.required = true;
+        apolloKeywords.required = false;
       } else if (mode === 'google_maps') {
         keywordWrap.style.display = 'block';
         keywordInput.required = true;
@@ -873,6 +878,7 @@
 
       if (currentMode === 'apollo') {
         const apolloKeywords = document.getElementById('apolloKeywords').value.trim();
+        const apolloDomains = document.getElementById('apolloDomains').value.trim();
         const apolloTitlesSelect = document.getElementById('apolloTitles');
         const checkedTitles = Array.from(apolloTitlesSelect.selectedOptions).map(opt => opt.value);
         const apolloLocations = document.getElementById('apolloLocations').value.trim();
@@ -880,7 +886,16 @@
         const apolloKeepNoEmail = document.getElementById('apolloKeepNoEmail').checked;
         const apolloEmployeeRange = document.getElementById('apolloEmployeeRange').value;
 
-        const params = new URLSearchParams({ apollo_keywords: apolloKeywords });
+        if (!apolloKeywords && !apolloDomains) {
+          resultDiv.innerHTML = '<div class="badge badge-error">请输入关键词或域名</div>';
+          btn.disabled = false;
+          btnText.textContent = '查找客户';
+          return;
+        }
+
+        const params = new URLSearchParams();
+        if (apolloKeywords) params.append('apollo_keywords', apolloKeywords);
+        if (apolloDomains) params.append('apollo_domains', apolloDomains.split(/\n|,/).map(d => d.trim()).filter(Boolean).join(','));
         if (checkedTitles.length > 0) params.append('apollo_titles', checkedTitles.join(','));
         if (apolloLocations) params.append('apollo_locations', apolloLocations);
         if (apolloEmployeeRange) params.append('employee_range', apolloEmployeeRange);
@@ -967,7 +982,7 @@
       </div>`;
       if (data.preview && data.preview.length > 0) {
         html += '<table><thead><tr>' +
-          '<th>邮箱</th><th>姓名</th><th>职位</th><th>国家</th><th>电话</th><th>公司</th><th>域名</th><th>来源</th><th>状态</th><th>操作</th>' +
+          '<th>邮箱</th><th>姓名</th><th>职位</th><th>国家</th><th>电话</th><th>公司</th><th>域名</th><th>LinkedIn</th><th>来源</th><th>状态</th><th>操作</th>' +
           '</tr></thead><tbody>';
         for (let i = 0; i < data.preview.length; i++) {
           const row = data.preview[i];
@@ -982,6 +997,7 @@
             `<td>${formatPhoneCell(row)}</td>` +
             `<td>${escapeHtml(row.company || '')} <a href="${liUrl}" target="_blank" rel="noopener" title="LinkedIn 搜索公司" style="color:#0a66c2;font-size:11px;margin-left:4px;">[in]</a></td>` +
             `<td>${escapeHtml(row.domain || '')}</td>` +
+            `<td>${row.linkedin_url ? `<a href="${escapeHtml(row.linkedin_url)}" target="_blank" rel="noopener noreferrer" style="color:#0a66c2;font-weight:500;font-size:12px;">查看</a>` : '<span style="font-size:12px;color:var(--muted);">-</span>'}</td>` +
             `<td>${sourceTypeLabel(row.source_type || '')}</td>` +
             `<td>${badge}</td>` +
             `<td>` +

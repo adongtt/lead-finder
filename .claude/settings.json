@@ -136,7 +136,10 @@
       "Bash(curl -s -b cookies.txt \"https://lead-finder-rii2.onrender.com/api/leads/download/e333d04d\")",
       "Bash(curl -s -N -b cookies.txt \"https://lead-finder-rii2.onrender.com/api/leads/apollo/stream?apollo_keywords=football+gloves&apollo_titles=Buyer%2CPurchasing+Manager%2CProcurement+Manager%2CSourcing+Manager&employee_range=2%2C50&max_results=20&apollo_locations=United+States\")",
       "Bash(python -c \"import sys,json; data=json.load\\(sys.stdin\\); latest=[s for s in data['searches'] if 'work gloves' in s['keyword']][0]; print\\(latest['job_id']\\)\")",
-      "Bash(curl -s -b cookies.txt \"https://lead-finder-rii2.onrender.com/api/leads/download/b0584aee\")"
+      "Bash(curl -s -b cookies.txt \"https://lead-finder-rii2.onrender.com/api/leads/download/b0584aee\")",
+      "Bash(python -c \"import lead_finder; import api; print\\('Syntax OK'\\)\")",
+      "Bash(python -c \"import lead_finder; print\\('lead_finder OK'\\)\")",
+      "Bash(python lead_finder.py --apollo-domains \"sportsunlimitedinc.com,rawlings.com\" --apollo-titles \"Buyer,Purchasing Manager\" --apollo-locations \"United States\" --output test_domain_expansion.csv --max-domains 20)"
     ],
     "additionalDirectories": [
       "\\tmp",
