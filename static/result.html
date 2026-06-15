@@ -126,6 +126,52 @@
       font-size: 13px;
       color: #475569;
       cursor: help;
+      border-bottom: 1px dashed #cbd5e1;
+    }
+    .desc-preview {
+      position: relative;
+      display: inline-block;
+    }
+    .desc-preview .preview-card {
+      display: none;
+      position: absolute;
+      left: 0;
+      top: 100%;
+      z-index: 100;
+      width: 320px;
+      max-width: 90vw;
+      margin-top: 8px;
+      padding: 12px 14px;
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.12);
+      font-size: 13px;
+      line-height: 1.6;
+      color: var(--text);
+      white-space: normal;
+      text-align: left;
+    }
+    .desc-preview:hover .preview-card {
+      display: block;
+    }
+    .preview-card .preview-title {
+      font-weight: 700;
+      font-size: 12px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 6px;
+    }
+    .preview-card .preview-text {
+      color: #334155;
+    }
+    .preview-card .preview-meta {
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid var(--border);
+      font-size: 12px;
+      color: var(--muted);
     }
     .position-tag.active .count { color: rgba(255,255,255,0.85); }
     .card {
@@ -397,6 +443,19 @@
       return str.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     }
 
+    function renderDescCell(text) {
+      if (!text) return '<span style="font-size:12px;color:var(--muted);">-</span>';
+      const short = text.length > 30 ? text.slice(0, 30) + '...' : text;
+      return `<span class="desc-preview">
+        <span class="desc-tooltip">${escapeHtml(short)}</span>
+        <div class="preview-card">
+          <div class="preview-title">公司简介</div>
+          <div class="preview-text">${escapeHtml(text)}</div>
+          <div class="preview-meta">悬浮查看完整信息，无需跳转官网</div>
+        </div>
+      </span>`;
+    }
+
     function sourceTypeLabel(type) {
       const map = {
         'search': '<span style="font-size:11px;color:#64748b;background:#f1f5f9;padding:2px 6px;border-radius:4px;">搜索引擎</span>',
@@ -512,7 +571,7 @@
           `<td>${formatPhoneCell(row)}</td>` +
           `<td>${escapeHtml(row.domain || '')}</td>` +
           `<td>${sourceTypeLabel(row.source_type || '')}</td>` +
-          `<td><span class="desc-tooltip" title="${attrEscape(row.website_description || '')}">${escapeHtml((row.website_description || '').length > 30 ? (row.website_description || '').slice(0,30) + '...' : (row.website_description || ''))}</span></td>` +
+          `<td>${renderDescCell(row.website_description)}</td>` +
           `<td>${escapeHtml(row.relevance_score !== undefined ? row.relevance_score : '')}</td>` +
           `<td>${row.linkedin_url ? `<a href="${escapeHtml(row.linkedin_url)}" target="_blank" rel="noopener noreferrer" style="color:#0a66c2;font-weight:500;">查看</a>` : ''}</td>` +
           `<td>${escapeHtml(row.confidence_score || '')}</td>` +

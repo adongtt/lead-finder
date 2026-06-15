@@ -157,6 +157,58 @@
     }
     .tag-btn:hover { background: var(--primary); color: #fff; border-color: var(--primary); }
     .apollo-tip { line-height: 1.6; }
+    .desc-tooltip {
+      display: inline-block;
+      max-width: 120px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 12px;
+      color: #475569;
+      cursor: help;
+      border-bottom: 1px dashed #cbd5e1;
+    }
+    .desc-preview {
+      position: relative;
+      display: inline-block;
+    }
+    .desc-preview .preview-card {
+      display: none;
+      position: absolute;
+      left: 0;
+      top: 100%;
+      z-index: 100;
+      width: 280px;
+      max-width: 90vw;
+      margin-top: 6px;
+      padding: 10px 12px;
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      box-shadow: 0 8px 20px rgba(0,0,0,0.12);
+      font-size: 12px;
+      line-height: 1.5;
+      color: var(--text);
+      white-space: normal;
+      text-align: left;
+    }
+    .desc-preview:hover .preview-card { display: block; }
+    .preview-card .preview-title {
+      font-weight: 700;
+      font-size: 11px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 4px;
+    }
+    .preview-card .preview-text { color: #334155; }
+    .preview-card .preview-meta {
+      margin-top: 6px;
+      padding-top: 6px;
+      border-top: 1px solid var(--border);
+      font-size: 11px;
+      color: var(--muted);
+    }
     .log-box {
       margin-top: 16px;
       max-height: 320px;
@@ -982,7 +1034,7 @@
       </div>`;
       if (data.preview && data.preview.length > 0) {
         html += '<table><thead><tr>' +
-          '<th>邮箱</th><th>姓名</th><th>职位</th><th>国家</th><th>电话</th><th>公司</th><th>域名</th><th>LinkedIn</th><th>来源</th><th>状态</th><th>操作</th>' +
+          '<th>邮箱</th><th>姓名</th><th>职位</th><th>国家</th><th>电话</th><th>公司</th><th>域名</th><th>LinkedIn</th><th>来源</th><th>简介</th><th>状态</th><th>操作</th>' +
           '</tr></thead><tbody>';
         for (let i = 0; i < data.preview.length; i++) {
           const row = data.preview[i];
@@ -999,6 +1051,7 @@
             `<td>${escapeHtml(row.domain || '')}</td>` +
             `<td>${row.linkedin_url ? `<a href="${escapeHtml(row.linkedin_url)}" target="_blank" rel="noopener noreferrer" style="color:#0a66c2;font-weight:500;font-size:12px;">查看</a>` : '<span style="font-size:12px;color:var(--muted);">-</span>'}</td>` +
             `<td>${sourceTypeLabel(row.source_type || '')}</td>` +
+            `<td>${renderDescCell(row.website_description)}</td>` +
             `<td>${badge}</td>` +
             `<td>` +
               (row.email
@@ -1103,6 +1156,19 @@
       const div = document.createElement('div');
       div.textContent = text;
       return div.innerHTML;
+    }
+
+    function renderDescCell(text) {
+      if (!text) return '<span style="font-size:12px;color:var(--muted);">-</span>';
+      const short = text.length > 18 ? text.slice(0, 18) + '...' : text;
+      return `<span class="desc-preview">
+        <span class="desc-tooltip">${escapeHtml(short)}</span>
+        <div class="preview-card">
+          <div class="preview-title">公司简介</div>
+          <div class="preview-text">${escapeHtml(text)}</div>
+          <div class="preview-meta">悬浮查看完整信息</div>
+        </div>
+      </span>`;
     }
 
     function sourceTypeLabel(type) {

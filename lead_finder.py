@@ -2821,6 +2821,8 @@ class LeadFinder:
             first_name = person.get("first_name", "")
             last_name = person.get("last_name", "")
             org_name = person.get("organization_name", "")
+            enriched_org = person.get("_enriched_org", {}) or {}
+            website_description = enriched_org.get("short_description") or ""
 
             # Apply Hunter enrichment
             hunter_confidence = 0
@@ -2855,7 +2857,7 @@ class LeadFinder:
                 search_keyword=" | ".join(organization_keywords or organization_domains or []),
                 found_at=timestamp,
                 country=detect_country(domain, email),
-                website_description="",
+                website_description=website_description,
                 relevance_score=person.get("_relevance_score", 0),
                 linkedin_url=person.get("linkedin_url", ""),
                 source_type="apollo",
