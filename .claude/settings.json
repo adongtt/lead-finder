@@ -123,7 +123,20 @@
       "Bash(curl -s -X POST https://api.apollo.io/v1/mixed_people/api_search -H 'Content-Type: application/json' -H 'X-Api-Key: y0g6J-wxzt2-anloCpvrzQ' -d '{\"person_titles\":[\"Buyer\",\"Purchasing Manager\",\"Sourcing Manager\"],\"organization_keywords\":[\"sporting goods\",\"sports equipment\",\"football\"],\"person_locations\":[\"United States\"],\"per_page\":3}')",
       "Bash(python lead_finder.py --apollo-keywords \"football equipment\" --apollo-locations \"United States\" --output test_football_equipment.csv --max-domains 50)",
       "Bash(curl -s -X POST https://api.apollo.io/v1/mixed_people/api_search -H 'Content-Type: application/json' -H 'x-api-key: MZSQcnMhYXYORZwEBqHWRg' -d '{\"organization_keywords\":[\"football equipment\"],\"per_page\":5}')",
-      "Bash(python lead_finder.py --apollo-keywords \"sporting goods\" --apollo-locations \"United States\" --output test_sporting_goods.csv --max-domains 50)"
+      "Bash(python lead_finder.py --apollo-keywords \"sporting goods\" --apollo-locations \"United States\" --output test_sporting_goods.csv --max-domains 50)",
+      "Bash(curl -s -c cookies.txt -X POST https://lead-finder-rii2.onrender.com/api/login -H 'Content-Type: application/x-www-form-urlencoded' -d 'username=admin&password=admin123' -L)",
+      "Bash(curl -s -c cookies.txt -X POST https://lead-finder-rii2.onrender.com/login -H 'Content-Type: application/x-www-form-urlencoded' -d 'username=admin&password=admin123' -L -w '\\\\nHTTP_CODE: %{http_code}\\\\nLOCATION: %{url_effective}\\\\n')",
+      "Bash(curl -s -o /dev/null -w \"HTTP: %{http_code}, TIME: %{time_total}s\\\\n\" \"https://lead-finder-rii2.onrender.com/\")",
+      "Bash(curl -s -L -c cookies.txt \"https://lead-finder-rii2.onrender.com/\")",
+      "Bash(curl -s -c cookies.txt -b cookies.txt -X POST https://lead-finder-rii2.onrender.com/login -H 'Content-Type: application/x-www-form-urlencoded' -d 'username=admin&password=admin123' -L -w '\\\\nFINAL_URL: %{url_effective}\\\\nCODE: %{http_code}\\\\n')",
+      "Bash(curl -s -L -b cookies.txt -c cookies.txt \"https://lead-finder-rii2.onrender.com/\")",
+      "Bash(curl -s -N -b cookies.txt \"https://lead-finder-rii2.onrender.com/api/leads/apollo/stream?apollo_keywords=sporting+goods&apollo_titles=Buyer%2CPurchasing+Manager%2CProcurement+Manager%2CSourcing+Manager&employee_range=2%2C50&max_results=20&apollo_locations=United+States\")",
+      "Bash(curl -s -b cookies.txt \"https://lead-finder-rii2.onrender.com/api/searches\")",
+      "Bash(curl -s -b cookies.txt \"https://lead-finder-rii2.onrender.com/api/download/e333d04d\")",
+      "Bash(curl -s -b cookies.txt \"https://lead-finder-rii2.onrender.com/api/leads/download/e333d04d\")",
+      "Bash(curl -s -N -b cookies.txt \"https://lead-finder-rii2.onrender.com/api/leads/apollo/stream?apollo_keywords=football+gloves&apollo_titles=Buyer%2CPurchasing+Manager%2CProcurement+Manager%2CSourcing+Manager&employee_range=2%2C50&max_results=20&apollo_locations=United+States\")",
+      "Bash(python -c \"import sys,json; data=json.load\\(sys.stdin\\); latest=[s for s in data['searches'] if 'work gloves' in s['keyword']][0]; print\\(latest['job_id']\\)\")",
+      "Bash(curl -s -b cookies.txt \"https://lead-finder-rii2.onrender.com/api/leads/download/b0584aee\")"
     ],
     "additionalDirectories": [
       "\\tmp",

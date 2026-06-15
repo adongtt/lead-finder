@@ -959,6 +959,23 @@ def looks_personal(email: str) -> bool:
     return False
 
 
+def normalize_company_domain(domain: str) -> str:
+    """Normalize known recruiting/HR subdomains to the main corporate domain."""
+    if not domain:
+        return domain
+    replacements = {
+        "dickssportinggoods.jobs": "dickssportinggoods.com",
+    }
+    if domain in replacements:
+        return replacements[domain]
+    # Strip common recruiting subdomains: careers.example.com -> example.com
+    recruiting_prefixes = ("careers.", "jobs.", "workday.", "apply.")
+    for prefix in recruiting_prefixes:
+        if domain.startswith(prefix):
+            return domain[len(prefix):]
+    return domain
+
+
 def extract_domain(url: str) -> Optional[str]:
     """Extract clean domain from a URL."""
     try:
@@ -968,7 +985,7 @@ def extract_domain(url: str) -> Optional[str]:
         domain = parsed.netloc.lower()
         if domain.startswith("www."):
             domain = domain[4:]
-        return domain
+        return normalize_company_domain(domain)
     except Exception:
         return None
 
@@ -1377,10 +1394,11 @@ class ApolloClient:
                 }
             else:
                 payload["organization_num_employees"] = organization_num_employees
-        # Doc-recommended filters for relevance
-        payload["person_departments"] = ["Purchasing", "Procurement", "Operations", "Supply Chain"]
+        # Doc-recommended filter: avoid re-prospecting contacts already contacted by the team.
         payload["prospected_by_current_team"] = ["no"]
-        payload["contact_email_status"] = ["verified", "likely_to_engage"]
+        # Note: person_departments and contact_email_status are intentionally omitted
+        # because they severely reduce results for specific product keywords like "football gloves".
+        # Quality is enforced by downstream relevance scoring + Hunter enrichment.
 
         try:
             resp = requests.post(url, headers=headers, json=payload, timeout=30)
