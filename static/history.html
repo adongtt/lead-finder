@@ -362,13 +362,11 @@
       const tbody = document.getElementById('historyTable');
       const isAdmin = currentUser && currentUser.role === 'admin';
       const colCount = isAdmin ? 6 : 5;
+      const userColDisplay = isAdmin ? 'table-cell' : 'none';
       if (!searches.length) {
         tbody.innerHTML = `<tr><td colspan="${colCount}" class="empty">暂无搜索结果</td></tr>`;
         return;
       }
-      const isAdmin = currentUser && currentUser.role === 'admin';
-      const colCount = isAdmin ? 6 : 5;
-      const userColDisplay = isAdmin ? 'table-cell' : 'none';
       document.querySelector('.col-user').style.display = userColDisplay;
       tbody.innerHTML = '';
       for (const s of searches) {
