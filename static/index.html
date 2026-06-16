@@ -21,12 +21,49 @@
       background: var(--bg);
       color: var(--text);
       min-height: 100vh;
+    }
+    .app { display: flex; min-height: 100vh; }
+    .sidebar {
+      width: 220px;
+      background: #fff;
+      border-right: 1px solid var(--border);
       display: flex;
-      justify-content: center;
-      align-items: flex-start;
-      padding: 32px 20px;
+      flex-direction: column;
+      padding: 24px 16px;
+      position: fixed;
+      inset: 0 auto 0 0;
+      z-index: 50;
+    }
+    .sidebar h2 {
+      font-size: 18px;
+      margin-bottom: 32px;
+      padding-left: 12px;
+    }
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px;
+      border-radius: 8px;
+      margin-bottom: 6px;
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--muted);
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .nav-item:hover { background: var(--bg); color: var(--text); }
+    .nav-item.active { background: #e0f2fe; color: var(--primary); }
+    .nav-item.logout { margin-top: auto; color: var(--danger); }
+    .nav-item.logout:hover { background: #fef2f2; }
+    .main {
+      flex: 1;
+      margin-left: 220px;
+      padding: 28px 32px;
+      max-width: calc(100% - 220px);
     }
     .container { width: 100%; max-width: 1200px; }
+    a { text-decoration: none; color: inherit; }
     .main-layout { display: grid; grid-template-columns: 1fr 340px; gap: 20px; align-items: flex-start; }
     h1 { font-size: 28px; margin-bottom: 8px; }
     .subtitle { color: var(--muted); margin-bottom: 32px; }
@@ -376,12 +413,28 @@
     @media (max-width: 768px) {
       .main-layout { grid-template-columns: 1fr; }
       .right-panel { order: -1; }
+      .sidebar { width: 64px; padding: 16px 8px; }
+      .sidebar h2 { display: none; }
+      .nav-item span:nth-child(2) { display: none; }
+      .main { margin-left: 64px; max-width: calc(100% - 64px); padding: 16px; }
     }
   </style>
 </head>
 <body>
-  <div class="container">
-    <div class="main-layout">
+  <div class="app">
+    <aside class="sidebar">
+      <h2>B2B 客户开发</h2>
+      <div class="nav-item active" onclick="location.href='/'"><span>🔍</span><span>搜索</span></div>
+      <div class="nav-item" onclick="location.href='/history'"><span>📁</span><span>历史结果</span></div>
+      <div class="nav-item" onclick="location.href='/'"><span>📊</span><span>数据看板</span></div>
+      <div class="nav-item" onclick="location.href='/'"><span>📇</span><span>已联系客户</span></div>
+      <div class="nav-item" onclick="location.href='/static/USER_GUIDE.pdf'"><span>📖</span><span>使用手册</span></div>
+      <div class="nav-item logout" onclick="logout()"><span>🚪</span><span>退出</span></div>
+    </aside>
+
+    <main class="main">
+      <div class="container">
+        <div class="main-layout">
       <div class="left-panel">
         <h1>B2B 客户开发工具</h1>
         <p class="subtitle">输入关键词搜索，提取域名，发现决策人邮箱。</p>
@@ -688,7 +741,8 @@
             </div>
             <div style="font-size:12px;color:#0c4a6e;line-height:1.6;">
               <div><strong>更新时间：</strong>2026-06-16</div>
-              <div style="margin-top:4px;"><strong>本次更新：</strong>启用“供应商门户”模式：输入一批域名，自动扫描 procurement / become-a-supplier / vendor-portal 等采购/供应商页面，提取页面邮箱、申请表单链接与页面摘要。</div>
+              <div style="margin-top:4px;"><strong>本次更新：</strong>新增左侧导航栏与“历史结果”页面；搜索记录支持按关键词、日期、模式、业务员筛选，管理员可查看所有人记录，业务员仅可查看自己的记录。</div>
+              <div style="margin-top:4px;"><strong>2026-06-16：</strong>启用“供应商门户”模式：输入一批域名，自动扫描 procurement / become-a-supplier / vendor-portal 等采购/供应商页面，提取页面邮箱、申请表单链接与页面摘要。</div>
               <div style="margin-top:4px;"><strong>2026-06-16：</strong>普通搜索 / Apollo 搜索支持勾选“同时扫描采购/供应商页面”，搜索完成后自动对每个域名探测采购入口，并将结果写入 CSV 的 supplier_* 字段。</div>
             </div>
           </div>
@@ -761,13 +815,6 @@
         </div>
 
         <div class="card">
-          <h2>最近搜索</h2>
-          <ul id="searchList" class="keyword-list">
-            <li class="empty-hint">加载中...</li>
-          </ul>
-        </div>
-
-        <div class="card">
           <h2>邮件签名</h2>
           <div class="sig-compact">
             <input type="text" id="sigName" class="sig-input" placeholder="您的姓名">
@@ -785,6 +832,8 @@
         </div>
       </aside>
     </div>
+      </div>
+    </main>
   </div>
 
   <div id="contactModal" class="modal-overlay" onclick="if(event.target===this)closeContactModal()">
@@ -1551,7 +1600,6 @@
     checkAuth();
     loadStats();
     loadContacted();
-    loadSearches();
     restoreSignatureInputs();
     setMode('apollo');
   </script>

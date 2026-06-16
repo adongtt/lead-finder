@@ -113,14 +113,16 @@ def _init_db() -> None:
             user_name TEXT,
             searched_at TEXT,
             deep INTEGER DEFAULT 0,
+            source_type TEXT,
             csv_content TEXT
         )
     """)
-    # Migrate existing searches table (add csv_content if missing)
-    try:
-        c.execute("ALTER TABLE searches ADD COLUMN IF NOT EXISTS csv_content TEXT")
-    except Exception:
-        pass
+    # Migrate existing searches table (add missing columns)
+    for col in ("csv_content", "source_type"):
+        try:
+            c.execute(f"ALTER TABLE searches ADD COLUMN IF NOT EXISTS {col} TEXT")
+        except Exception:
+            pass
 
     c.execute("""
         CREATE TABLE IF NOT EXISTS contacts (
@@ -158,6 +160,7 @@ def _init_db() -> None:
     # Performance indexes for Render / production
     c.execute("CREATE INDEX IF NOT EXISTS idx_searches_user_id ON searches(user_id)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_searches_searched_at ON searches(searched_at DESC)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_searches_source_type ON searches(source_type)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_contacts_user_id ON contacts(user_id)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_contacts_email ON contacts(email)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_contacts_status ON contacts(status)")
@@ -300,36 +303,87 @@ def require_admin(request: Request) -> dict:
     return user
 
 
+@app.get("/api/users")
+async def list_users(user: dict = Depends(require_admin)):
+    """Return all users (admin only) for history filtering."""
+    users = _load_users()
+    return {
+        "users": [
+            {"user_id": uid, "name": info.get("name", uid), "role": info.get("role", "sales")}
+            for uid, info in users.items()
+        ]
+    }
+
+
 # ---------------------------------------------------------------------------
 # DB helpers
 # ---------------------------------------------------------------------------
 
-def db_save_search(job_id: str, keyword: str, pages: int, total: int, user_id: str, user_name: str, deep: bool, csv_content: str = "") -> None:
+def db_save_search(job_id: str, keyword: str, pages: int, total: int, user_id: str, user_name: str, deep: bool, csv_content: str = "", source_type: str = "") -> None:
     conn = _get_conn()
     c = conn.cursor()
     c.execute("""
-        INSERT INTO searches (job_id, keyword, pages, total, user_id, user_name, searched_at, deep, csv_content)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-    """, (job_id, keyword, pages, total, user_id, user_name, datetime.now().isoformat(), 1 if deep else 0, csv_content))
+        INSERT INTO searches (job_id, keyword, pages, total, user_id, user_name, searched_at, deep, source_type, csv_content)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+    """, (job_id, keyword, pages, total, user_id, user_name, datetime.now().isoformat(), 1 if deep else 0, source_type, csv_content))
     conn.commit()
     _put_conn(conn)
 
 
-def db_list_searches(user_id: str, role: str, keyword_filter: str = "") -> list:
+def db_list_searches(
+    user_id: str,
+    role: str,
+    keyword_filter: str = "",
+    date_from: str = "",
+    date_to: str = "",
+    source_type: str = "",
+    filter_user_id: str = "",
+) -> list:
     conn = _get_conn()
     c = conn.cursor()
+
+    where = []
+    params = []
     if role == "admin":
-        c.execute("SELECT * FROM searches ORDER BY searched_at DESC LIMIT 100")
+        if filter_user_id:
+            where.append("user_id = %s")
+            params.append(filter_user_id)
     else:
-        c.execute("SELECT * FROM searches WHERE user_id = %s ORDER BY searched_at DESC LIMIT 100", (user_id,))
+        where.append("user_id = %s")
+        params.append(user_id)
+
+    if keyword_filter:
+        where.append("keyword ILIKE %s")
+        params.append(f"%{keyword_filter}%")
+    if date_from:
+        where.append("searched_at >= %s")
+        params.append(date_from)
+    if date_to:
+        # Include the full day if only a date was provided.
+        if len(date_to) == 10:
+            date_to = date_to + "T23:59:59"
+        where.append("searched_at <= %s")
+        params.append(date_to)
+    if source_type:
+        where.append("source_type = %s")
+        params.append(source_type)
+
+    sql = """
+        SELECT job_id, keyword, searched_at, total, source_type, user_id, user_name
+        FROM searches
+    """.strip()
+    if where:
+        sql += " WHERE " + " AND ".join(where)
+    sql += " ORDER BY searched_at DESC LIMIT 200"
+
+    c.execute(sql, tuple(params))
     rows = c.fetchall()
     _put_conn(conn)
     results = []
     for row in rows:
         d = dict(row)
         d["deep"] = bool(d.get("deep"))
-        if not keyword_filter or keyword_filter.lower() in (d.get("keyword") or "").lower():
-            results.append(d)
+        results.append(d)
     return results
 
 
@@ -588,6 +642,13 @@ async def result_page(user: dict = Depends(require_user)):
         return HTMLResponse(content=f.read())
 
 
+@app.get("/history", response_class=HTMLResponse)
+async def history_page(user: dict = Depends(require_user)):
+    """Serve the search history page."""
+    with open("static/history.html", "r", encoding="utf-8") as f:
+        return HTMLResponse(content=f.read())
+
+
 @app.post("/login")
 async def login(request: Request, username: str = Form(...), password: str = Form(...)):
     """Authenticate and set session cookie."""
@@ -686,7 +747,8 @@ async def search_leads(
             leads.append({k: v for k, v in row.items()})
         leads = db_enrich_leads(leads)
         leads = _sort_leads_by_position(leads)
-        db_save_search(job_id, keyword, pages, len(leads), user["user_id"], user["name"], deep, csv_content)
+        source_type = "google_maps" if maps_region else "keyword"
+        db_save_search(job_id, keyword, pages, len(leads), user["user_id"], user["name"], deep, csv_content, source_type=source_type)
 
         return {
             "job_id": job_id,
@@ -791,7 +853,13 @@ async def stream_leads(
                     leads.append({k: v for k, v in row.items()})
                 leads = db_enrich_leads(leads)
                 leads = _sort_leads_by_position(leads)
-                db_save_search(job_id, keyword, pages, len(leads), user["user_id"], user["name"], deep, csv_content)
+                if maps_region:
+                    source_type = "google_maps"
+                elif domains:
+                    source_type = "domains"
+                else:
+                    source_type = "keyword"
+                db_save_search(job_id, keyword, pages, len(leads), user["user_id"], user["name"], deep, csv_content, source_type=source_type)
 
                 payload = json.dumps({
                     "type": "done",
@@ -901,7 +969,7 @@ async def stream_apollo_leads(
                 leads = db_enrich_leads(leads)
                 leads = _sort_leads_by_position(leads)
                 search_label = f"Apollo domains: {apollo_domains}" if apollo_domains else f"Apollo: {apollo_keywords}"
-                db_save_search(job_id, search_label, 0, len(leads), user["user_id"], user["name"], False, csv_content)
+                db_save_search(job_id, search_label, 0, len(leads), user["user_id"], user["name"], False, csv_content, source_type="apollo")
 
                 payload = json.dumps({
                     "type": "done",
@@ -979,7 +1047,7 @@ async def stream_supplier_portal_scan(
                 for row in reader:
                     leads.append({k: v for k, v in row.items()})
                 leads = db_enrich_leads(leads)
-                db_save_search(job_id, f"Supplier Portal: {domains[:50]}", 0, len(leads), user["user_id"], user["name"], False, csv_content)
+                db_save_search(job_id, f"Supplier Portal: {domains[:50]}", 0, len(leads), user["user_id"], user["name"], False, csv_content, source_type="supplier_portal")
 
                 payload = json.dumps({
                     "type": "done",
@@ -1127,14 +1195,26 @@ async def put_status(
 @app.get("/api/searches")
 async def get_searches(
     keyword: str = "",
+    date_from: str = "",
+    date_to: str = "",
+    source_type: str = "",
+    user_id: str = "",
     user: dict = Depends(require_user),
 ):
     """Return search history (admin sees all, sales sees own)."""
-    cache_key = f"searches:{user['user_id']}:{user['role']}:{keyword}"
+    cache_key = f"searches:{user['user_id']}:{user['role']}:{keyword}:{date_from}:{date_to}:{source_type}:{user_id}"
     cached = _cache_get(cache_key)
     if cached is not None:
         return cached
-    results = db_list_searches(user["user_id"], user["role"], keyword)
+    results = db_list_searches(
+        user["user_id"],
+        user["role"],
+        keyword_filter=keyword,
+        date_from=date_from,
+        date_to=date_to,
+        source_type=source_type,
+        filter_user_id=user_id if user["role"] == "admin" else "",
+    )
     out = {"searches": results}
     _cache_set(cache_key, out)
     return out
