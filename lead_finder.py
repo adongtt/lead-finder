@@ -2316,9 +2316,9 @@ class LeadFinder:
 
         print("PROGRESS: 20")
 
-        # 1b. Amazon brand search (optional)
+        # 1b. Amazon brand search (optional, skip when explicit domains are provided)
         amazon_domains: Dict[str, int] = {}
-        if amazon:
+        if amazon and not domains:
             print("PROGRESS: 15")
             print("\n[1b/5] Searching Amazon for brands...")
             amazon_brands = _search_amazon_brands(keyword)
@@ -2335,9 +2335,9 @@ class LeadFinder:
             else:
                 print("      No brands found (Amazon may require a VPN/proxy or is blocking automated access)")
 
-        # 1c. LinkedIn profile discovery (SerpAPI only, skip in Maps mode)
+        # 1c. LinkedIn profile discovery (SerpAPI only, skip in Maps mode and when explicit domains are provided)
         linkedin_domains: Dict[str, int] = {}
-        if self.linkedin_discovery and not use_maps:
+        if self.linkedin_discovery and not use_maps and not domains:
             print("\n[1c/5] Discovering companies via LinkedIn profiles...")
             linkedin_results = self.linkedin_discovery.search(keyword, pages=min(pages, 3))
             if linkedin_results:
