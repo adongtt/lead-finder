@@ -1365,13 +1365,17 @@ class ApolloClient:
         person_locations: Optional[List[str]] = None,
         organization_num_employees: Optional[List[str]] = None,
         organization_domains: Optional[List[str]] = None,
+        country: Optional[str] = None,
+        state: Optional[str] = None,
+        city: Optional[str] = None,
+        zip_code: Optional[str] = None,
         per_page: int = 100,
         page: int = 1,
     ) -> List[dict]:
         """Search people via Apollo.io People Search API.
 
-        Supports both keyword-based discovery (q_organization_keyword_tags)
-        and domain-based expansion (q_organization_domains).
+        Supports keyword-based discovery, domain-based expansion, and
+        multi-level location filters (country, state, city, zip).
         """
         url = f"{self.base_url}/mixed_people/api_search"
         headers = {
@@ -1390,6 +1394,14 @@ class ApolloClient:
             payload["person_titles"] = person_titles
         if person_locations:
             payload["person_locations"] = person_locations
+        if country:
+            payload["country"] = country
+        if state:
+            payload["state"] = state
+        if city:
+            payload["city"] = city
+        if zip_code:
+            payload["zip_codes"] = [zip_code]
         if organization_num_employees:
             # Apollo expects {"min": 2, "max": 50} format
             if isinstance(organization_num_employees, list) and len(organization_num_employees) == 2:
@@ -2635,6 +2647,10 @@ class LeadFinder:
         keep_no_email: bool = False,
         employee_range: Optional[List[str]] = None,
         organization_domains: Optional[List[str]] = None,
+        country: Optional[str] = None,
+        state: Optional[str] = None,
+        city: Optional[str] = None,
+        zip_code: Optional[str] = None,
     ) -> List[Lead]:
         """Run an Apollo.io People Search and export leads.
 
@@ -2648,12 +2664,13 @@ class LeadFinder:
         timestamp = datetime.now().isoformat()
         mode_label = "Domain Expansion" if organization_domains else "Keyword Search"
         mode_value = organization_domains or organization_keywords or []
+        location_summary = ", ".join(filter(None, [country, state, city, zip_code])) or (person_locations or [])
 
         print(f"\n{'='*60}")
         print(f"  Apollo.io People Search - {mode_label}")
         print(f"  Input          : {mode_value}")
         print(f"  Titles         : {person_titles}")
-        print(f"  Locations      : {person_locations}")
+        print(f"  Locations      : {location_summary}")
         print(f"  Employee Range : {employee_range or 'Any'}")
         print(f"  Max Results    : {max_results}")
         print(f"  Output         : {output}")
@@ -2675,6 +2692,10 @@ class LeadFinder:
                 person_locations=person_locations or None,
                 organization_num_employees=employee_range or None,
                 organization_domains=organization_domains or None,
+                country=country or None,
+                state=state or None,
+                city=city or None,
+                zip_code=zip_code or None,
                 per_page=per_page,
                 page=page,
             )
@@ -2823,6 +2844,18 @@ class LeadFinder:
             org_name = person.get("organization_name", "")
             enriched_org = person.get("_enriched_org", {}) or {}
             website_description = enriched_org.get("short_description") or ""
+            if website_description:
+                # Keep description concise: first 250 chars, trimmed at sentence boundary
+                website_description = website_description.strip()
+                if len(website_description) > 250:
+                    truncated = website_description[:250]
+                    last_period = truncated.rfind('.')
+                    last_break = truncated.rfind('\n')
+                    cut_at = max(last_period, last_break)
+                    if cut_at > 150:
+                        website_description = truncated[:cut_at + 1]
+                    else:
+                        website_description = truncated.rstrip() + '...'
 
             # Apply Hunter enrichment
             hunter_confidence = 0
@@ -3000,6 +3033,30 @@ def main():
         default="",
         help="Apollo.io organization domains for expansion, comma-separated (e.g. 'example.com,sports.com')",
     )
+    parser.add_argument(
+        "--apollo-country",
+        type=str,
+        default="",
+        help="Apollo.io country filter, e.g. 'United States'",
+    )
+    parser.add_argument(
+        "--apollo-state",
+        type=str,
+        default="",
+        help="Apollo.io state/province filter, e.g. 'California'",
+    )
+    parser.add_argument(
+        "--apollo-city",
+        type=str,
+        default="",
+        help="Apollo.io city filter, e.g. 'Los Angeles'",
+    )
+    parser.add_argument(
+        "--apollo-zip",
+        type=str,
+        default="",
+        help="Apollo.io zip/postal code filter, e.g. '90210'",
+    )
     args = parser.parse_args()
 
     extra_excluded = set(d.strip().lower() for d in args.exclude.split(",") if d.strip())
@@ -3026,6 +3083,10 @@ def main():
             keep_no_email=getattr(args, "keep_no_email", False),
             employee_range=employee_range,
             organization_domains=org_domains or None,
+            country=args.apollo_country or None,
+            state=args.apollo_state or None,
+            city=args.apollo_city or None,
+            zip_code=args.apollo_zip or None,
         )
         return
 

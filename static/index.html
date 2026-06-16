@@ -496,9 +496,28 @@
                 <p class="hint">小经销商通常 2-50 人，选这个范围最精准</p>
               </div>
               <div style="margin-bottom:16px">
-                <label for="apolloLocations">目标地区（可选）</label>
-                <input type="text" id="apolloLocations" name="apollo_locations" placeholder='例如 "United States,Germany,United Kingdom"'>
-                <p class="hint">逗号分隔多个国家，留空则不限制地区</p>
+                <label>目标地区（可选）</label>
+                <div class="row" style="margin-bottom:8px;">
+                  <div>
+                    <input type="text" id="apolloCountry" name="apollo_country" placeholder="国家，如 United States" style="margin-bottom:4px;">
+                    <p class="hint">Country</p>
+                  </div>
+                  <div>
+                    <input type="text" id="apolloState" name="apollo_state" placeholder="州/省，如 California" style="margin-bottom:4px;">
+                    <p class="hint">State / Province</p>
+                  </div>
+                </div>
+                <div class="row" style="margin-bottom:0;">
+                  <div>
+                    <input type="text" id="apolloCity" name="apollo_city" placeholder="城市，如 Los Angeles" style="margin-bottom:4px;">
+                    <p class="hint">City</p>
+                  </div>
+                  <div>
+                    <input type="text" id="apolloZip" name="apollo_zip" placeholder="邮编，如 90210" style="margin-bottom:4px;">
+                    <p class="hint">Zip / Postal Code</p>
+                  </div>
+                </div>
+                <p class="hint">填写越精确，结果越精准；可只填国家，也可组合填写</p>
               </div>
               <div class="row">
                 <div>
@@ -933,7 +952,10 @@
         const apolloDomains = document.getElementById('apolloDomains').value.trim();
         const apolloTitlesSelect = document.getElementById('apolloTitles');
         const checkedTitles = Array.from(apolloTitlesSelect.selectedOptions).map(opt => opt.value);
-        const apolloLocations = document.getElementById('apolloLocations').value.trim();
+        const apolloCountry = document.getElementById('apolloCountry').value.trim();
+        const apolloState = document.getElementById('apolloState').value.trim();
+        const apolloCity = document.getElementById('apolloCity').value.trim();
+        const apolloZip = document.getElementById('apolloZip').value.trim();
         const apolloMaxResults = document.getElementById('apolloMaxResults').value;
         const apolloKeepNoEmail = document.getElementById('apolloKeepNoEmail').checked;
         const apolloEmployeeRange = document.getElementById('apolloEmployeeRange').value;
@@ -949,7 +971,10 @@
         if (apolloKeywords) params.append('apollo_keywords', apolloKeywords);
         if (apolloDomains) params.append('apollo_domains', apolloDomains.split(/\n|,/).map(d => d.trim()).filter(Boolean).join(','));
         if (checkedTitles.length > 0) params.append('apollo_titles', checkedTitles.join(','));
-        if (apolloLocations) params.append('apollo_locations', apolloLocations);
+        if (apolloCountry) params.append('apollo_country', apolloCountry);
+        if (apolloState) params.append('apollo_state', apolloState);
+        if (apolloCity) params.append('apollo_city', apolloCity);
+        if (apolloZip) params.append('apollo_zip', apolloZip);
         if (apolloEmployeeRange) params.append('employee_range', apolloEmployeeRange);
         if (apolloMaxResults) params.append('max_results', apolloMaxResults);
         if (apolloKeepNoEmail) params.append('keep_no_email', 'true');

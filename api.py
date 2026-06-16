@@ -822,16 +822,16 @@ async def stream_apollo_leads(
     apollo_keywords: str = "",
     apollo_domains: str = "",
     apollo_titles: str = "Buyer,Purchasing Manager,Procurement Manager,Sourcing Manager",
-    apollo_locations: str = "",
+    apollo_country: str = "",
+    apollo_state: str = "",
+    apollo_city: str = "",
+    apollo_zip: str = "",
     max_results: int = 100,
     keep_no_email: bool = False,
     employee_range: str = "",
     user: dict = Depends(require_user),
 ):
-    """Stream Apollo.io People Search progress via Server-Sent Events.
-
-    Supports either keyword discovery (apollo_keywords) or domain expansion (apollo_domains).
-    """
+    """Stream Apollo.io People Search progress via Server-Sent Events."""
     if not apollo_keywords and not apollo_domains:
         raise HTTPException(status_code=400, detail="Either apollo_keywords or apollo_domains is required.")
 
@@ -847,8 +847,14 @@ async def stream_apollo_leads(
         cmd.extend(["--apollo-keywords", apollo_keywords])
     if apollo_domains:
         cmd.extend(["--apollo-domains", apollo_domains])
-    if apollo_locations:
-        cmd.extend(["--apollo-locations", apollo_locations])
+    if apollo_country:
+        cmd.extend(["--apollo-country", apollo_country])
+    if apollo_state:
+        cmd.extend(["--apollo-state", apollo_state])
+    if apollo_city:
+        cmd.extend(["--apollo-city", apollo_city])
+    if apollo_zip:
+        cmd.extend(["--apollo-zip", apollo_zip])
     if employee_range:
         cmd.extend(["--apollo-employee-range", employee_range])
     if max_results:
