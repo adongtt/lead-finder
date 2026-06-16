@@ -6,7 +6,7 @@ from pathlib import Path
 import markdown
 
 INPUT = Path("USER_GUIDE.md")
-OUTPUT = Path("USER_GUIDE.pdf")
+OUTPUT = Path("static/USER_GUIDE.pdf")
 
 md = INPUT.read_text(encoding="utf-8")
 
