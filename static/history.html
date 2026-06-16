@@ -344,11 +344,17 @@
 
       try {
         const res = await fetch('/api/searches?' + params.toString());
-        if (!res.ok) { tbody.innerHTML = `<tr><td colspan="${colCount}" class="empty">加载失败</td></tr>`; return; }
+        if (!res.ok) {
+          const text = await res.text();
+          console.error('搜索历史接口错误', res.status, text);
+          tbody.innerHTML = `<tr><td colspan="${colCount}" class="empty">加载失败：${escapeHtml(res.status + ' ' + (text || '')).slice(0, 200)}</td></tr>`;
+          return;
+        }
         const data = await res.json();
         renderSearches(data.searches || []);
       } catch (err) {
-        tbody.innerHTML = `<tr><td colspan="${colCount}" class="empty">加载失败</td></tr>`;
+        console.error('搜索历史加载异常', err);
+        tbody.innerHTML = `<tr><td colspan="${colCount}" class="empty">加载失败：${escapeHtml(err.message || '网络错误')}</td></tr>`;
       }
     }
 

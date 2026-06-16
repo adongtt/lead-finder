@@ -124,6 +124,14 @@ def _init_db() -> None:
         except Exception:
             pass
 
+    # Backfill source_type for legacy rows based on keyword prefix
+    try:
+        c.execute("UPDATE searches SET source_type = 'apollo' WHERE source_type IS NULL AND keyword LIKE 'Apollo:%'")
+        c.execute("UPDATE searches SET source_type = 'supplier_portal' WHERE source_type IS NULL AND keyword LIKE 'Supplier Portal:%'")
+        c.execute("UPDATE searches SET source_type = 'keyword' WHERE source_type IS NULL OR source_type = ''")
+    except Exception:
+        pass
+
     c.execute("""
         CREATE TABLE IF NOT EXISTS contacts (
             id SERIAL PRIMARY KEY,
@@ -328,6 +336,8 @@ def db_save_search(job_id: str, keyword: str, pages: int, total: int, user_id: s
     """, (job_id, keyword, pages, total, user_id, user_name, datetime.now().isoformat(), 1 if deep else 0, source_type, csv_content))
     conn.commit()
     _put_conn(conn)
+    # Invalidate search history cache so new records appear immediately
+    _cache.clear()
 
 
 def db_list_searches(
