@@ -536,6 +536,13 @@
                   </div>
                 </div>
               </div>
+              <div style="margin-bottom:16px;padding:10px 0;">
+                <label style="display:flex;align-items:center;gap:8px;cursor:pointer;text-transform:none;letter-spacing:0;font-weight:500;color:var(--text);">
+                  <input type="checkbox" id="apolloScanSupplierPages" style="width:auto;">
+                  同时扫描采购/供应商页面（较慢）
+                </label>
+                <p class="hint">搜索完成后自动扫描 procurement / become-a-supplier / vendor-portal 等页面</p>
+              </div>
             </div>
 
             <!-- 关键词（keyword / maps 模式） -->
@@ -657,6 +664,15 @@
               <p class="hint">即使没找到决策人邮箱也保留公司信息，适合电话开发</p>
             </div>
 
+            <!-- 扫描采购/供应商页面（keyword/maps/domains 模式） -->
+            <div id="scanSupplierPagesWrap" style="margin-bottom:20px;display:none;">
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer;text-transform:none;letter-spacing:0;font-weight:500;color:var(--text);">
+                <input type="checkbox" id="scanSupplierPages" name="scan_supplier_pages" style="width:auto;">
+                同时扫描采购/供应商页面（较慢）
+              </label>
+              <p class="hint">搜索完成后自动扫描 procurement / become-a-supplier / vendor-portal 等页面</p>
+            </div>
+
             <button type="submit" id="submitBtn">
               <span id="btnText">查找客户</span>
             </button>
@@ -673,6 +689,7 @@
             <div style="font-size:12px;color:#0c4a6e;line-height:1.6;">
               <div><strong>更新时间：</strong>2026-06-16</div>
               <div style="margin-top:4px;"><strong>本次更新：</strong>启用“供应商门户”模式：输入一批域名，自动扫描 procurement / become-a-supplier / vendor-portal 等采购/供应商页面，提取页面邮箱、申请表单链接与页面摘要。</div>
+              <div style="margin-top:4px;"><strong>2026-06-16：</strong>普通搜索 / Apollo 搜索支持勾选“同时扫描采购/供应商页面”，搜索完成后自动对每个域名探测采购入口，并将结果写入 CSV 的 supplier_* 字段。</div>
             </div>
           </div>
 
@@ -856,6 +873,7 @@
       const advancedWrap = document.getElementById('advancedWrap');
       const excludeWrap = document.getElementById('excludeWrap');
       const keepNoEmailWrap = document.getElementById('keepNoEmailWrap');
+      const scanSupplierPagesWrap = document.getElementById('scanSupplierPagesWrap');
       const keywordInput = document.getElementById('keyword');
       const apolloKeywords = document.getElementById('apolloKeywords');
 
@@ -869,6 +887,7 @@
       advancedWrap.style.display = 'none';
       excludeWrap.style.display = 'none';
       keepNoEmailWrap.style.display = 'none';
+      scanSupplierPagesWrap.style.display = 'none';
       keywordInput.required = false;
       apolloKeywords.required = false;
 
@@ -880,6 +899,7 @@
         keywordInput.required = true;
         mapsRegionWrap.style.display = 'block';
         keepNoEmailWrap.style.display = 'block';
+        scanSupplierPagesWrap.style.display = 'block';
       } else if (mode === 'keyword') {
         keywordWrap.style.display = 'block';
         keywordInput.required = true;
@@ -890,9 +910,11 @@
         advancedWrap.style.display = 'block';
         excludeWrap.style.display = 'block';
         keepNoEmailWrap.style.display = 'block';
+        scanSupplierPagesWrap.style.display = 'block';
       } else if (mode === 'domains') {
         domainsWrap.style.display = 'block';
         keepNoEmailWrap.style.display = 'block';
+        scanSupplierPagesWrap.style.display = 'block';
       } else if (mode === 'supplier_portal') {
         domainsWrap.style.display = 'block';
       }
@@ -984,6 +1006,7 @@
         const apolloMaxResults = document.getElementById('apolloMaxResults').value;
         const apolloKeepNoEmail = document.getElementById('apolloKeepNoEmail').checked;
         const apolloEmployeeRange = document.getElementById('apolloEmployeeRange').value;
+        const apolloScanSupplierPages = document.getElementById('apolloScanSupplierPages').checked;
 
         if (!apolloKeywords && !apolloDomains) {
           resultDiv.innerHTML = '<div class="badge badge-error">请输入关键词或域名</div>';
@@ -1003,6 +1026,7 @@
         if (apolloEmployeeRange) params.append('employee_range', apolloEmployeeRange);
         if (apolloMaxResults) params.append('max_results', apolloMaxResults);
         if (apolloKeepNoEmail) params.append('keep_no_email', 'true');
+        if (apolloScanSupplierPages) params.append('scan_supplier_pages', 'true');
         streamUrl = `/api/leads/apollo/stream?${params.toString()}`;
       } else if (currentMode === 'supplier_portal') {
         const domainsInput = document.getElementById('domainsInput').value;
@@ -1031,6 +1055,7 @@
         const strictMode = document.getElementById('strictMode').checked;
         const minRelevance = document.getElementById('minRelevance').value;
         const domainsInput = document.getElementById('domainsInput').value;
+        const scanSupplierPages = document.getElementById('scanSupplierPages').checked;
         const targetTldSelect = document.getElementById('targetTld');
         const checkedTlds = Array.from(targetTldSelect.selectedOptions).map(opt => opt.value);
 
@@ -1046,6 +1071,7 @@
         if (minRelevance && minRelevance !== '-50') params.append('min_relevance', minRelevance);
         if (domainsInput) params.append('domains', domainsInput);
         if (checkedTlds.length > 0) params.append('target_tlds', checkedTlds.join(','));
+        if (scanSupplierPages) params.append('scan_supplier_pages', 'true');
         if (currentMode === 'google_maps') {
           const region = document.getElementById('mapsRegion').value.trim();
           if (region) params.append('maps_region', region);

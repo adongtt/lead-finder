@@ -165,10 +165,12 @@ SUPPLIER_PAGE_PATHS = [
 EMAIL_RE = re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}")
 
 
-def _scan_supplier_pages(domain: str, timeout: int = 8) -> dict:
+def _scan_supplier_pages(domain: str, timeout: int = 6) -> dict:
     """Scan a domain for procurement/supplier-related pages.
 
     Returns dict with best matching page info, or empty dict if none found.
+    Optimized: tries HTTPS first with a short timeout; falls back to HTTP only
+    on connection errors.
     """
     found = []
     for path in SUPPLIER_PAGE_PATHS:
@@ -2213,6 +2215,7 @@ class LeadFinder:
         exclude_big_platforms: bool = False,
         advanced_syntax: bool = False,
         strict_mode: bool = False,
+        scan_supplier_pages: bool = False,
     ) -> None:
         timestamp = datetime.now().isoformat()
         domain_source_type: Dict[str, str] = {}
@@ -2695,6 +2698,10 @@ class LeadFinder:
                 seen_keys.add(key)
                 unique_leads.append(lead)
 
+        # 6b. Optional supplier/procurement portal enrichment
+        if scan_supplier_pages:
+            unique_leads = self._enrich_leads_with_supplier_portal(unique_leads)
+
         # 6. Export
         print("PROGRESS: 100")
         self._export_csv(unique_leads, output)
@@ -2744,6 +2751,69 @@ class LeadFinder:
             print(f"  Validated (OK)   : {validated}")
         print(f"{'='*60}\n")
 
+    def _enrich_leads_with_supplier_portal(
+        self,
+        leads: List[Lead],
+        max_workers: int = 6,
+        timeout: int = 6,
+    ) -> List[Lead]:
+        """Scan each unique domain in leads for procurement/supplier pages.
+
+        The scan is optional and runs after the main search pipeline. Results are
+        written back into the supplier_* fields of each lead sharing the domain.
+        """
+        if not leads:
+            return leads
+
+        domains = list({lead.domain for lead in leads if lead.domain})
+        if not domains:
+            return leads
+
+        print(f"\n[Supplier Portal] Scanning {len(domains)} domains for supplier/procurement pages...")
+        print("PROGRESS: 92")
+
+        portal_map: Dict[str, dict] = {}
+        completed = 0
+        total = len(domains)
+
+        def _scan_one(domain: str) -> tuple:
+            portal = _scan_supplier_pages(domain, timeout=timeout)
+            return domain, portal
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_domain = {executor.submit(_scan_one, d): d for d in domains}
+            for future in concurrent.futures.as_completed(future_to_domain):
+                completed += 1
+                pct = 92 + int((completed / total) * 7)
+                print(f"PROGRESS: {min(pct, 99)}")
+                try:
+                    domain, portal = future.result()
+                    if portal:
+                        portal_map[domain] = portal
+                except Exception as e:
+                    print(f"    [Supplier Portal ERROR] {future_to_domain[future]}: {e}")
+
+        enriched = 0
+        for lead in leads:
+            portal = portal_map.get(lead.domain)
+            if not portal:
+                continue
+            lead.supplier_page_url = portal.get("url", "")
+            lead.supplier_page_title = portal.get("title", "")
+            lead.supplier_email = portal.get("email", "")
+            lead.supplier_form_link = portal.get("form_link", "")
+            # Extract a short summary from the page content
+            if not lead.supplier_notes:
+                try:
+                    resp = requests.get(portal["url"], headers=HEADERS, timeout=timeout, allow_redirects=True)
+                    lead.supplier_notes = _extract_supplier_notes(resp.text)
+                except Exception:
+                    lead.supplier_notes = ""
+            enriched += 1
+
+        print(f"  Enriched {enriched} leads with supplier portal data")
+        return leads
+
     def run_apollo_search(
         self,
         organization_keywords: Optional[List[str]] = None,
@@ -2758,6 +2828,7 @@ class LeadFinder:
         state: Optional[str] = None,
         city: Optional[str] = None,
         zip_code: Optional[str] = None,
+        scan_supplier_pages: bool = False,
     ) -> List[Lead]:
         """Run an Apollo.io People Search and export leads.
 
@@ -3019,6 +3090,11 @@ class LeadFinder:
 
         print(f"\n[Apollo] Total unique leads: {len(unique_leads)}")
         print("PROGRESS: 95")
+
+        # Optional supplier/procurement portal enrichment
+        if scan_supplier_pages:
+            unique_leads = self._enrich_leads_with_supplier_portal(unique_leads)
+
         self._export_csv(unique_leads, output)
         print("PROGRESS: 100")
         self._print_summary(unique_leads, "Apollo People Search", len(set(l.domain for l in unique_leads)))
@@ -3231,6 +3307,11 @@ def main():
         default="",
         help="Comma-separated domains to scan for supplier/procurement portal pages",
     )
+    parser.add_argument(
+        "--scan-supplier-pages",
+        action="store_true",
+        help="After finding domains, also scan them for procurement/supplier portal pages",
+    )
     args = parser.parse_args()
 
     extra_excluded = set(d.strip().lower() for d in args.exclude.split(",") if d.strip())
@@ -3267,6 +3348,7 @@ def main():
             state=args.apollo_state or None,
             city=args.apollo_city or None,
             zip_code=args.apollo_zip or None,
+            scan_supplier_pages=args.scan_supplier_pages,
         )
         return
 
@@ -3293,6 +3375,7 @@ def main():
         exclude_big_platforms=getattr(args, "exclude_big_platforms", False),
         advanced_syntax=getattr(args, "advanced_syntax", False),
         strict_mode=getattr(args, "strict_mode", False),
+        scan_supplier_pages=args.scan_supplier_pages,
     )
 
 

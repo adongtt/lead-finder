@@ -634,6 +634,7 @@ async def search_leads(
     advanced_syntax: bool = Form(False),
     strict_mode: bool = Form(False),
     min_relevance: int = Form(-50),
+    scan_supplier_pages: bool = Form(False),
     user: dict = Depends(require_user),
 ):
     """
@@ -668,6 +669,8 @@ async def search_leads(
         cmd.append("--strict-mode")
     if min_relevance != -50:
         cmd.extend(["--min-relevance", str(min_relevance)])
+    if scan_supplier_pages:
+        cmd.append("--scan-supplier-pages")
 
     result = subprocess.run(cmd, capture_output=True, text=True, cwd=".", encoding="utf-8", errors="replace")
 
@@ -719,6 +722,7 @@ async def stream_leads(
     advanced_syntax: bool = False,
     strict_mode: bool = False,
     min_relevance: int = -50,
+    scan_supplier_pages: bool = False,
     user: dict = Depends(require_user),
 ):
     """Stream lead search progress via Server-Sent Events."""
@@ -754,6 +758,8 @@ async def stream_leads(
         cmd.append("--strict-mode")
     if min_relevance != -50:
         cmd.extend(["--min-relevance", str(min_relevance)])
+    if scan_supplier_pages:
+        cmd.append("--scan-supplier-pages")
 
     async def event_generator():
         proc = await asyncio.create_subprocess_exec(
@@ -829,6 +835,7 @@ async def stream_apollo_leads(
     max_results: int = 100,
     keep_no_email: bool = False,
     employee_range: str = "",
+    scan_supplier_pages: bool = False,
     user: dict = Depends(require_user),
 ):
     """Stream Apollo.io People Search progress via Server-Sent Events."""
@@ -861,6 +868,8 @@ async def stream_apollo_leads(
         cmd.extend(["--max-domains", str(max_results)])
     if keep_no_email:
         cmd.append("--keep-no-email")
+    if scan_supplier_pages:
+        cmd.append("--scan-supplier-pages")
 
     async def event_generator():
         proc = await asyncio.create_subprocess_exec(
