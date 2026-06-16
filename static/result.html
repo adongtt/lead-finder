@@ -134,13 +134,10 @@
     }
     .desc-preview .preview-card {
       display: none;
-      position: absolute;
-      left: 0;
-      top: 100%;
+      position: fixed;
       z-index: 100;
       width: 320px;
       max-width: 90vw;
-      margin-top: 8px;
       padding: 12px 14px;
       background: #fff;
       border: 1px solid var(--border);
@@ -590,6 +587,37 @@
       }
       tbody.innerHTML = html;
       renderPagination();
+      initTooltips();
+    }
+
+    function initTooltips() {
+      const tbody = document.getElementById('tableBody');
+      tbody.querySelectorAll('.desc-preview').forEach(el => {
+        el.addEventListener('mouseenter', () => {
+          const card = el.querySelector('.preview-card');
+          if (!card) return;
+          card.style.display = 'block';
+          const rect = el.getBoundingClientRect();
+          const cardRect = card.getBoundingClientRect();
+          let top = rect.bottom + 8;
+          let left = rect.left;
+          // Place above if not enough space below
+          if (top + cardRect.height > window.innerHeight - 20) {
+            top = rect.top - cardRect.height - 8;
+          }
+          // Keep inside viewport horizontally
+          if (left + cardRect.width > window.innerWidth - 20) {
+            left = window.innerWidth - cardRect.width - 20;
+          }
+          if (left < 10) left = 10;
+          card.style.top = top + 'px';
+          card.style.left = left + 'px';
+        });
+        el.addEventListener('mouseleave', () => {
+          const card = el.querySelector('.preview-card');
+          if (card) card.style.display = 'none';
+        });
+      });
     }
 
     function renderPagination() {
