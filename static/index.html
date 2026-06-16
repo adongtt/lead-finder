@@ -393,6 +393,7 @@
               <label>搜索模式</label>
               <div style="display:flex;gap:8px;flex-wrap:wrap;">
                 <button type="button" id="modeApollo" class="mode-btn active" onclick="setMode('apollo')" style="flex:1;padding:8px 12px;font-size:13px;background:var(--primary);color:#fff;border:none;border-radius:6px;cursor:pointer;min-width:100px;">Apollo 搜索</button>
+                <button type="button" id="modeSupplierPortal" class="mode-btn" onclick="setMode('supplier_portal')" style="flex:1;padding:8px 12px;font-size:13px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;cursor:pointer;min-width:100px;">供应商门户</button>
                 <button type="button" id="modeGoogleMaps" class="mode-btn" onclick="setMode('google_maps')" style="flex:1;padding:8px 12px;font-size:13px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;cursor:pointer;min-width:100px;">谷歌地图搜索</button>
                 <button type="button" id="modeKeyword" class="mode-btn" onclick="setMode('keyword')" style="flex:1;padding:8px 12px;font-size:13px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;cursor:pointer;min-width:100px;">关键词搜索</button>
                 <button type="button" id="modeDomains" class="mode-btn" onclick="setMode('domains')" style="flex:1;padding:8px 12px;font-size:13px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;cursor:pointer;min-width:100px;">批量导入域名</button>
@@ -670,8 +671,8 @@
               <span style="font-size:13px;font-weight:700;color:#0369a1;">程序更新</span>
             </div>
             <div style="font-size:12px;color:#0c4a6e;line-height:1.6;">
-              <div><strong>更新时间：</strong>2026-06-15</div>
-              <div style="margin-top:4px;"><strong>本次更新：</strong>修复 Apollo 关键词参数、优化手套产品推荐词、放宽过滤提高结果量</div>
+              <div><strong>更新时间：</strong>2026-06-16</div>
+              <div style="margin-top:4px;"><strong>本次更新：</strong>启用“供应商门户”模式：输入一批域名，自动扫描 procurement / become-a-supplier / vendor-portal 等采购/供应商页面，提取页面邮箱、申请表单链接与页面摘要。</div>
             </div>
           </div>
 
@@ -825,9 +826,10 @@
       const btnKeyword = document.getElementById('modeKeyword');
       const btnGoogleMaps = document.getElementById('modeGoogleMaps');
       const btnDomains = document.getElementById('modeDomains');
+      const btnSupplierPortal = document.getElementById('modeSupplierPortal');
 
       // Reset all buttons
-      [btnApollo, btnKeyword, btnGoogleMaps, btnDomains].forEach(btn => {
+      [btnApollo, btnKeyword, btnGoogleMaps, btnDomains, btnSupplierPortal].forEach(btn => {
         btn.style.background = 'var(--bg)';
         btn.style.color = 'var(--text)';
         btn.style.border = '1px solid var(--border)';
@@ -836,7 +838,8 @@
       // Highlight active button
       const activeBtn = mode === 'apollo' ? btnApollo :
                         mode === 'keyword' ? btnKeyword :
-                        mode === 'google_maps' ? btnGoogleMaps : btnDomains;
+                        mode === 'google_maps' ? btnGoogleMaps :
+                        mode === 'supplier_portal' ? btnSupplierPortal : btnDomains;
       activeBtn.style.background = 'var(--primary)';
       activeBtn.style.color = '#fff';
       activeBtn.style.border = 'none';
@@ -890,7 +893,22 @@
       } else if (mode === 'domains') {
         domainsWrap.style.display = 'block';
         keepNoEmailWrap.style.display = 'block';
+      } else if (mode === 'supplier_portal') {
+        domainsWrap.style.display = 'block';
       }
+
+      // Update submit button text by mode
+      const submitBtnText = document.getElementById('btnText');
+      if (mode === 'supplier_portal') {
+        submitBtnText.textContent = '扫描采购/供应商页面';
+      } else {
+        submitBtnText.textContent = '查找客户';
+      }
+    }
+
+    function resetSubmitButtonText() {
+      const btnText = document.getElementById('btnText');
+      btnText.textContent = currentMode === 'supplier_portal' ? '扫描采购/供应商页面' : '查找客户';
     }
 
     function toggleAdvanced() {
@@ -924,6 +942,13 @@
         else if (pct <= 40) progressStep.textContent = '并行解析域名中...';
         else if (pct <= 75) progressStep.textContent = 'Hunter 补全邮箱中...';
         else if (pct < 100) progressStep.textContent = '构建线索与导出...';
+        else progressStep.textContent = '完成';
+        return;
+      }
+      if (currentMode === 'supplier_portal') {
+        if (pct < 20) progressStep.textContent = '准备域名列表...';
+        else if (pct < 90) progressStep.textContent = '扫描采购/供应商页面中...';
+        else if (pct < 100) progressStep.textContent = '提取邮箱与表单链接...';
         else progressStep.textContent = '完成';
         return;
       }
@@ -963,7 +988,7 @@
         if (!apolloKeywords && !apolloDomains) {
           resultDiv.innerHTML = '<div class="badge badge-error">请输入关键词或域名</div>';
           btn.disabled = false;
-          btnText.textContent = '查找客户';
+          resetSubmitButtonText();
           return;
         }
 
@@ -979,6 +1004,20 @@
         if (apolloMaxResults) params.append('max_results', apolloMaxResults);
         if (apolloKeepNoEmail) params.append('keep_no_email', 'true');
         streamUrl = `/api/leads/apollo/stream?${params.toString()}`;
+      } else if (currentMode === 'supplier_portal') {
+        const domainsInput = document.getElementById('domainsInput').value;
+        if (!domainsInput.trim()) {
+          resultDiv.innerHTML = '<div class="badge badge-error">请输入域名列表</div>';
+          btn.disabled = false;
+          resetSubmitButtonText();
+          return;
+        }
+        const domains = domainsInput.split(/[\n,]+/)
+          .map(d => d.trim().replace(/^https?:\/\//, '').replace(/\/.*$/, ''))
+          .filter(Boolean)
+          .join(',');
+        const params = new URLSearchParams({ domains });
+        streamUrl = `/api/leads/supplier-portal/stream?${params.toString()}`;
       } else {
         const keyword = document.getElementById('keyword').value || 'direct-import';
         const pages = document.getElementById('pages').value;
@@ -1031,7 +1070,7 @@
           es.close();
           progressWrap.classList.remove('active');
           btn.disabled = false;
-          btnText.textContent = '查找客户';
+          resetSubmitButtonText();
           if (data.status === 'success') {
             renderResult(data);
             loadKeywords();
@@ -1045,7 +1084,7 @@
         es.close();
         progressWrap.classList.remove('active');
         btn.disabled = false;
-        btnText.textContent = '查找客户';
+        resetSubmitButtonText();
         resultDiv.innerHTML = '<div class="badge badge-error">连接错误</div><div class="error-box">连接失败，请重试。</div>';
       };
     });
@@ -1053,47 +1092,91 @@
     function renderResult(data) {
       if (data.download_url) window.currentDownloadUrl = data.download_url;
       if (data.job_id) window.currentJobId = data.job_id;
+
+      // Normalize supplier-portal rows so existing email/contact helpers work
+      if (currentMode === 'supplier_portal' && data.preview) {
+        data.preview = data.preview.map(row => ({
+          ...row,
+          email: row.supplier_email || row.email || '',
+          company: row.company || row.domain || '',
+        }));
+      }
+
       let html = `<div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">
         <span class="badge badge-success">找到 ${data.total} 个客户</span>
         ${data.job_id ? `<a href="/result?job_id=${encodeURIComponent(data.job_id)}" class="download-btn">查看全部</a>` : ''}
       </div>`;
       if (data.preview && data.preview.length > 0) {
-        html += '<table><thead><tr>' +
-          '<th>邮箱</th><th>姓名</th><th>职位</th><th>国家</th><th>电话</th><th>公司</th><th>域名</th><th>LinkedIn</th><th>来源</th><th>简介</th><th>状态</th><th>操作</th>' +
-          '</tr></thead><tbody>';
-        for (let i = 0; i < data.preview.length; i++) {
-          const row = data.preview[i];
-          const contacted = row.contacted;
-          const badge = statusBadge(row.status || (contacted ? '已发邮件' : '未联系'));
-          const liUrl = linkedinCompanyUrl(row.company || row.domain || '');
-          html += `<tr data-idx="${i}">` +
-            `<td>${escapeHtml(row.email || '')}</td>` +
-            `<td>${escapeHtml((row.first_name || '') + ' ' + (row.last_name || ''))}</td>` +
-            `<td>${escapeHtml(row.position || '')}</td>` +
-            `<td>${escapeHtml(row.country || '')}</td>` +
-            `<td>${formatPhoneCell(row)}</td>` +
-            `<td>${escapeHtml(row.company || '')} <a href="${liUrl}" target="_blank" rel="noopener" title="LinkedIn 搜索公司" style="color:#0a66c2;font-size:11px;margin-left:4px;">[in]</a></td>` +
-            `<td>${escapeHtml(row.domain || '')}</td>` +
-            `<td>${row.linkedin_url ? `<a href="${escapeHtml(row.linkedin_url)}" target="_blank" rel="noopener noreferrer" style="color:#0a66c2;font-weight:500;font-size:12px;">查看</a>` : '<span style="font-size:12px;color:var(--muted);">-</span>'}</td>` +
-            `<td>${sourceTypeLabel(row.source_type || '')}</td>` +
-            `<td>${renderDescCell(row.website_description)}</td>` +
-            `<td>${badge}</td>` +
-            `<td>` +
-              (row.email
-                ? `<button class="email-btn" onclick="openEmailPanel(${i})">发邮件</button>`
-                : `<span style="font-size:12px;color:var(--muted);">无邮箱</span>`) +
-              (row.email
-                ? (contacted
-                    ? ` <button class="email-btn" style="background:var(--primary);color:#fff;" onclick="openContactDetail('${escapeHtml(row.email)}')">跟进</button>`
-                    : ` <button class="email-btn" style="background:var(--border);color:var(--text);" onclick="markContacted(${i})">标记已联系</button>`)
-                : '') +
-            `</td>` +
-            '</tr>';
-        }
-        html += '</tbody></table>';
+        html += currentMode === 'supplier_portal'
+          ? renderSupplierPortalTable(data.preview)
+          : renderDefaultTable(data.preview);
       }
       resultDiv.innerHTML = html;
       window.currentLeads = data.preview || [];
+    }
+
+    function renderDefaultTable(rows) {
+      let html = '<table><thead><tr>' +
+        '<th>邮箱</th><th>姓名</th><th>职位</th><th>国家</th><th>电话</th><th>公司</th><th>域名</th><th>LinkedIn</th><th>来源</th><th>简介</th><th>状态</th><th>操作</th>' +
+        '</tr></thead><tbody>';
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        const contacted = row.contacted;
+        const badge = statusBadge(row.status || (contacted ? '已发邮件' : '未联系'));
+        const liUrl = linkedinCompanyUrl(row.company || row.domain || '');
+        html += `<tr data-idx="${i}">` +
+          `<td>${escapeHtml(row.email || '')}</td>` +
+          `<td>${escapeHtml((row.first_name || '') + ' ' + (row.last_name || ''))}</td>` +
+          `<td>${escapeHtml(row.position || '')}</td>` +
+          `<td>${escapeHtml(row.country || '')}</td>` +
+          `<td>${formatPhoneCell(row)}</td>` +
+          `<td>${escapeHtml(row.company || '')} <a href="${liUrl}" target="_blank" rel="noopener" title="LinkedIn 搜索公司" style="color:#0a66c2;font-size:11px;margin-left:4px;">[in]</a></td>` +
+          `<td>${escapeHtml(row.domain || '')}</td>` +
+          `<td>${row.linkedin_url ? `<a href="${escapeHtml(row.linkedin_url)}" target="_blank" rel="noopener noreferrer" style="color:#0a66c2;font-weight:500;font-size:12px;">查看</a>` : '<span style="font-size:12px;color:var(--muted);">-</span>'}</td>` +
+          `<td>${sourceTypeLabel(row.source_type || '')}</td>` +
+          `<td>${renderDescCell(row.website_description)}</td>` +
+          `<td>${badge}</td>` +
+          `<td>` +
+            (row.email
+              ? `<button class="email-btn" onclick="openEmailPanel(${i})">发邮件</button>`
+              : `<span style="font-size:12px;color:var(--muted);">无邮箱</span>`) +
+            (row.email
+              ? (contacted
+                  ? ` <button class="email-btn" style="background:var(--primary);color:#fff;" onclick="openContactDetail('${escapeHtml(row.email)}')">跟进</button>`
+                  : ` <button class="email-btn" style="background:var(--border);color:var(--text);" onclick="markContacted(${i})">标记已联系</button>`)
+              : '') +
+          `</td>` +
+          '</tr>';
+      }
+      html += '</tbody></table>';
+      return html;
+    }
+
+    function renderSupplierPortalTable(rows) {
+      let html = '<table><thead><tr>' +
+        '<th>域名</th><th>供应商页面</th><th>页面标题</th><th>采购邮箱</th><th>申请表单</th><th>页面摘要</th><th>操作</th>' +
+        '</tr></thead><tbody>';
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        const pageUrl = row.supplier_page_url || '';
+        const formLink = row.supplier_form_link || '';
+        const email = row.supplier_email || '';
+        html += `<tr data-idx="${i}">` +
+          `<td>${escapeHtml(row.domain || '')}</td>` +
+          `<td>${pageUrl ? `<a href="${escapeHtml(pageUrl)}" target="_blank" rel="noopener noreferrer" style="color:var(--primary);font-weight:500;font-size:12px;">查看页面</a>` : '<span style="font-size:12px;color:var(--muted);">-</span>'}</td>` +
+          `<td>${escapeHtml(row.supplier_page_title || '')}</td>` +
+          `<td>${email ? `<a href="mailto:${escapeHtml(email)}" style="color:var(--success);font-weight:500;font-size:12px;">${escapeHtml(email)}</a>` : '<span style="font-size:12px;color:var(--muted);">-</span>'}</td>` +
+          `<td>${formLink ? `<a href="${escapeHtml(formLink)}" target="_blank" rel="noopener noreferrer" style="color:var(--primary);font-weight:500;font-size:12px;">打开表单</a>` : '<span style="font-size:12px;color:var(--muted);">-</span>'}</td>` +
+          `<td>${renderDescCell(row.supplier_notes)}</td>` +
+          `<td>` +
+            (email
+              ? `<button class="email-btn" onclick="openEmailPanel(${i})">发邮件</button>`
+              : `<span style="font-size:12px;color:var(--muted);">无邮箱</span>`) +
+          `</td>` +
+          '</tr>';
+      }
+      html += '</tbody></table>';
+      return html;
     }
 
     const TEMPLATES = {
@@ -1202,6 +1285,7 @@
         'google_maps': '<span style="font-size:11px;color:#059669;background:#d1fae5;padding:2px 6px;border-radius:4px;">Google Maps</span>',
         'linkedin_discovery': '<span style="font-size:11px;color:#0a66c2;background:#dbeafe;padding:2px 6px;border-radius:4px;">LinkedIn</span>',
         'apollo': '<span style="font-size:11px;color:#7c3aed;background:#ede9fe;padding:2px 6px;border-radius:4px;">Apollo</span>',
+        'supplier_portal': '<span style="font-size:11px;color:#d97706;background:#fef3c7;padding:2px 6px;border-radius:4px;">供应商门户</span>',
       };
       return map[type] || `<span style="font-size:11px;color:#64748b;background:#f1f5f9;padding:2px 6px;border-radius:4px;">${escapeHtml(type || '未知')}</span>`;
     }

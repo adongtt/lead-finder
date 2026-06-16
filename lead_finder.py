@@ -144,6 +144,105 @@ APOLLO_NEGATIVE_KEYWORDS = {
     "real estate", "property", "rental",
 }
 
+# ---------------------------------------------------------------------------
+# Supplier portal page discovery
+# ---------------------------------------------------------------------------
+
+SUPPLIER_PAGE_PATHS = [
+    "procurement", "purchasing", "sourcing",
+    "become-a-supplier", "become-a-vendor", "become-a-distributor",
+    "become-supplier", "become-vendor", "become-distributor",
+    "supplier-registration", "vendor-registration", "distributor-registration",
+    "supplier-portal", "vendor-portal", "partner-portal", "distributor-portal",
+    "supplier", "vendors", "partners", "distributors", "wholesale", "reseller",
+    "supplier-application", "vendor-application", "distributor-application",
+    "supplier-onboarding", "vendor-onboarding",
+    "sell-to-us", "work-with-us", "partner-with-us",
+    "for-suppliers", "for-vendors", "for-distributors",
+]
+
+# Regex to find email addresses on supplier pages
+EMAIL_RE = re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}")
+
+
+def _scan_supplier_pages(domain: str, timeout: int = 8) -> dict:
+    """Scan a domain for procurement/supplier-related pages.
+
+    Returns dict with best matching page info, or empty dict if none found.
+    """
+    found = []
+    for path in SUPPLIER_PAGE_PATHS:
+        for scheme in ("https://", "http://"):
+            url = f"{scheme}{domain}/{path}"
+            try:
+                resp = requests.get(url, headers=HEADERS, timeout=timeout, allow_redirects=True)
+                if resp.status_code == 200:
+                    content_type = resp.headers.get("Content-Type", "")
+                    if "text/html" not in content_type and "application/xhtml" not in content_type:
+                        continue
+                    text = resp.text
+                    if len(text) < 200:
+                        continue
+                    title_match = re.search(r"<title[^>]*>(.*?)</title>", text, re.IGNORECASE | re.DOTALL)
+                    title = title_match.group(1).strip() if title_match else ""
+                    title = re.sub(r"\s+", " ", title)
+                    # Extract first meaningful email (skip generic noreply/sales if possible)
+                    emails = EMAIL_RE.findall(text)
+                    supplier_emails = [
+                        e for e in emails
+                        if not is_generic_email(e) and "@" + domain in e.lower()
+                    ]
+                    if not supplier_emails:
+                        supplier_emails = [e for e in emails if not is_generic_email(e)]
+                    if not supplier_emails:
+                        supplier_emails = emails
+                    email = supplier_emails[0].lower().strip() if supplier_emails else ""
+                    # Look for form action / registration link
+                    form_match = re.search(r'<form[^>]+action=["\']([^"\']+)["\']', text, re.IGNORECASE)
+                    form_link = form_match.group(1) if form_match else ""
+                    if form_link and form_link.startswith("/"):
+                        form_link = f"{scheme}{domain}{form_link}"
+                    elif form_link and not form_link.startswith("http"):
+                        form_link = f"{scheme}{domain}/{form_link}"
+                    # Simple keyword score for relevance
+                    lower_text = text.lower()
+                    score = sum(1 for kw in ["supplier", "vendor", "distributor", "procurement", "purchasing", "wholesale", "become", "register", "portal", "application"] if kw in lower_text)
+                    found.append({
+                        "url": url,
+                        "title": title,
+                        "email": email,
+                        "form_link": form_link,
+                        "score": score,
+                    })
+                    break
+            except Exception:
+                continue
+    if not found:
+        return {}
+    found.sort(key=lambda x: x["score"], reverse=True)
+    return found[0]
+
+
+def _extract_supplier_notes(text: str) -> str:
+    """Extract a short summary sentence from supplier page text."""
+    # Remove scripts/styles
+    text = re.sub(r"<script[^>]*>.*?</script>", " ", text, flags=re.IGNORECASE | re.DOTALL)
+    text = re.sub(r"<style[^>]*>.*?</style>", " ", text, flags=re.IGNORECASE | re.DOTALL)
+    # Convert common block tags to spaces
+    text = re.sub(r"</(p|div|li|h\d|br)\s*>", "\n", text, flags=re.IGNORECASE)
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    # Find sentences with procurement keywords
+    keywords = ["supplier", "vendor", "distributor", "procurement", "purchasing", "wholesale", "register", "apply", "become"]
+    sentences = re.split(r"(?<=[.!?])\s+", text)
+    for s in sentences[:30]:
+        s = s.strip()
+        if len(s) < 40 or len(s) > 250:
+            continue
+        if any(kw in s.lower() for kw in keywords):
+            return s
+    return ""
+
 def _score_apollo_contact_relevance(person: dict) -> int:
     """Score Apollo contact relevance based on org industry, keywords, description.
     Returns integer score. Negative = likely irrelevant.
@@ -649,6 +748,12 @@ class Lead:
     place_id: str = ""
     source_type: str = "search"        # search | google_maps | linkedin_discovery | apollo
     has_direct_phone: bool = False
+    # Supplier portal discovery
+    supplier_page_url: str = ""
+    supplier_page_title: str = ""
+    supplier_email: str = ""
+    supplier_form_link: str = ""
+    supplier_notes: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -2606,6 +2711,8 @@ class LeadFinder:
             "website_description", "relevance_score", "linkedin_url",
             "phone", "address", "google_rating", "google_reviews_count",
             "google_maps_url", "place_id", "source_type", "has_direct_phone",
+            "supplier_page_url", "supplier_page_title", "supplier_email",
+            "supplier_form_link", "supplier_notes",
         ]
         with open(path, "w", newline="", encoding="utf-8-sig") as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -2917,6 +3024,67 @@ class LeadFinder:
         self._print_summary(unique_leads, "Apollo People Search", len(set(l.domain for l in unique_leads)))
         return unique_leads
 
+    def run_supplier_portal_scan(
+        self,
+        domains: List[str],
+        output: str = "supplier_portals.csv",
+        max_workers: int = 8,
+    ) -> List[Lead]:
+        """Scan a list of domains for procurement/supplier portal pages."""
+        timestamp = datetime.now().isoformat()
+        print(f"\n{'='*60}")
+        print(f"  Supplier Portal Scan")
+        print(f"  Domains: {len(domains)}")
+        print(f"  Output : {output}")
+        print(f"{'='*60}\n")
+        print("PROGRESS: 5")
+
+        results: List[Lead] = []
+        completed = 0
+        total = len(domains)
+
+        def _scan_one(domain: str) -> Optional[Lead]:
+            domain = domain.strip().lower()
+            if not domain or "." not in domain:
+                return None
+            portal = _scan_supplier_pages(domain)
+            if not portal:
+                return None
+            # Extract a short note from the page content
+            notes = ""
+            try:
+                resp = requests.get(portal["url"], headers=HEADERS, timeout=8)
+                notes = _extract_supplier_notes(resp.text)
+            except Exception:
+                pass
+            return Lead(
+                domain=domain,
+                company=domain,
+                search_keyword="supplier-portal-scan",
+                found_at=timestamp,
+                source_type="supplier_portal",
+                supplier_page_url=portal["url"],
+                supplier_page_title=portal["title"],
+                supplier_email=portal["email"],
+                supplier_form_link=portal["form_link"],
+                supplier_notes=notes,
+            )
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_domain = {executor.submit(_scan_one, d): d for d in domains}
+            for future in concurrent.futures.as_completed(future_to_domain):
+                completed += 1
+                pct = 5 + int((completed / total) * 90)
+                print(f"PROGRESS: {pct}")
+                lead = future.result()
+                if lead:
+                    results.append(lead)
+
+        print(f"\n[Supplier Portal] Found {len(results)} portals / {total} domains")
+        print("PROGRESS: 100")
+        self._export_csv(results, output)
+        return results
+
 
 # ---------------------------------------------------------------------------
 # CLI Entry Point
@@ -3057,11 +3225,23 @@ def main():
         default="",
         help="Apollo.io zip/postal code filter, e.g. '90210'",
     )
+    parser.add_argument(
+        "--supplier-portal-domains",
+        type=str,
+        default="",
+        help="Comma-separated domains to scan for supplier/procurement portal pages",
+    )
     args = parser.parse_args()
 
     extra_excluded = set(d.strip().lower() for d in args.exclude.split(",") if d.strip())
     config = load_config()
     finder = LeadFinder(config, engine=args.engine, extra_excluded=extra_excluded)
+
+    # Supplier Portal Scan mode
+    if args.supplier_portal_domains:
+        domains = [d.strip() for d in args.supplier_portal_domains.split(",") if d.strip()]
+        finder.run_supplier_portal_scan(domains=domains, output=args.output)
+        return
 
     # Apollo People Search mode
     if args.apollo_keywords or args.apollo_domains:
