@@ -24,7 +24,7 @@ from psycopg2 import pool as psycopg2_pool
 import subprocess
 import sys
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
@@ -174,6 +174,13 @@ def _init_db() -> None:
     c.execute("CREATE INDEX IF NOT EXISTS idx_contacts_status ON contacts(status)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_followups_email ON followups(contact_email)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_followups_user_id ON followups(user_id)")
+
+    # Functional indexes for dashboard date aggregations on TEXT timestamp columns
+    try:
+        c.execute("CREATE INDEX IF NOT EXISTS idx_searches_searched_at_date ON searches((searched_at::date))")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_contacts_created_at_date ON contacts((created_at::date))")
+    except Exception:
+        pass
 
     conn.commit()
     _put_conn(conn)
@@ -659,6 +666,13 @@ async def history_page(user: dict = Depends(require_user)):
         return HTMLResponse(content=f.read())
 
 
+@app.get("/dashboard", response_class=HTMLResponse)
+async def dashboard_page(user: dict = Depends(require_user)):
+    """Serve the data dashboard page."""
+    with open("static/dashboard.html", "r", encoding="utf-8") as f:
+        return HTMLResponse(content=f.read())
+
+
 @app.post("/login")
 async def login(request: Request, username: str = Form(...), password: str = Form(...)):
     """Authenticate and set session cookie."""
@@ -1113,6 +1127,187 @@ async def download_leads(job_id: str, user: dict = Depends(require_user)):
         media_type="text/csv",
         headers={"Content-Disposition": f"attachment; filename=leads_{job_id}.csv"}
     )
+
+
+@app.get("/api/dashboard")
+async def get_dashboard(user: dict = Depends(require_user)):
+    """Return comprehensive dashboard analytics (admin = all, sales = own)."""
+    cache_key = f"dashboard:{user['user_id']}:{user['role']}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    conn = _get_conn()
+    c = conn.cursor()
+    role = user["role"]
+    uid = user["user_id"]
+    now = datetime.now()
+    now_iso = now.isoformat()
+    week_start = now - timedelta(days=now.weekday())
+
+    # KPI: weekly leads
+    c.execute("""
+        SELECT COALESCE(SUM(total), 0) AS total
+        FROM searches
+        WHERE searched_at >= %s
+        AND (%s = 'admin' OR user_id = %s)
+    """, (week_start.replace(hour=0, minute=0, second=0, microsecond=0).isoformat(), role, uid))
+    weekly_leads = int(c.fetchone()["total"] or 0)
+
+    # KPI: contacted
+    c.execute("""
+        SELECT COUNT(*) AS cnt FROM contacts
+        WHERE (%s = 'admin' OR user_id = %s)
+    """, (role, uid))
+    contacted = int(c.fetchone()["cnt"] or 0)
+
+    # KPI: won
+    c.execute("""
+        SELECT COUNT(*) AS cnt FROM contacts
+        WHERE status = '成交'
+        AND (%s = 'admin' OR user_id = %s)
+    """, (role, uid))
+    won = int(c.fetchone()["cnt"] or 0)
+
+    # KPI: follow-up needed (no next date or next date >= now, excluding 成交/放弃)
+    c.execute("""
+        SELECT COUNT(*) AS cnt FROM contacts
+        WHERE status NOT IN ('成交', '放弃')
+        AND (next_follow_up IS NULL OR next_follow_up = '' OR next_follow_up >= %s)
+        AND (%s = 'admin' OR user_id = %s)
+    """, (now_iso, role, uid))
+    followup = int(c.fetchone()["cnt"] or 0)
+
+    # Trend: last 30 days
+    c.execute("""
+        SELECT searched_at::date AS day, COALESCE(SUM(total), 0) AS leads
+        FROM searches
+        WHERE searched_at >= (now() - interval '30 days')::text
+        AND (%s = 'admin' OR user_id = %s)
+        GROUP BY searched_at::date
+        ORDER BY day
+    """, (role, uid))
+    trend_rows = c.fetchall()
+
+    c.execute("""
+        SELECT created_at::date AS day, COUNT(*) AS cnt
+        FROM contacts
+        WHERE created_at >= (now() - interval '30 days')::text
+        AND (%s = 'admin' OR user_id = %s)
+        GROUP BY created_at::date
+        ORDER BY day
+    """, (role, uid))
+    contacted_trend_rows = c.fetchall()
+
+    # Source distribution
+    c.execute("""
+        SELECT source_type, COALESCE(SUM(total), 0) AS total
+        FROM searches
+        WHERE (%s = 'admin' OR user_id = %s)
+        GROUP BY source_type
+        ORDER BY total DESC
+    """, (role, uid))
+    source_rows = c.fetchall()
+
+    # Conversion funnel by status
+    c.execute("""
+        SELECT status, COUNT(*) AS cnt
+        FROM contacts
+        WHERE (%s = 'admin' OR user_id = %s)
+        GROUP BY status
+        ORDER BY cnt DESC
+    """, (role, uid))
+    status_rows = c.fetchall()
+
+    # Top keywords (global)
+    c.execute("SELECT term, count FROM keywords ORDER BY count DESC LIMIT 10")
+    keyword_rows = c.fetchall()
+
+    # Follow-up calendar: next 14 days
+    c.execute("""
+        SELECT email, domain, status, next_follow_up
+        FROM contacts
+        WHERE next_follow_up IS NOT NULL AND next_follow_up != ''
+        AND next_follow_up >= %s
+        AND next_follow_up <= (now() + interval '14 days')::text
+        AND status NOT IN ('成交', '放弃')
+        AND (%s = 'admin' OR user_id = %s)
+        ORDER BY next_follow_up
+    """, (now_iso, role, uid))
+    calendar_rows = c.fetchall()
+
+    # Quality: searches & leads per source
+    c.execute("""
+        SELECT source_type, COUNT(*) AS searches, COALESCE(SUM(total), 0) AS leads
+        FROM searches
+        WHERE (%s = 'admin' OR user_id = %s)
+        GROUP BY source_type
+        ORDER BY leads DESC
+    """, (role, uid))
+    quality_rows = c.fetchall()
+
+    # Top users (admin only)
+    top_users = []
+    if role == "admin":
+        c.execute("""
+            SELECT user_id, user_name, COUNT(*) AS searches, COALESCE(SUM(total), 0) AS leads
+            FROM searches
+            GROUP BY user_id, user_name
+            ORDER BY leads DESC
+            LIMIT 10
+        """)
+        top_users = [dict(r) for r in c.fetchall()]
+
+    _put_conn(conn)
+
+    # Build full 30-day date range with zeros for missing days
+    today = now.date()
+    days = [(today - timedelta(days=i)).isoformat() for i in range(29, -1, -1)]
+    leads_map = {str(r["day"]): int(r["leads"] or 0) for r in trend_rows}
+    contacted_map = {str(r["day"]): int(r["cnt"] or 0) for r in contacted_trend_rows}
+
+    payload = {
+        "kpi": {
+            "total_leads": weekly_leads,
+            "contacted": contacted,
+            "won": won,
+            "followup": followup,
+        },
+        "trend": {
+            "labels": days,
+            "leads": [leads_map.get(d, 0) for d in days],
+            "contacted": [contacted_map.get(d, 0) for d in days],
+        },
+        "sources": [
+            {"type": r["source_type"] or "unknown", "total": int(r["total"] or 0)}
+            for r in source_rows
+        ],
+        "funnel": [
+            {"status": r["status"] or "未分类", "count": int(r["cnt"] or 0)}
+            for r in status_rows
+        ],
+        "keywords": [
+            {"term": r["term"], "count": int(r["count"] or 0)}
+            for r in keyword_rows
+        ],
+        "calendar": [
+            {
+                "email": r["email"],
+                "domain": r["domain"] or "",
+                "status": r["status"] or "",
+                "next": r["next_follow_up"],
+            }
+            for r in calendar_rows
+        ],
+        "quality": [
+            {"source": r["source_type"] or "unknown", "searches": int(r["searches"]), "leads": int(r["leads"])}
+            for r in quality_rows
+        ],
+        "top_users": top_users,
+    }
+
+    _cache_set(cache_key, payload)
+    return payload
 
 
 @app.get("/api/stats")

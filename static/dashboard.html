@@ -1,0 +1,559 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>数据看板 - B2B 客户开发工具</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --bg: #f8fafc;
+      --card: #ffffff;
+      --text: #0f172a;
+      --muted: #64748b;
+      --primary: #0284c7;
+      --success: #059669;
+      --danger: #dc2626;
+      --warning: #d97706;
+      --purple: #7c3aed;
+      --border: #e2e8f0;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+    a { text-decoration: none; color: inherit; }
+
+    .app { display: flex; min-height: 100vh; }
+
+    .sidebar {
+      width: 220px;
+      background: #fff;
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      padding: 24px 16px;
+      position: fixed;
+      inset: 0 auto 0 0;
+      z-index: 50;
+    }
+    .sidebar h2 {
+      font-size: 18px;
+      margin-bottom: 32px;
+      padding-left: 12px;
+    }
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px;
+      border-radius: 8px;
+      margin-bottom: 6px;
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--muted);
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .nav-item:hover { background: var(--bg); color: var(--text); }
+    .nav-item.active { background: #e0f2fe; color: var(--primary); }
+    .nav-item.logout { margin-top: auto; color: var(--danger); }
+    .nav-item.logout:hover { background: #fef2f2; }
+
+    .main {
+      flex: 1;
+      margin-left: 220px;
+      padding: 28px 32px;
+      max-width: calc(100% - 220px);
+    }
+
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 24px;
+    }
+    .topbar h1 { font-size: 24px; }
+    .user-chip {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 14px;
+    }
+    .badge {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .badge-role { background: var(--bg); color: var(--muted); }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+    .card h3 {
+      font-size: 15px;
+      color: var(--muted);
+      margin-bottom: 16px;
+      font-weight: 600;
+    }
+
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+    .kpi-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      text-align: center;
+    }
+    .kpi-card .value {
+      font-size: 32px;
+      font-weight: 700;
+      margin: 8px 0;
+    }
+    .kpi-card .label {
+      font-size: 13px;
+      color: var(--muted);
+      font-weight: 500;
+    }
+    .kpi-card.primary .value { color: var(--primary); }
+    .kpi-card.warning .value { color: var(--warning); }
+    .kpi-card.success .value { color: var(--success); }
+    .kpi-card.purple .value { color: var(--purple); }
+
+    .dashboard-grid {
+      display: grid;
+      grid-template-columns: 1.2fr 0.8fr;
+      gap: 20px;
+      align-items: start;
+    }
+
+    .chart-wrap {
+      position: relative;
+      height: 260px;
+    }
+    .chart-wrap.small { height: 220px; }
+
+    .funnel-list { display: flex; flex-direction: column; gap: 10px; }
+    .funnel-item { display: flex; align-items: center; gap: 12px; font-size: 14px; }
+    .funnel-bar-wrap {
+      flex: 1;
+      background: #f1f5f9;
+      border-radius: 6px;
+      height: 22px;
+      overflow: hidden;
+    }
+    .funnel-bar {
+      height: 100%;
+      border-radius: 6px;
+      background: linear-gradient(90deg, var(--primary), #38bdf8);
+    }
+    .funnel-count { width: 40px; text-align: right; font-weight: 600; }
+
+    .calendar-list { display: flex; flex-direction: column; gap: 12px; max-height: 320px; overflow-y: auto; }
+    .calendar-day { font-size: 13px; }
+    .calendar-day strong { color: var(--text); }
+    .calendar-bar-wrap {
+      background: #f1f5f9;
+      border-radius: 4px;
+      height: 8px;
+      margin: 4px 0 6px;
+      overflow: hidden;
+    }
+    .calendar-bar { height: 100%; background: var(--success); border-radius: 4px; }
+    .calendar-contacts { color: var(--muted); font-size: 12px; line-height: 1.6; }
+
+    .rank-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    .rank-table th, .rank-table td { padding: 10px; text-align: left; border-bottom: 1px solid var(--border); }
+    .rank-table th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; }
+    .rank-bar-wrap {
+      background: #f1f5f9;
+      border-radius: 4px;
+      height: 10px;
+      width: 120px;
+      overflow: hidden;
+    }
+    .rank-bar { height: 100%; background: var(--primary); border-radius: 4px; }
+
+    .empty { padding: 30px; text-align: center; color: var(--muted); font-size: 14px; }
+    .error-box {
+      background: #fef2f2;
+      color: var(--danger);
+      border: 1px solid #fecaca;
+      border-radius: 8px;
+      padding: 12px 16px;
+      margin-bottom: 20px;
+      font-size: 14px;
+    }
+
+    @media (max-width: 1100px) {
+      .dashboard-grid { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 768px) {
+      .sidebar { width: 64px; padding: 16px 8px; }
+      .sidebar h2 { display: none; }
+      .nav-item span:last-child { display: none; }
+      .main { margin-left: 64px; max-width: calc(100% - 64px); padding: 16px; }
+      .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <h2>B2B 客户开发</h2>
+      <div class="nav-item" onclick="location.href='/'"><span>🔍</span><span>搜索</span></div>
+      <div class="nav-item" onclick="location.href='/history'"><span>📁</span><span>历史结果</span></div>
+      <div class="nav-item active" onclick="location.href='/dashboard'"><span>📊</span><span>数据看板</span></div>
+      <div class="nav-item" onclick="location.href='/'"><span>📇</span><span>已联系客户</span></div>
+      <div class="nav-item" onclick="location.href='/static/USER_GUIDE.pdf'"><span>📖</span><span>使用手册</span></div>
+      <div class="nav-item logout" onclick="logout()"><span>🚪</span><span>退出</span></div>
+    </aside>
+
+    <main class="main">
+      <div class="topbar">
+        <h1>数据看板</h1>
+        <div class="user-chip">
+          <span id="userName">--</span>
+          <span id="userRole" class="badge badge-role">--</span>
+        </div>
+      </div>
+
+      <div id="errorBox" class="error-box" style="display:none;"></div>
+
+      <div class="kpi-grid">
+        <div class="kpi-card primary">
+          <div class="label">本周线索</div>
+          <div class="value" id="kpiLeads">0</div>
+        </div>
+        <div class="kpi-card warning">
+          <div class="label">已联系</div>
+          <div class="value" id="kpiContacted">0</div>
+        </div>
+        <div class="kpi-card success">
+          <div class="label">成交</div>
+          <div class="value" id="kpiWon">0</div>
+        </div>
+        <div class="kpi-card purple">
+          <div class="label">待跟进</div>
+          <div class="value" id="kpiFollowup">0</div>
+        </div>
+      </div>
+
+      <div class="dashboard-grid">
+        <div class="left-col">
+          <div class="card">
+            <h3>30 日趋势</h3>
+            <div class="chart-wrap"><canvas id="trendChart"></canvas></div>
+          </div>
+          <div class="card">
+            <h3>来源分布</h3>
+            <div class="chart-wrap"><canvas id="sourceChart"></canvas></div>
+          </div>
+          <div class="card">
+            <h3>转化漏斗</h3>
+            <div id="funnelBox" class="funnel-list"></div>
+          </div>
+        </div>
+
+        <div class="right-col">
+          <div class="card">
+            <h3>热门关键词</h3>
+            <div class="chart-wrap small"><canvas id="keywordChart"></canvas></div>
+          </div>
+          <div class="card">
+            <h3>未来 14 天跟进</h3>
+            <div id="calendarBox"></div>
+          </div>
+          <div class="card">
+            <h3>线索质量（平均线索数 / 搜索）</h3>
+            <div class="chart-wrap small"><canvas id="qualityChart"></canvas></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" id="topUsersCard" style="display:none;">
+        <h3>业务员排行</h3>
+        <table class="rank-table">
+          <thead>
+            <tr><th>业务员</th><th>搜索次数</th><th>线索总数</th><th>占比</th></tr>
+          </thead>
+          <tbody id="topUsersBody"></tbody>
+        </table>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    let currentUser = null;
+    const chartInstances = {};
+
+    const sourceLabels = {
+      'apollo': 'Apollo 搜索',
+      'keyword': '关键词搜索',
+      'google_maps': 'Google Maps',
+      'domains': '批量域名',
+      'supplier_portal': '供应商门户',
+      'unknown': '其他'
+    };
+
+    async function checkAuth() {
+      try {
+        const res = await fetch('/api/me');
+        if (!res.ok) { window.location.href = '/login'; return; }
+        currentUser = await res.json();
+        document.getElementById('userName').textContent = currentUser.name || currentUser.user_id;
+        document.getElementById('userRole').textContent = currentUser.role === 'admin' ? '管理员' : '业务员';
+      } catch (err) {
+        window.location.href = '/login';
+      }
+    }
+
+    async function logout() {
+      try { await fetch('/logout', { method: 'POST' }); } catch (e) {}
+      window.location.href = '/login';
+    }
+
+    function showError(msg) {
+      const box = document.getElementById('errorBox');
+      box.textContent = msg;
+      box.style.display = 'block';
+    }
+
+    function clearError() {
+      document.getElementById('errorBox').style.display = 'none';
+    }
+
+    function destroyChart(id) {
+      if (chartInstances[id]) { chartInstances[id].destroy(); delete chartInstances[id]; }
+    }
+
+    function renderKpi(kpi) {
+      document.getElementById('kpiLeads').textContent = (kpi.total_leads || 0).toLocaleString();
+      document.getElementById('kpiContacted').textContent = (kpi.contacted || 0).toLocaleString();
+      document.getElementById('kpiWon').textContent = (kpi.won || 0).toLocaleString();
+      document.getElementById('kpiFollowup').textContent = (kpi.followup || 0).toLocaleString();
+    }
+
+    function renderTrend(trend) {
+      destroyChart('trend');
+      const ctx = document.getElementById('trendChart').getContext('2d');
+      chartInstances.trend = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: trend.labels.map(d => d.slice(5)),
+          datasets: [
+            {
+              label: '每日线索',
+              data: trend.leads,
+              borderColor: '#0284c7',
+              backgroundColor: 'rgba(2,132,199,0.1)',
+              fill: true,
+              tension: 0.3,
+              pointRadius: 2
+            },
+            {
+              label: '每日联系',
+              data: trend.contacted,
+              borderColor: '#d97706',
+              backgroundColor: 'rgba(217,119,6,0.1)',
+              fill: true,
+              tension: 0.3,
+              pointRadius: 2
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { mode: 'index', intersect: false },
+          plugins: { legend: { position: 'top' } },
+          scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+        }
+      });
+    }
+
+    function renderSources(sources) {
+      destroyChart('source');
+      const labels = sources.map(s => sourceLabels[s.type] || s.type);
+      const values = sources.map(s => s.total);
+      const ctx = document.getElementById('sourceChart').getContext('2d');
+      chartInstances.source = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: labels,
+          datasets: [{
+            label: '线索数',
+            data: values,
+            backgroundColor: ['#0284c7', '#059669', '#d97706', '#7c3aed', '#dc2626', '#64748b'],
+            borderRadius: 6
+          }]
+        },
+        options: {
+          indexAxis: 'y',
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: { x: { beginAtZero: true, ticks: { precision: 0 } } }
+        }
+      });
+    }
+
+    function renderFunnel(funnel) {
+      const box = document.getElementById('funnelBox');
+      if (!funnel.length) { box.innerHTML = '<div class="empty">暂无联系数据</div>'; return; }
+      const max = Math.max(...funnel.map(f => f.count));
+      box.innerHTML = funnel.map(f => {
+        const pct = max ? Math.round((f.count / max) * 100) : 0;
+        return `<div class="funnel-item">
+          <span style="width:90px; color:var(--muted);">${escapeHtml(f.status)}</span>
+          <div class="funnel-bar-wrap"><div class="funnel-bar" style="width:${pct}%"></div></div>
+          <span class="funnel-count">${f.count}</span>
+        </div>`;
+      }).join('');
+    }
+
+    function renderKeywords(keywords) {
+      destroyChart('keyword');
+      const ctx = document.getElementById('keywordChart').getContext('2d');
+      if (!keywords.length) {
+        ctx.canvas.parentNode.innerHTML = '<div class="empty">暂无关键词数据</div>';
+        return;
+      }
+      chartInstances.keyword = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+          labels: keywords.map(k => k.term),
+          datasets: [{
+            data: keywords.map(k => k.count),
+            backgroundColor: ['#0284c7', '#059669', '#d97706', '#7c3aed', '#dc2626', '#14b8a6', '#e11d48', '#6366f1', '#84cc16', '#f59e0b'],
+            borderWidth: 0
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { position: 'right', labels: { boxWidth: 12, font: { size: 11 } } } }
+        }
+      });
+    }
+
+    function renderCalendar(calendar) {
+      const box = document.getElementById('calendarBox');
+      if (!calendar.length) { box.innerHTML = '<div class="empty">未来 14 天暂无跟进安排</div>'; return; }
+      const groups = {};
+      for (const c of calendar) {
+        const day = (c.next || '').slice(0, 10);
+        if (!groups[day]) groups[day] = [];
+        groups[day].push(c);
+      }
+      const max = Math.max(...Object.values(groups).map(arr => arr.length));
+      const days = Object.keys(groups).sort();
+      box.innerHTML = days.map(day => {
+        const items = groups[day];
+        const pct = max ? Math.round((items.length / max) * 100) : 0;
+        const contacts = items.slice(0, 3).map(i => `${escapeHtml(i.email)} (${escapeHtml(i.status || '-')})`).join('、');
+        const more = items.length > 3 ? ` 等 ${items.length} 位` : '';
+        return `<div class="calendar-day">
+          <strong>${day}</strong>
+          <div class="calendar-bar-wrap"><div class="calendar-bar" style="width:${pct}%"></div></div>
+          <div class="calendar-contacts">${contacts}${more}</div>
+        </div>`;
+      }).join('');
+    }
+
+    function renderQuality(quality) {
+      destroyChart('quality');
+      const ctx = document.getElementById('qualityChart').getContext('2d');
+      if (!quality.length) {
+        ctx.canvas.parentNode.innerHTML = '<div class="empty">暂无数据</div>';
+        return;
+      }
+      const labels = quality.map(q => sourceLabels[q.source] || q.source);
+      const data = quality.map(q => q.searches ? +(q.leads / q.searches).toFixed(2) : 0);
+      chartInstances.quality = new Chart(ctx, {
+        type: 'radar',
+        data: {
+          labels: labels,
+          datasets: [{
+            label: '平均线索数/搜索',
+            data: data,
+            backgroundColor: 'rgba(2,132,199,0.2)',
+            borderColor: '#0284c7',
+            pointBackgroundColor: '#0284c7'
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: { r: { beginAtZero: true, suggestedMax: Math.max(...data, 1) } }
+        }
+      });
+    }
+
+    function renderTopUsers(users) {
+      const card = document.getElementById('topUsersCard');
+      const tbody = document.getElementById('topUsersBody');
+      if (!currentUser || currentUser.role !== 'admin' || !users.length) {
+        card.style.display = 'none';
+        return;
+      }
+      card.style.display = 'block';
+      const maxLeads = Math.max(...users.map(u => u.leads || 0));
+      tbody.innerHTML = users.map(u => {
+        const pct = maxLeads ? Math.round(((u.leads || 0) / maxLeads) * 100) : 0;
+        return `<tr>
+          <td>${escapeHtml(u.user_name || u.user_id)}</td>
+          <td>${u.searches || 0}</td>
+          <td>${u.leads || 0}</td>
+          <td><div class="rank-bar-wrap"><div class="rank-bar" style="width:${pct}%"></div></div></td>
+        </tr>`;
+      }).join('');
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text || '';
+      return div.innerHTML;
+    }
+
+    async function loadDashboard() {
+      clearError();
+      try {
+        const res = await fetch('/api/dashboard');
+        if (!res.ok) {
+          const text = await res.text();
+          showError(`加载看板数据失败：${res.status} ${text.slice(0, 100)}`);
+          return;
+        }
+        const data = await res.json();
+        renderKpi(data.kpi || {});
+        renderTrend(data.trend || { labels: [], leads: [], contacted: [] });
+        renderSources(data.sources || []);
+        renderFunnel(data.funnel || []);
+        renderKeywords(data.keywords || []);
+        renderCalendar(data.calendar || []);
+        renderQuality(data.quality || []);
+        renderTopUsers(data.top_users || []);
+      } catch (err) {
+        showError('加载看板数据失败：' + (err.message || '网络错误'));
+      }
+    }
+
+    checkAuth().then(() => loadDashboard());
+  </script>
+</body>
+</html>
