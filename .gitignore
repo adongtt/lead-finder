@@ -19,6 +19,11 @@ env/
 venv/
 .venv/
 
+# Build artifacts
+*.egg-info/
+build/
+dist/
+
 # IDE
 .vscode/
 .idea/

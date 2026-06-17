@@ -278,6 +278,52 @@ lead-finder/
 
 ---
 
+## Claude Code Skill 与 MCP Server
+
+除了网站和命令行，本项目还提供两种 Skill 形态，方便在 Claude 中直接调用。
+
+### Claude Code Skill
+
+`.claude/skills/lead-finder/` 已包含 Skill 定义。在 Claude Code 中打开本项目后即可使用：
+
+```
+/lead-finder "football gloves manufacturer" --pages 5 --output leads.csv
+/lead-finder --domains "anthropic.com,openai.com" --output batch.csv
+```
+
+更多用法见 `.claude/skills/lead-finder/README.md`。
+
+### MCP Server
+
+也提供了 MCP Server，可在 Claude Desktop、Cursor、VS Code 等支持 MCP 的客户端中使用：
+
+```bash
+# 安装
+pip install -e .
+
+# 启动（stdio 模式，由客户端调用）
+lead-finder-mcp
+```
+
+客户端配置示例：
+
+```json
+{
+  "mcpServers": {
+    "lead-finder": {
+      "command": "lead-finder-mcp",
+      "env": {
+        "HUNTER_KEY": "your_hunter_key"
+      }
+    }
+  }
+}
+```
+
+暴露的工具包括 `search_leads`、`batch_domains`、`apollo_search`、`google_maps_search`、`supplier_portal_scan`、`validate_email`。
+
+---
+
 ## 技术支持
 
 - SerpAPI 文档：https://serpapi.com/search-api

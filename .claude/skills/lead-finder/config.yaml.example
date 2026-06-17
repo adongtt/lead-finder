@@ -1,0 +1,23 @@
+# Copy this file to config.yaml in the project root and fill in your API keys.
+# At least one email-discovery key is required: hunter_key, snov_key, apollo_key, or norbert_key.
+
+# Google Search via SerpAPI (optional, 100 free searches/month)
+serpapi_key: ""
+
+# Primary email discovery (25 free/month; supports comma-separated key rotation)
+hunter_key: ""
+
+# Fallback email discovery (50 free/month)
+snov_key: ""
+
+# Third fallback and Apollo People Search mode
+apollo_key: ""
+
+# Fourth fallback email discovery
+norbert_key: ""
+
+# Email validation (optional, 100 free/month)
+zerobounce_key: ""
+
+# Google Places API (New) for Google Maps mode
+google_maps_key: ""

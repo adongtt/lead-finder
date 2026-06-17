@@ -1,0 +1,57 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lead-finder-mcp"
+version = "1.0.0"
+description = "MCP server for B2B lead discovery via lead_finder.py"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+authors = [
+    {name = "Lead Finder Maintainer"},
+]
+keywords = ["mcp", "leads", "b2b", "email", "prospecting"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+    "mcp>=1.0.0,<2.0.0",
+    "requests>=2.31.0",
+    "pyyaml>=6.0.1",
+    "ddgs>=8.0.0",
+    "playwright>=1.40.0",
+]
+
+[project.optional-dependencies]
+web = [
+    "fastapi>=0.110.0",
+    "uvicorn[standard]>=0.29.0",
+    "python-multipart>=0.0.9",
+    "bcrypt>=4.0.0",
+    "itsdangerous>=2.0.0",
+    "psycopg2-binary>=2.9.0",
+    "openpyxl>=3.1.0",
+    "gunicorn>=22.0.0",
+]
+
+[project.scripts]
+lead-finder-mcp = "lead_finder_mcp.server:main"
+
+[project.urls]
+Homepage = "https://github.com/yourusername/lead-finder"
+Repository = "https://github.com/yourusername/lead-finder"
+
+[tool.setuptools]
+py-modules = ["lead_finder"]
+packages = ["lead_finder_mcp"]
+
+[tool.setuptools.package-data]
+lead_finder_mcp = ["py.typed"]
