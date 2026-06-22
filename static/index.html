@@ -738,7 +738,8 @@
             </div>
             <div style="font-size:12px;color:#0c4a6e;line-height:1.6;">
               <div><strong>更新时间：</strong>2026-06-16</div>
-              <div style="margin-top:4px;"><strong>本次更新：</strong>结果页“网站简介”悬浮提示改为跟随视口定位，记录少时也不会被底部截断。</div>
+              <div style="margin-top:4px;"><strong>本次更新：</strong>Google Maps 搜索优化：自动过滤已关门商家、增加关键词相关度评分、支持目标国家域名（TLD）筛选、支持结果数量上限控制。</div>
+              <div style="margin-top:4px;"><strong>2026-06-16：</strong>结果页“网站简介”悬浮提示改为跟随视口定位，记录少时也不会被底部截断。</div>
               <div style="margin-top:4px;"><strong>2026-06-16：</strong>新增左侧导航栏与“历史结果”页面；搜索记录支持按关键词、日期、模式、业务员筛选，管理员可查看所有人记录，业务员仅可查看自己的记录。</div>
               <div style="margin-top:4px;"><strong>2026-06-16：</strong>启用“供应商门户”模式：输入一批域名，自动扫描 procurement / become-a-supplier / vendor-portal 等采购/供应商页面，提取页面邮箱、申请表单链接与页面摘要。</div>
               <div style="margin-top:4px;"><strong>2026-06-16：</strong>普通搜索 / Apollo 搜索支持勾选“同时扫描采购/供应商页面”，搜索完成后自动对每个域名探测采购入口，并将结果写入 CSV 的 supplier_* 字段。</div>
@@ -945,6 +946,10 @@
         keywordWrap.style.display = 'block';
         keywordInput.required = true;
         mapsRegionWrap.style.display = 'block';
+        pagesWrap.style.display = 'grid';
+        pagesLabel.textContent = '结果数量上限';
+        pagesHint.textContent = 'Google Maps 每页最多 20 条，这里控制总获取数量（如 60 = 3 页）';
+        targetTldWrap.style.display = 'block';
         keepNoEmailWrap.style.display = 'block';
         scanSupplierPagesWrap.style.display = 'block';
       } else if (mode === 'keyword') {

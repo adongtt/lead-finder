@@ -1764,6 +1764,10 @@ class GoogleMapsClient:
 
             places = data.get("places", [])
             for place in places:
+                # Skip permanently or temporarily closed businesses
+                status = place.get("businessStatus", "")
+                if status in ("CLOSED_PERMANENTLY", "CLOSED_TEMPORARILY"):
+                    continue
                 website = place.get("websiteUri", "")
                 if not website:
                     continue
@@ -1779,6 +1783,8 @@ class GoogleMapsClient:
                 snippet_parts = [address]
                 if primary_type:
                     snippet_parts.insert(0, primary_type)
+                if types:
+                    snippet_parts.append(", ".join(types[:3]))
 
                 result = {
                     "url": website,
@@ -1793,7 +1799,7 @@ class GoogleMapsClient:
                         "types": types,
                         "google_maps_url": place.get("googleMapsUri", ""),
                         "location": place.get("location", {}),
-                        "business_status": place.get("businessStatus", ""),
+                        "business_status": status,
                         "primary_type": primary_type,
                     },
                 }
@@ -2296,17 +2302,22 @@ class LeadFinder:
                     print(f"  [DuckDuckGo] Only {len(raw_results)} results returned, keeping all (deep skip not applied).")
         print(f"      Total results found: {len(raw_results)}")
 
-        # Apply search-result-level relevance scoring (skip for direct domains or maps)
-        if not domains and engine != "google_maps":
+        # Apply search-result-level relevance scoring
+        if not domains:
             before = len(raw_results)
             scored_results = []
             for r in raw_results:
                 title = r.get("title", "")
                 snippet = r.get("snippet", "")
                 sr_score = _score_search_result_relevance(title, snippet, keyword)
-                # Normal mode: filter obviously irrelevant results (title missing product keywords)
-                # Strict mode: require a modest positive score
-                threshold = 5 if strict_mode else -40
+                if engine == "google_maps":
+                    # Maps places rarely include "wholesale/distributor" in the name,
+                    # but Google has already filtered by business category. Use a
+                    # lenient threshold so legitimate sporting-goods stores pass.
+                    sr_score += 25
+                    threshold = -60 if strict_mode else -90
+                else:
+                    threshold = 5 if strict_mode else -40
                 if sr_score >= threshold:
                     scored_results.append(r)
             raw_results = scored_results
@@ -2374,13 +2385,26 @@ class LeadFinder:
             if engine == "google_maps":
                 meta = item.get("_maps_meta", {})
                 score = 20
-                if meta.get("rating", 0) >= 4.0:
-                    score += 10
-                if meta.get("reviews_count", 0) >= 10:
-                    score += 5
-                b2b_types = {"wholesale", "store", "supplier", "manufacturer", "factory", "distributor", "importer", "equipment_supplier"}
+                b2b_types = {
+                    "wholesale", "store", "supplier", "manufacturer", "factory",
+                    "distributor", "importer", "equipment_supplier", "export_company",
+                    "import_company", "trading_company", "exporter", "importer",
+                    "buying_office", "procurement", "sourcing", "oem", "odm",
+                    "private_label", "brand", "retail", "ecommerce", "online_store",
+                    "marketplace_seller", "wholesaler", "dealer", "reseller",
+                    "stockist", "agent", "sales", "supply_store", "sporting_goods_store",
+                }
                 if any(t in b2b_types for t in meta.get("types", [])):
                     score += 15
+                # Bonus for high-quality Maps signals
+                if meta.get("rating", 0) >= 4.5:
+                    score += 10
+                elif meta.get("rating", 0) >= 4.0:
+                    score += 5
+                if meta.get("reviews_count", 0) >= 20:
+                    score += 5
+                elif meta.get("reviews_count", 0) >= 10:
+                    score += 2
             else:
                 score = _score_search_result_relevance(title, snippet, keyword)
             # Keep the highest score for each domain
@@ -2388,8 +2412,6 @@ class LeadFinder:
                 domain_scores[domain] = score
             if domain not in domain_source_type:
                 domain_source_type[domain] = "search"
-
-        # Merge Amazon domains
         for domain, score in amazon_domains.items():
             if domain not in domain_scores:
                 domain_scores[domain] = score
