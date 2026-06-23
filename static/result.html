@@ -585,7 +585,7 @@
       const status = document.getElementById('verifyStatus');
       btn.disabled = true;
       status.style.display = 'block';
-      status.textContent = '验证中，请稍候...';
+      status.innerHTML = '验证中，请稍候...';
 
       const params = new URLSearchParams();
       params.append('job_id', jobId);
@@ -595,11 +595,34 @@
       const streamUrl = `/api/leads/verify/stream?${params.toString()}`;
 
       const es = new EventSource(streamUrl);
+      let lastMessageAt = Date.now();
+      let slowShown = false;
+      let timeoutShown = false;
+
+      const activityTimer = setInterval(() => {
+        const elapsed = Date.now() - lastMessageAt;
+        if (!timeoutShown && elapsed > 60000) {
+          timeoutShown = true;
+          es.close();
+          clearInterval(activityTimer);
+          btn.disabled = false;
+          status.innerHTML = `<span style="color:#dc2626">验证超时（超过 60 秒无响应）。</span>
+            <button class="verify-btn" onclick="verifyLeads()">重新验证</button>`;
+        } else if (!slowShown && elapsed > 15000) {
+          slowShown = true;
+          status.innerHTML = '验证仍在进行，请耐心等待...';
+        }
+      }, 2000);
+
       es.onmessage = (event) => {
+        lastMessageAt = Date.now();
+        slowShown = false;
         const data = JSON.parse(event.data);
+        if (data.type === 'ping') return;
         if (data.type === 'log') {
           status.textContent = '验证中：' + data.content;
         } else if (data.type === 'done') {
+          clearInterval(activityTimer);
           es.close();
           btn.disabled = false;
           if (data.status === 'success' && data.job_id) {
@@ -608,14 +631,21 @@
               location.href = '/result?job_id=' + encodeURIComponent(data.job_id);
             }, 800);
           } else {
-            status.innerHTML = `<span style="color:#dc2626">验证失败：${escapeHtml(data.message || '未知错误')}</span>`;
+            let title = '验证失败';
+            if (data.error_type === 'timeout') title = '验证超时';
+            else if (data.error_type === 'subprocess_error') title = '验证进程异常';
+            else if (data.error_type === 'no_output') title = '无验证结果';
+            status.innerHTML = `<span style="color:#dc2626">${escapeHtml(title)}：${escapeHtml(data.message || '未知错误')}</span>
+              <button class="verify-btn" onclick="verifyLeads()">重新验证</button>`;
           }
         }
       };
       es.onerror = () => {
+        clearInterval(activityTimer);
         es.close();
         btn.disabled = false;
-        status.innerHTML = '<span style="color:#dc2626">连接错误，请重试。</span>';
+        status.innerHTML = `<span style="color:#dc2626">连接已断开，请检查网络后重试。</span>
+          <button class="verify-btn" onclick="verifyLeads()">重新验证</button>`;
       };
     }
 

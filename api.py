@@ -789,34 +789,34 @@ async def _stream_subprocess(
     )
 
     start_time = time.time()
-    last_activity = start_time
     PING_INTERVAL = 5.0
 
-    async def _read_loop():
-        nonlocal last_activity
-        while True:
-            try:
-                line = await asyncio.wait_for(proc.stdout.readline(), timeout=1.0)
-            except asyncio.TimeoutError:
-                continue
-            if not line:
-                break
-            last_activity = time.time()
-            text = line.decode("utf-8", errors="replace").rstrip()
-            if text:
-                payload = json.dumps({"type": "log", "content": text}, ensure_ascii=False)
-                yield f"data: {payload}\n\n"
+    async def _read_one():
+        line = await proc.stdout.readline()
+        if not line:
+            return None
+        return line.decode("utf-8", errors="replace").rstrip()
 
     try:
-        async for event in _read_loop():
-            yield event
+        while True:
             now = time.time()
             if now - start_time > timeout_seconds:
                 raise asyncio.TimeoutError()
-            if now - last_activity > PING_INTERVAL:
+
+            try:
+                text = await asyncio.wait_for(_read_one(), timeout=PING_INTERVAL)
+            except asyncio.TimeoutError:
+                # No output for a whole ping interval; emit keep-alive so proxies/browsers don't drop us.
                 ping = json.dumps({"type": "ping", "elapsed": int(now - start_time)}, ensure_ascii=False)
                 yield f"data: {ping}\n\n"
-                last_activity = now
+                continue
+
+            if text is None:
+                break
+
+            if text:
+                payload = json.dumps({"type": "log", "content": text}, ensure_ascii=False)
+                yield f"data: {payload}\n\n"
 
         try:
             await asyncio.wait_for(proc.wait(), timeout=5)

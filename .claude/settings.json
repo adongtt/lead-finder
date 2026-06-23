@@ -166,7 +166,10 @@
       "Bash(timeout 120 python lead_finder.py \"test\" --domains battle.net,sportsunlimitedinc.com --pages 1 --output test_parent_authority.csv)",
       "Bash(python -c \"from lead_finder_mcp.server import _summarize_csv, _format_result; print\\('MCP imports OK'\\)\")",
       "Bash(node --check /tmp/index_check.js)",
-      "Bash(python -m py_compile api.py lead_finder.py)"
+      "Bash(python -m py_compile api.py lead_finder.py)",
+      "Bash(timeout 90 python lead_finder.py \"ski gloves distributor\" --pages 1 --max-domains 2 --output test_robust.csv)",
+      "Bash(timeout 90 python lead_finder.py \"ski gloves distributor\" --pages 1 --max-domains 2 --engine duckduckgo --output test_robust_ddg.csv)",
+      "Bash(timeout 120 python lead_finder.py apollo-search --apollo-keywords \"ski gloves\" --apollo-titles \"Buyer\" --max-domains 10 --output test_robust_apollo.csv)"
     ],
     "additionalDirectories": [
       "\\tmp",
