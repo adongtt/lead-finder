@@ -394,6 +394,15 @@
       <label class="checkbox"><input type="checkbox" id="filterDomainAlive"> 仅域名存活</label>
       <label class="checkbox"><input type="checkbox" id="filterEmailValid"> 仅邮箱有效</label>
       <label class="checkbox"><input type="checkbox" id="filterCompanyActive"> 仅公司活跃</label>
+      <label style="display:flex;align-items:center;gap:6px;font-size:14px;color:var(--text);white-space:nowrap;">
+        采购决策
+        <select id="authorityFilter" onchange="applyFilter()" style="padding:6px 8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;font-size:14px;outline:none;">
+          <option value="">全部</option>
+          <option value="local">本地决策</option>
+          <option value="headquarter">总部决策</option>
+          <option value="unknown">未知</option>
+        </select>
+      </label>
       <button class="primary" onclick="applyFilter()">筛选</button>
       <button onclick="clearFilter()">重置</button>
     </div>
@@ -408,6 +417,9 @@
             <th>姓名</th>
             <th class="sortable" onclick="sortBy('position')">职位<span id="sortPosition" class="sort-arrow"></span></th>
             <th class="sortable" onclick="sortBy('company')">公司<span id="sortCompany" class="sort-arrow"></span></th>
+            <th class="sortable" onclick="sortBy('purchasing_authority')">采购决策<span id="sortAuthority" class="sort-arrow"></span></th>
+            <th>母公司</th>
+            <th>母公司国家</th>
             <th>电话</th>
             <th>域名</th>
             <th>来源</th>
@@ -628,6 +640,10 @@
     function updateSortIndicators() {
       document.getElementById('sortPosition').textContent = sortState.column === 'position' ? (sortState.direction === 'asc' ? ' ↑' : ' ↓') : '';
       document.getElementById('sortCompany').textContent = sortState.column === 'company' ? (sortState.direction === 'asc' ? ' ↑' : ' ↓') : '';
+      const authorityEl = document.getElementById('sortAuthority');
+      if (authorityEl) {
+        authorityEl.textContent = sortState.column === 'purchasing_authority' ? (sortState.direction === 'asc' ? ' ↑' : ' ↓') : '';
+      }
     }
 
     function isVerifyTrue(value) {
@@ -668,6 +684,9 @@
           `<td>${escapeHtml((row.first_name || '') + ' ' + (row.last_name || ''))}</td>` +
           `<td>${escapeHtml(row.position || '')}</td>` +
           `<td>${escapeHtml(row.company || '')} <a href="https://www.linkedin.com/search/results/companies/?keywords=${encodeURIComponent(row.company || row.domain || '')}" target="_blank" rel="noopener" title="LinkedIn 搜索公司" style="color:#0a66c2;font-size:11px;margin-left:4px;">[in]</a></td>` +
+          `<td title="${escapeHtml(row.purchasing_authority_reason || '')}">${escapeHtml(row.purchasing_authority || '')}</td>` +
+          `<td>${escapeHtml(row.parent_company_name || '')}</td>` +
+          `<td>${escapeHtml(row.parent_company_country || row.hq_country || '')}</td>` +
           `<td>${formatPhoneCell(row)}</td>` +
           `<td>${escapeHtml(row.domain || '')}</td>` +
           `<td>${sourceTypeLabel(row.source_type || '')}</td>` +
@@ -762,14 +781,21 @@
     async function markContacted(email, domain) {
       if (!email) { alert('该客户没有邮箱，无法标记'); return; }
       try {
+        const lead = allLeads.find(l => l.email === email) || {};
         const form = new FormData();
         form.append('email', email);
         form.append('domain', domain || '');
         form.append('notes', '');
+        form.append('org_structure_type', lead.org_structure_type || '');
+        form.append('parent_company_name', lead.parent_company_name || '');
+        form.append('parent_company_country', lead.parent_company_country || lead.hq_country || '');
+        form.append('hq_country', lead.hq_country || lead.parent_company_country || '');
+        form.append('purchasing_authority', lead.purchasing_authority || '');
+        form.append('purchasing_authority_reason', lead.purchasing_authority_reason || '');
+        form.append('parent_org_data_source', lead.parent_org_data_source || '');
         const res = await fetch('/api/contacted', { method: 'POST', body: form });
         if (res.ok) {
-          const lead = allLeads.find(l => l.email === email);
-          if (lead) { lead.contacted = true; lead.status = '已发邮件'; }
+          if (lead.email) { lead.contacted = true; lead.status = '已发邮件'; }
           const fLead = filteredLeads.find(l => l.email === email);
           if (fLead) { fLead.contacted = true; fLead.status = '已发邮件'; }
           renderPage();
@@ -869,6 +895,7 @@
       const domainAliveOnly = document.getElementById('filterDomainAlive').checked;
       const emailValidOnly = document.getElementById('filterEmailValid').checked;
       const companyActiveOnly = document.getElementById('filterCompanyActive').checked;
+      const authorityFilter = document.getElementById('authorityFilter').value;
 
       filteredLeads = allLeads.slice();
       if (posFilter) {
@@ -886,7 +913,10 @@
       if (companyActiveOnly) {
         filteredLeads = filteredLeads.filter(l => isVerifyTrue(l.company_active));
       }
-      if (!posFilter && relMin === null && !domainAliveOnly && !emailValidOnly && !companyActiveOnly) {
+      if (authorityFilter) {
+        filteredLeads = filteredLeads.filter(l => (l.purchasing_authority || '').toLowerCase() === authorityFilter);
+      }
+      if (!posFilter && relMin === null && !domainAliveOnly && !emailValidOnly && !companyActiveOnly && !authorityFilter) {
         clearFilter();
         return;
       }
@@ -897,6 +927,10 @@
       if (domainAliveOnly) parts.push('域名存活');
       if (emailValidOnly) parts.push('邮箱有效');
       if (companyActiveOnly) parts.push('公司活跃');
+      if (authorityFilter) {
+        const labelMap = { local: '本地决策', headquarter: '总部决策', unknown: '未知' };
+        parts.push(`采购决策：${labelMap[authorityFilter] || authorityFilter}`);
+      }
       document.getElementById('filterInfo').textContent = parts.join(' · ') + ` · 共 ${filteredLeads.length} 条结果`;
       document.getElementById('filterInfo').style.display = 'block';
       renderPage();
@@ -909,6 +943,7 @@
       document.getElementById('filterDomainAlive').checked = false;
       document.getElementById('filterEmailValid').checked = false;
       document.getElementById('filterCompanyActive').checked = false;
+      document.getElementById('authorityFilter').value = '';
       filteredLeads = allLeads.slice();
       currentPage = 1;
       document.getElementById('filterInfo').style.display = 'none';

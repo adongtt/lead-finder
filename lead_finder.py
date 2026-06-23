@@ -251,6 +251,107 @@ def _extract_supplier_notes(text: str) -> str:
             return s
     return ""
 
+
+# Common country names used when extracting headquarters country from website text.
+_COUNTRY_NAME_SET = {
+    "Afghanistan", "Albania", "Algeria", "Argentina", "Armenia", "Australia", "Austria", "Azerbaijan",
+    "Bahamas", "Bahrain", "Bangladesh", "Belarus", "Belgium", "Belize", "Bolivia", "Bosnia and Herzegovina",
+    "Botswana", "Brazil", "Bulgaria", "Cambodia", "Cameroon", "Canada", "Chile", "China", "Colombia",
+    "Costa Rica", "Croatia", "Cyprus", "Czech Republic", "Denmark", "Dominican Republic", "Ecuador", "Egypt",
+    "El Salvador", "Estonia", "Ethiopia", "Finland", "France", "Georgia", "Germany", "Ghana", "Greece",
+    "Guatemala", "Honduras", "Hong Kong", "Hungary", "Iceland", "India", "Indonesia", "Iran", "Iraq",
+    "Ireland", "Israel", "Italy", "Jamaica", "Japan", "Jordan", "Kazakhstan", "Kenya", "Kuwait", "Laos",
+    "Latvia", "Lebanon", "Libya", "Lithuania", "Luxembourg", "Madagascar", "Malaysia", "Maldives", "Malta",
+    "Mexico", "Moldova", "Mongolia", "Montenegro", "Morocco", "Nepal", "Netherlands", "New Zealand",
+    "Nicaragua", "Nigeria", "North Macedonia", "Norway", "Oman", "Pakistan", "Panama", "Paraguay", "Peru",
+    "Philippines", "Poland", "Portugal", "Qatar", "Romania", "Russia", "Saudi Arabia", "Senegal", "Serbia",
+    "Singapore", "Slovakia", "Slovenia", "South Africa", "South Korea", "Spain", "Sri Lanka", "Sudan",
+    "Sweden", "Switzerland", "Syria", "Taiwan", "Tajikistan", "Tanzania", "Thailand", "Tunisia", "Turkey",
+    "Turkmenistan", "Uganda", "Ukraine", "United Arab Emirates", "United Kingdom", "United States",
+    "Uruguay", "Uzbekistan", "Venezuela", "Vietnam", "Yemen", "Zambia", "Zimbabwe",
+}
+
+
+def _extract_org_structure_from_text(text: str) -> dict:
+    """Extract parent company / headquarters clues from website text.
+
+    Returns a dict with keys:
+      - org_structure_type: independent | subsidiary | division | branch | franchise | ""
+      - parent_company_name: str
+      - parent_company_country: str
+      - source: apollo | website_heuristic | ""
+    """
+    result = {
+        "org_structure_type": "",
+        "parent_company_name": "",
+        "parent_company_country": "",
+        "source": "",
+    }
+    if not text:
+        return result
+
+    # Strip HTML if the caller passed raw HTML
+    clean = re.sub(r"<[^>]+>", " ", text)
+    clean = re.sub(r"\s+", " ", clean).strip()
+    lower = clean.lower()
+
+    # Subsidiary / division / ownership patterns.  Capture the company name that
+    # follows the signal phrase, stopping at punctuation or common conjunctions.
+    sub_patterns = [
+        r"(?:a\s+)?subsidiary\s+of\s+([A-Z][A-Za-z0-9\s&.,\-']+?)(?:\.|,|\s+and|\s+—|\s+–|\s+-|\Z)",
+        r"(?:a\s+)?division\s+of\s+([A-Z][A-Za-z0-9\s&.,\-']+?)(?:\.|,|\s+and|\s+—|\s+–|\s+-|\Z)",
+        r"(?:owned|operated)\s+by\s+([A-Z][A-Za-z0-9\s&.,\-']+?)(?:\.|,|\s+and|\s+—|\s+–|\s+-|\Z)",
+        r"(?:part|member)\s+of\s+(?:the\s+)?([A-Z][A-Za-z0-9\s&.,\-']+?)(?:\.|,|\s+and|\s+—|\s+–|\s+-|\Z)",
+        r"(?:brand|company)\s+of\s+([A-Z][A-Za-z0-9\s&.,\-']+?)(?:\.|,|\s+and|\s+—|\s+–|\s+-|\Z)",
+        r"(?:wholly\s+owned\s+by)\s+([A-Z][A-Za-z0-9\s&.,\-']+?)(?:\.|,|\s+and|\s+—|\s+–|\s+-|\Z)",
+    ]
+    for pattern in sub_patterns:
+        m = re.search(pattern, clean, re.IGNORECASE)
+        if m:
+            result["parent_company_name"] = m.group(1).strip()
+            if "division" in pattern.lower():
+                result["org_structure_type"] = "division"
+            else:
+                result["org_structure_type"] = "subsidiary"
+            result["source"] = "website_heuristic"
+            break
+
+    # Franchise / authorized dealer
+    if not result["org_structure_type"]:
+        franchise_patterns = [
+            r"\bfranchise(?:e|or)?\b",
+            r"\bauthorized\s+dealer\b",
+            r"\blicensed\s+dealer\b",
+        ]
+        for p in franchise_patterns:
+            if re.search(p, lower):
+                result["org_structure_type"] = "franchise"
+                result["source"] = "website_heuristic"
+                break
+
+    # Independent signals
+    if not result["org_structure_type"]:
+        ind_signals = ["independent", "family-owned", "family owned", "privately owned", "founder-owned", "founder owned"]
+        if any(s in lower for s in ind_signals):
+            result["org_structure_type"] = "independent"
+            result["source"] = "website_heuristic"
+
+    # Try to extract HQ country when a parent company was found.
+    if result["parent_company_name"]:
+        country_patterns = [
+            r"(?:headquartered|based|located)\s+in\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,3})",
+            r"(?:headquarters|hq)\s*(?:in|:)\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,3})",
+        ]
+        for cp in country_patterns:
+            m = re.search(cp, clean, re.IGNORECASE)
+            if m:
+                candidate = m.group(1).strip()
+                if candidate in _COUNTRY_NAME_SET:
+                    result["parent_company_country"] = candidate
+                    break
+
+    return result
+
 def _score_apollo_contact_relevance(person: dict) -> int:
     """Score Apollo contact relevance based on org industry, keywords, description.
     Returns integer score. Negative = likely irrelevant.
@@ -801,6 +902,83 @@ class Lead:
     company_active: bool = True
     company_status_notes: str = ""
     last_verified_at: str = ""
+    # Parent company / purchasing authority fields
+    org_structure_type: str = ""          # independent | subsidiary | division | branch | franchise | unknown
+    parent_company_name: str = ""          # Parent / headquarters company name
+    parent_company_country: str = ""       # Parent / headquarters country
+    hq_country: str = ""                   # Alias for parent_company_country
+    purchasing_authority: str = ""         # local | headquarter | unknown
+    purchasing_authority_reason: str = ""  # Human-readable explanation
+    parent_org_data_source: str = ""       # apollo | website_heuristic | inferred
+
+
+def _classify_purchasing_authority(lead: Lead) -> Tuple[str, str]:
+    """Classify where procurement decisions are likely made for this lead.
+
+    Returns a tuple of (purchasing_authority, reason) where authority is one of:
+      - headquarter: decisions made at parent / HQ level
+      - local: decisions made by the local entity
+      - unknown: not enough information
+    """
+    org_type = (lead.org_structure_type or "").lower()
+    parent = (lead.parent_company_name or "").strip()
+    parent_country = (lead.parent_company_country or lead.hq_country or "").strip()
+    lead_country = (lead.country or "").strip()
+
+    # Known subsidiary / division / branch
+    if org_type in ("subsidiary", "division", "branch"):
+        if parent and parent_country:
+            if lead_country and lead_country != parent_country:
+                return (
+                    "headquarter",
+                    f"{org_type.capitalize()} of {parent} (HQ in {parent_country}); "
+                    f"local office in {lead_country}. Procurement typically centralized at HQ.",
+                )
+            return (
+                "headquarter",
+                f"{org_type.capitalize()} of {parent} (HQ in {parent_country}). "
+                "Procurement typically centralized at HQ.",
+            )
+        return (
+            "headquarter",
+            f"Identified as {org_type}; procurement decisions typically sit at parent/HQ level.",
+        )
+
+    # Franchise
+    if org_type == "franchise":
+        return (
+            "unknown",
+            "Franchise location; purchasing may be local for some categories or dictated by the franchisor.",
+        )
+
+    # Independent
+    if org_type == "independent":
+        return ("local", "Independent company; procurement decisions are made locally.")
+
+    # Infer from website description when Apollo has no explicit structure data
+    if lead.website_description:
+        desc = lead.website_description.lower()
+        branch_signals = ["branch", "regional office", "local office", "representative office"]
+        if any(s in desc for s in branch_signals):
+            return (
+                "headquarter",
+                "Website indicates this is a branch/office; procurement likely centralized at HQ.",
+            )
+        local_signals = [
+            "local distributor", "authorized dealer", "regional distributor",
+            "local agent", "exclusive distributor for", "local partner",
+            "independent distributor",
+        ]
+        if any(s in desc for s in local_signals):
+            return (
+                "local",
+                "Website describes company as local/regional distributor; local purchasing authority likely.",
+            )
+
+    return (
+        "unknown",
+        "Insufficient data to determine purchasing authority. Recommend researching parent company structure.",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1613,6 +1791,19 @@ class ApolloClient:
                         enriched_org = enriched.get("organization", {})
                         if enriched_org:
                             person["_enriched_org"] = enriched_org
+                            # NEW: Extract parent company / headquarters data
+                            person["_parent_org_name"] = enriched_org.get("parent_organization_name", "")
+                            hq = enriched_org.get("headquarters", {}) or {}
+                            if isinstance(hq, dict):
+                                person["_hq_country"] = hq.get("country", "")
+                            else:
+                                person["_hq_country"] = ""
+                            if enriched_org.get("is_subsidiary") or person["_parent_org_name"]:
+                                person["_org_structure_type"] = "subsidiary"
+                            elif enriched_org.get("is_subsidiary") is False:
+                                person["_org_structure_type"] = "independent"
+                            else:
+                                person["_org_structure_type"] = ""
                             if enriched_org.get("primary_domain"):
                                 person["organization_website"] = f"http://{enriched_org['primary_domain']}"
                             elif enriched_org.get("website_url"):
@@ -1635,6 +1826,12 @@ class ApolloClient:
                             original["last_name"] = p_enriched["last_name"]
                         if p_enriched.get("_enriched_org") and not original.get("_enriched_org"):
                             original["_enriched_org"] = p_enriched["_enriched_org"]
+                        if p_enriched.get("_parent_org_name") and not original.get("_parent_org_name"):
+                            original["_parent_org_name"] = p_enriched["_parent_org_name"]
+                        if p_enriched.get("_hq_country") and not original.get("_hq_country"):
+                            original["_hq_country"] = p_enriched["_hq_country"]
+                        if p_enriched.get("_org_structure_type") and not original.get("_org_structure_type"):
+                            original["_org_structure_type"] = p_enriched["_org_structure_type"]
                         if p_enriched.get("organization_website") and not original.get("organization_website"):
                             original["organization_website"] = p_enriched["organization_website"]
                 if enriched_count:
@@ -1678,9 +1875,15 @@ class ApolloClient:
                     "has_direct_phone": p.get("has_direct_phone", False),
                     "sources": source_strs,
                 }
-                # Pass enriched org data for downstream relevance scoring
+                # Pass enriched org data (including parent company) for downstream use
                 if p.get("_enriched_org"):
                     result_item["_enriched_org"] = p["_enriched_org"]
+                if p.get("_parent_org_name"):
+                    result_item["_parent_org_name"] = p["_parent_org_name"]
+                if p.get("_hq_country"):
+                    result_item["_hq_country"] = p["_hq_country"]
+                if p.get("_org_structure_type"):
+                    result_item["_org_structure_type"] = p["_org_structure_type"]
                 results.append(result_item)
             return results
         except requests.exceptions.HTTPError as e:
@@ -2775,6 +2978,17 @@ class LeadFinder:
         if after_filter < before_filter:
             print(f"      Filtered out {before_filter - after_filter} low-relevance domains (min={min_relevance})")
 
+        # 3c. Extract org structure / parent company signals from website text
+        org_structure_map: Dict[str, dict] = {}
+        for domain in domains:
+            desc = domain_descriptions.get(domain, "")
+            if desc:
+                org_data = _extract_org_structure_from_text(desc)
+                if org_data.get("org_structure_type"):
+                    org_structure_map[domain] = org_data
+        if org_structure_map:
+            print(f"      Parent-company signals found on {len(org_structure_map)} domains")
+
         # 4. Find emails via Hunter.io + Snov.io + Apollo.io + Norbert (merge mode)
         sources_label = "Hunter.io"
         if self.snov:
@@ -2877,6 +3091,7 @@ class LeadFinder:
                 if keep_no_email:
                     # Preserve domain info even when no email is found
                     maps_meta = domain_maps_meta.get(domain, {})
+                    org_data = org_structure_map.get(domain, {})
                     lead = Lead(
                         domain=domain,
                         company=domain,
@@ -2901,7 +3116,13 @@ class LeadFinder:
                         google_maps_url=maps_meta.get("google_maps_url", ""),
                         place_id=maps_meta.get("place_id", ""),
                         source_type="google_maps" if maps_meta else domain_source_type.get(domain, "search"),
+                        org_structure_type=org_data.get("org_structure_type", ""),
+                        parent_company_name=org_data.get("parent_company_name", ""),
+                        parent_company_country=org_data.get("parent_company_country", ""),
+                        hq_country=org_data.get("parent_company_country", ""),
+                        parent_org_data_source=org_data.get("source", ""),
                     )
+                    lead.purchasing_authority, lead.purchasing_authority_reason = _classify_purchasing_authority(lead)
                     all_leads.append(lead)
                     print("0 email, kept domain")
                 else:
@@ -2934,6 +3155,7 @@ class LeadFinder:
                     )
 
                 maps_meta = domain_maps_meta.get(domain, {})
+                org_data = org_structure_map.get(domain, {})
                 lead = Lead(
                     domain=domain,
                     company=e.get("domain", domain),
@@ -2958,7 +3180,13 @@ class LeadFinder:
                     google_maps_url=maps_meta.get("google_maps_url", ""),
                     place_id=maps_meta.get("place_id", ""),
                     source_type="google_maps" if maps_meta else domain_source_type.get(domain, "search"),
+                    org_structure_type=org_data.get("org_structure_type", ""),
+                    parent_company_name=org_data.get("parent_company_name", ""),
+                    parent_company_country=org_data.get("parent_company_country", ""),
+                    hq_country=org_data.get("parent_company_country", ""),
+                    parent_org_data_source=org_data.get("source", ""),
                 )
+                lead.purchasing_authority, lead.purchasing_authority_reason = _classify_purchasing_authority(lead)
                 all_leads.append(lead)
                 kept += 1
 
@@ -3038,6 +3266,10 @@ class LeadFinder:
             "supplier_form_link", "supplier_notes",
             "domain_alive", "domain_check_error", "email_valid",
             "company_active", "company_status_notes", "last_verified_at",
+            # Parent company / purchasing authority
+            "org_structure_type", "parent_company_name", "parent_company_country",
+            "hq_country", "purchasing_authority", "purchasing_authority_reason",
+            "parent_org_data_source",
         ]
         with open(path, "w", newline="", encoding="utf-8-sig") as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -3067,6 +3299,14 @@ class LeadFinder:
         print(f"  High confidence  : {high_conf}")
         if validated:
             print(f"  Validated (OK)   : {validated}")
+        with_parent = sum(1 for l in leads if l.parent_company_name)
+        hq_auth = sum(1 for l in leads if l.purchasing_authority == "headquarter")
+        local_auth = sum(1 for l in leads if l.purchasing_authority == "local")
+        unknown_auth = sum(1 for l in leads if l.purchasing_authority == "unknown")
+        if with_parent:
+            print(f"  With parent/HQ   : {with_parent}")
+        if hq_auth or local_auth:
+            print(f"  Purchasing auth  : {hq_auth} HQ, {local_auth} local, {unknown_auth} unknown")
         print(f"{'='*60}\n")
 
     def _enrich_leads_with_supplier_portal(
@@ -3477,6 +3717,12 @@ class LeadFinder:
                     else:
                         website_description = truncated.rstrip() + '...'
 
+            # Extract parent company / org structure from Apollo
+            parent_name = person.get("_parent_org_name", "")
+            hq_country = person.get("_hq_country", "")
+            org_structure = person.get("_org_structure_type", "")
+            parent_source = "apollo" if parent_name else ""
+
             # Apply Hunter enrichment
             hunter_confidence = 0
             if not email and id(person) in hunter_results:
@@ -3525,7 +3771,14 @@ class LeadFinder:
                 linkedin_url=person.get("linkedin_url", ""),
                 source_type="apollo",
                 has_direct_phone=has_direct_phone,
+                # Parent company / purchasing authority from Apollo
+                org_structure_type=org_structure,
+                parent_company_name=parent_name,
+                parent_company_country=hq_country,
+                hq_country=hq_country,
+                parent_org_data_source=parent_source,
             )
+            lead.purchasing_authority, lead.purchasing_authority_reason = _classify_purchasing_authority(lead)
             all_leads.append(lead)
 
         if apollo_has_email_but_empty:

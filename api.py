@@ -145,7 +145,14 @@ def _init_db() -> None:
             domain_alive BOOLEAN DEFAULT NULL,
             email_valid BOOLEAN DEFAULT NULL,
             company_active BOOLEAN DEFAULT NULL,
-            last_verified_at TEXT DEFAULT ''
+            last_verified_at TEXT DEFAULT '',
+            org_structure_type TEXT DEFAULT '',
+            parent_company_name TEXT DEFAULT '',
+            parent_company_country TEXT DEFAULT '',
+            hq_country TEXT DEFAULT '',
+            purchasing_authority TEXT DEFAULT '',
+            purchasing_authority_reason TEXT DEFAULT '',
+            parent_org_data_source TEXT DEFAULT ''
         )
     """)
 
@@ -156,6 +163,16 @@ def _init_db() -> None:
                 c.execute(f"ALTER TABLE contacts ADD COLUMN IF NOT EXISTS {col} TEXT DEFAULT ''")
             else:
                 c.execute(f"ALTER TABLE contacts ADD COLUMN IF NOT EXISTS {col} BOOLEAN DEFAULT NULL")
+        except Exception:
+            pass
+
+    # Migrate existing contacts table (add parent company / purchasing authority columns)
+    for col in (
+        "org_structure_type", "parent_company_name", "parent_company_country",
+        "hq_country", "purchasing_authority", "purchasing_authority_reason", "parent_org_data_source"
+    ):
+        try:
+            c.execute(f"ALTER TABLE contacts ADD COLUMN IF NOT EXISTS {col} TEXT DEFAULT ''")
         except Exception:
             pass
 
@@ -431,21 +448,49 @@ def db_get_search(job_id: str) -> Optional[dict]:
     return d
 
 
-def db_create_contact(email: str, domain: str, user_id: str, user_name: str, notes: str = "") -> None:
+def db_create_contact(
+    email: str,
+    domain: str,
+    user_id: str,
+    user_name: str,
+    notes: str = "",
+    org_structure_type: str = "",
+    parent_company_name: str = "",
+    parent_company_country: str = "",
+    hq_country: str = "",
+    purchasing_authority: str = "",
+    purchasing_authority_reason: str = "",
+    parent_org_data_source: str = "",
+) -> None:
     conn = _get_conn()
     c = conn.cursor()
     now = datetime.now().isoformat()
     c.execute("""
-        INSERT INTO contacts (email, domain, user_id, user_name, status, next_follow_up, created_at)
-        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        INSERT INTO contacts (
+            email, domain, user_id, user_name, status, next_follow_up, created_at,
+            org_structure_type, parent_company_name, parent_company_country, hq_country,
+            purchasing_authority, purchasing_authority_reason, parent_org_data_source
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT(email) DO UPDATE SET
             domain = EXCLUDED.domain,
             user_id = EXCLUDED.user_id,
             user_name = EXCLUDED.user_name,
             status = EXCLUDED.status,
             next_follow_up = EXCLUDED.next_follow_up,
-            created_at = EXCLUDED.created_at
-    """, (email.lower().strip(), domain, user_id, user_name, "已发邮件", "", now))
+            created_at = EXCLUDED.created_at,
+            org_structure_type = EXCLUDED.org_structure_type,
+            parent_company_name = EXCLUDED.parent_company_name,
+            parent_company_country = EXCLUDED.parent_company_country,
+            hq_country = EXCLUDED.hq_country,
+            purchasing_authority = EXCLUDED.purchasing_authority,
+            purchasing_authority_reason = EXCLUDED.purchasing_authority_reason,
+            parent_org_data_source = EXCLUDED.parent_org_data_source
+    """, (
+        email.lower().strip(), domain, user_id, user_name, "已发邮件", "", now,
+        org_structure_type, parent_company_name, parent_company_country, hq_country,
+        purchasing_authority, purchasing_authority_reason, parent_org_data_source,
+    ))
     c.execute("""
         INSERT INTO followups (contact_email, action, notes, user_id, user_name, created_at)
         VALUES (%s, %s, %s, %s, %s, %s)
@@ -1480,10 +1525,26 @@ async def post_contacted(
     email: str = Form(...),
     domain: str = Form(""),
     notes: str = Form(""),
+    org_structure_type: str = Form(""),
+    parent_company_name: str = Form(""),
+    parent_company_country: str = Form(""),
+    hq_country: str = Form(""),
+    purchasing_authority: str = Form(""),
+    purchasing_authority_reason: str = Form(""),
+    parent_org_data_source: str = Form(""),
     user: dict = Depends(require_user),
 ):
     """Mark an email as contacted (auto-attributes to current user)."""
-    db_create_contact(email, domain, user["user_id"], user["name"], notes)
+    db_create_contact(
+        email, domain, user["user_id"], user["name"], notes,
+        org_structure_type=org_structure_type,
+        parent_company_name=parent_company_name,
+        parent_company_country=parent_company_country,
+        hq_country=hq_country,
+        purchasing_authority=purchasing_authority,
+        purchasing_authority_reason=purchasing_authority_reason,
+        parent_org_data_source=parent_org_data_source,
+    )
     return {"status": "ok", "email": email}
 
 

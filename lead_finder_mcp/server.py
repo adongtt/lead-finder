@@ -98,6 +98,9 @@ def _summarize_csv(csv_path: str) -> dict[str, Any]:
             if src:
                 sources[src] += 1
 
+    authority_counts = Counter(r.get("purchasing_authority", "") for r in rows if r.get("purchasing_authority"))
+    with_parent = sum(1 for r in rows if r.get("parent_company_name"))
+
     return {
         "exists": True,
         "count": total,
@@ -105,6 +108,8 @@ def _summarize_csv(csv_path: str) -> dict[str, Any]:
         "generic": generic,
         "top_positions": positions.most_common(3),
         "sources": sources.most_common(),
+        "authority_counts": authority_counts.most_common(),
+        "with_parent_company": with_parent,
     }
 
 
@@ -132,6 +137,12 @@ def _format_result(tool_name: str, csv_path: str, returncode: int, stdout: str, 
             lines.append("**Sources:**")
             for src, cnt in summary["sources"]:
                 lines.append(f"- {src}: {cnt}")
+        if summary.get("with_parent_company"):
+            lines.append(f"**With parent company:** {summary['with_parent_company']}")
+        if summary.get("authority_counts"):
+            lines.append("**Purchasing authority:**")
+            for auth, cnt in summary["authority_counts"]:
+                lines.append(f"- {auth}: {cnt}")
 
     if stderr:
         lines.extend(["", "**Warnings / logs:**", f"```\n{stderr[-2000:]}\n```"])
