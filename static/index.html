@@ -1212,9 +1212,10 @@
         }));
       }
 
-      let html = `<div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">
+      let html = `<div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;flex-wrap:wrap">
         <span class="badge badge-success">找到 ${data.total} 个客户</span>
         ${data.job_id ? `<a href="/result?job_id=${encodeURIComponent(data.job_id)}" class="download-btn">查看全部</a>` : ''}
+        ${data.job_id ? `<button type="button" class="download-btn" style="background:var(--warning,#f59e0b);border-color:var(--warning,#f59e0b);color:#fff" onclick="verifyLeads('${data.job_id}')">批量验证</button>` : ''}
       </div>`;
       if (data.preview && data.preview.length > 0) {
         html += currentMode === 'supplier_portal'
@@ -1224,6 +1225,54 @@
       resultDiv.innerHTML = html;
       window.currentLeads = data.preview || [];
       initTooltips();
+    }
+
+    function verifyLeads(jobId) {
+      if (!jobId) return;
+      const resultDiv = document.getElementById('result');
+      const progressWrap = document.getElementById('progressWrap');
+      const logBox = document.getElementById('logBox');
+      const btn = document.getElementById('searchBtn');
+      progressWrap.classList.add('active');
+      logBox.textContent = '';
+      if (btn) btn.disabled = true;
+
+      const params = new URLSearchParams();
+      params.append('job_id', jobId);
+      params.append('verify_domain', 'true');
+      params.append('verify_email', 'true');
+      params.append('verify_company', 'true');
+      const streamUrl = `/api/leads/verify/stream?${params.toString()}`;
+
+      const es = new EventSource(streamUrl);
+      es.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        if (data.type === 'log') {
+          const text = data.content;
+          const m = text.match(/^PROGRESS:\s*(\d+)$/);
+          if (m) {
+            setProgress(parseInt(m[1], 10));
+          } else {
+            logBox.textContent += text + '\n';
+            logBox.scrollTop = logBox.scrollHeight;
+          }
+        } else if (data.type === 'done') {
+          es.close();
+          progressWrap.classList.remove('active');
+          if (btn) btn.disabled = false;
+          if (data.status === 'success') {
+            renderResult(data);
+          } else {
+            resultDiv.innerHTML = `<div class="badge badge-error">验证失败</div><div class="error-box">${escapeHtml(data.message || '未知错误')}</div>`;
+          }
+        }
+      };
+      es.onerror = () => {
+        es.close();
+        progressWrap.classList.remove('active');
+        if (btn) btn.disabled = false;
+        resultDiv.innerHTML = '<div class="badge badge-error">连接错误</div><div class="error-box">验证连接失败，请重试。</div>';
+      };
     }
 
     function initTooltips() {

@@ -20,12 +20,13 @@ import csv
 import os
 import re
 import sys
+import threading
 import time
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime
 from html import unescape
 from pathlib import Path
-from typing import Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Tuple
 from urllib.parse import quote_plus, urlparse
 
 import requests
@@ -793,6 +794,13 @@ class Lead:
     supplier_email: str = ""
     supplier_form_link: str = ""
     supplier_notes: str = ""
+    # Lead maintenance / verification fields
+    domain_alive: bool = False
+    domain_check_error: str = ""
+    email_valid: bool = False
+    company_active: bool = True
+    company_status_notes: str = ""
+    last_verified_at: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -1751,6 +1759,235 @@ class ZeroBounceClient:
         except Exception as e:
             print(f"    [ZeroBounce ERROR] {email}: {e}")
             return {"status": "unknown", "error": str(e)}
+
+
+# ---------------------------------------------------------------------------
+# Lead Maintenance / Verification
+# ---------------------------------------------------------------------------
+
+# Negative signals used to guess whether a company is still operating.
+_COMPANY_NEGATIVE_SIGNALS = [
+    "closed permanently", "permanently closed", "temporarily closed",
+    "out of business", "ceased trading", "company dissolved",
+    "under construction", "coming soon", "domain for sale", "this domain is for sale",
+    "website suspended", "account suspended", "service suspended",
+    "page not found", "404 - not found",
+]
+
+
+def _normalize_bool(value: Any) -> bool:
+    """Convert common CSV string representations to bool."""
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    s = str(value).strip().lower()
+    return s in {"true", "1", "yes", "y"}
+
+
+def _leads_from_csv(path: str) -> List[Lead]:
+    """Reconstruct Lead objects from a previously exported CSV."""
+    leads: List[Lead] = []
+    if not os.path.exists(path):
+        print(f"[ERROR] CSV file not found: {path}")
+        return leads
+
+    lead_fields = {f.name for f in fields(Lead)}
+    with open(path, newline="", encoding="utf-8-sig") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            mapped: Dict[str, Any] = {}
+            for key, raw in row.items():
+                if key not in lead_fields:
+                    continue
+                if raw is None:
+                    continue
+                # type coercion for known non-string fields
+                if key in {"domain_alive", "email_valid", "company_active", "has_direct_phone"}:
+                    mapped[key] = _normalize_bool(raw)
+                elif key in {"confidence_score", "relevance_score", "google_reviews_count"}:
+                    try:
+                        mapped[key] = int(raw) if raw.strip() else 0
+                    except Exception:
+                        mapped[key] = 0
+                elif key == "google_rating":
+                    try:
+                        mapped[key] = float(raw) if raw.strip() else 0.0
+                    except Exception:
+                        mapped[key] = 0.0
+                elif key == "sources":
+                    mapped[key] = [s.strip() for s in raw.split(";") if s.strip()]
+                else:
+                    mapped[key] = raw.strip()
+            leads.append(Lead(**mapped))
+    return leads
+
+
+def check_domain_alive(domain: str, timeout: int = 10) -> Tuple[bool, str]:
+    """
+    Probe a domain's homepage to see if it currently resolves and responds.
+
+    Returns:
+        (is_alive, error_message)
+
+    A 2xx/3xx/4xx response is considered alive because the domain resolves and a
+    server responds. Only DNS failures, connection errors, timeouts and serious
+    SSL errors are treated as "dead".
+    """
+    if not domain or "." not in domain:
+        return False, "invalid domain"
+
+    domain = domain.strip().lower()
+    urls = [f"https://{domain}", f"http://{domain}"]
+
+    for url in urls:
+        try:
+            resp = requests.head(
+                url,
+                headers=HEADERS,
+                timeout=timeout,
+                allow_redirects=True,
+            )
+            # Some servers don't support HEAD; treat method-not-allowed as alive
+            # because the domain clearly responds. For other non-405 errors try
+            # a GET fallback before deciding.
+            if resp.status_code == 405:
+                try:
+                    resp = requests.get(
+                        url,
+                        headers=HEADERS,
+                        timeout=timeout,
+                        allow_redirects=True,
+                    )
+                except Exception as e:
+                    return False, f"{url} GET error: {e}"
+            if resp.status_code < 500:
+                return True, ""
+            # 5xx: server is reachable but misbehaving; still counts as alive.
+            return True, f"server error {resp.status_code}"
+        except requests.exceptions.SSLError as e:
+            return False, f"SSL error: {e}"
+        except requests.exceptions.ConnectionError as e:
+            # Only keep the first URL's error if both fail.
+            if url == urls[-1]:
+                return False, f"connection error: {e}"
+            continue
+        except requests.exceptions.Timeout:
+            if url == urls[-1]:
+                return False, "timeout"
+            continue
+        except Exception as e:
+            if url == urls[-1]:
+                return False, str(e)
+            continue
+
+    return False, "unreachable"
+
+
+def validate_emails_concurrently(
+    zerobounce: ZeroBounceClient,
+    leads: List[Lead],
+    max_workers: int = 6,
+) -> None:
+    """Validate emails in parallel using ZeroBounce. Mutates leads in place."""
+    if not zerobounce:
+        print("[Verify] No ZeroBounce key configured; skipping email validation.")
+        return
+
+    total = len(leads)
+    lock = threading.Lock()
+    completed = 0
+
+    def _validate_one(lead: Lead) -> None:
+        nonlocal completed
+        if not lead.email:
+            with lock:
+                completed += 1
+                print(f"  [{completed}/{total}] (no email) skipped")
+            return
+
+        result = zerobounce.validate(lead.email)
+        status = result.get("status", "unknown")
+        lead.validation_status = status
+        lead.email_valid = status == "valid"
+
+        with lock:
+            completed += 1
+            print(f"  [{completed}/{total}] {lead.email} -> {status}")
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+        executor.map(_validate_one, leads)
+
+
+def check_company_status(lead: Lead, timeout: int = 8) -> None:
+    """
+    Lightweight heuristic to guess whether a company is still operating.
+    Mutates lead.company_active and lead.company_status_notes in place.
+    """
+    if not lead.domain:
+        return
+
+    notes: List[str] = []
+
+    # Signal A: homepage negative keywords.
+    try:
+        meta = fetch_domain_meta(lead.domain, timeout=timeout)
+        homepage_text = " ".join([
+            meta.get("title", ""),
+            meta.get("description", ""),
+            meta.get("h1", ""),
+            meta.get("about_text", ""),
+        ]).lower()
+        for signal in _COMPANY_NEGATIVE_SIGNALS:
+            if signal in homepage_text:
+                notes.append(f"homepage: '{signal}'")
+                break
+    except Exception:
+        pass
+
+    # Signal B: Google Maps business_status (only relevant for Maps-sourced leads).
+    if lead.source_type == "google_maps" and lead.place_id:
+        # The Maps search already skips CLOSED_* places, but if a lead was
+        # exported earlier we have no cached business_status. We leave it
+        # optimistic here; a future Maps re-check could populate it.
+        pass
+
+    # Signal C: LinkedIn company page 404.
+    if lead.linkedin_url and "/company/" in lead.linkedin_url.lower():
+        try:
+            resp = requests.head(lead.linkedin_url, headers=HEADERS, timeout=timeout, allow_redirects=True)
+            if resp.status_code == 404:
+                notes.append("linkedin company page 404")
+        except Exception:
+            pass
+
+    if notes:
+        lead.company_active = False
+        lead.company_status_notes = "; ".join(notes)
+    else:
+        lead.company_active = True
+        lead.company_status_notes = ""
+
+
+def check_companies_status_concurrently(
+    leads: List[Lead],
+    max_workers: int = 6,
+) -> None:
+    """Run check_company_status in parallel."""
+    total = len(leads)
+    lock = threading.Lock()
+    completed = 0
+
+    def _check_one(lead: Lead) -> None:
+        nonlocal completed
+        check_company_status(lead)
+        with lock:
+            completed += 1
+            if completed % 10 == 0 or completed == total:
+                print(f"  [Company check] {completed}/{total}")
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+        executor.map(_check_one, leads)
 
 
 class GoogleMapsClient:
@@ -2799,6 +3036,8 @@ class LeadFinder:
             "google_maps_url", "place_id", "source_type", "has_direct_phone",
             "supplier_page_url", "supplier_page_title", "supplier_email",
             "supplier_form_link", "supplier_notes",
+            "domain_alive", "domain_check_error", "email_valid",
+            "company_active", "company_status_notes", "last_verified_at",
         ]
         with open(path, "w", newline="", encoding="utf-8-sig") as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -3379,6 +3618,109 @@ class LeadFinder:
         self._export_csv(results, output)
         return results
 
+    def run_verification(
+        self,
+        csv_path: str,
+        check_domain: bool = False,
+        check_email: bool = False,
+        check_company: bool = False,
+        output: str = "",
+        max_workers: int = 8,
+    ) -> List[Lead]:
+        """Batch-verify existing leads from a CSV file.
+
+        Updates domain_alive, email_valid, company_active and last_verified_at,
+        then re-exports the CSV.
+        """
+        timestamp = datetime.now().isoformat()
+        output_path = output or csv_path
+
+        print(f"\n{'='*60}")
+        print(f"  Lead Verification / Maintenance")
+        print(f"  Input  : {csv_path}")
+        print(f"  Output : {output_path}")
+        print(f"{'='*60}\n")
+
+        leads = _leads_from_csv(csv_path)
+        if not leads:
+            print("[WARNING] No leads loaded. Nothing to verify.")
+            return []
+
+        print(f"Loaded {len(leads)} leads")
+        with_email = sum(1 for l in leads if l.email)
+        unique_domains = sorted({l.domain for l in leads if l.domain})
+        print(f"  with email: {with_email}, unique domains: {len(unique_domains)}")
+
+        # 1. Domain alive check
+        if check_domain:
+            print(f"\n[Verify] Checking {len(unique_domains)} unique domains...")
+            domain_results: Dict[str, Tuple[bool, str]] = {}
+            lock = threading.Lock()
+            completed = 0
+
+            def _check_domain(domain: str) -> None:
+                nonlocal completed
+                alive, error = check_domain_alive(domain, timeout=10)
+                domain_results[domain] = (alive, error)
+                with lock:
+                    completed += 1
+                    if completed % 5 == 0 or completed == len(unique_domains):
+                        print(f"  [Domain] {completed}/{len(unique_domains)} checked")
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+                executor.map(_check_domain, unique_domains)
+
+            for lead in leads:
+                if lead.domain in domain_results:
+                    alive, error = domain_results[lead.domain]
+                    lead.domain_alive = alive
+                    lead.domain_check_error = error
+
+            alive_count = sum(1 for a, _ in domain_results.values() if a)
+            print(f"  Domain alive: {alive_count}/{len(unique_domains)}")
+
+        # 2. Email validation
+        if check_email:
+            print("\n[Verify] Validating emails...")
+            validate_emails_concurrently(self.zerobounce, leads, max_workers=max_workers)
+            valid_count = sum(1 for l in leads if l.email_valid)
+            print(f"  Email valid: {valid_count}/{with_email}")
+
+        # 3. Company status heuristic
+        if check_company:
+            print("\n[Verify] Checking company status...")
+            check_companies_status_concurrently(leads, max_workers=max_workers)
+            active_count = sum(1 for l in leads if l.company_active)
+            print(f"  Company active: {active_count}/{len(leads)}")
+
+        # Update verification timestamp
+        for lead in leads:
+            lead.last_verified_at = timestamp
+
+        self._export_csv(leads, output_path)
+        print(f"\n[OK] Verified {len(leads)} leads exported to: {output_path}")
+
+        # Summary
+        print(f"\n{'='*60}")
+        print(f"  VERIFICATION SUMMARY")
+        print(f"{'='*60}")
+        print(f"  Leads processed : {len(leads)}")
+        if check_domain:
+            alive = sum(1 for l in leads if l.domain_alive)
+            dead = len(leads) - alive
+            print(f"  Domains alive   : {alive}  |  dead: {dead}")
+        if check_email:
+            valid = sum(1 for l in leads if l.email_valid)
+            invalid = with_email - valid
+            print(f"  Emails valid    : {valid}  |  invalid: {invalid}")
+        if check_company:
+            active = sum(1 for l in leads if l.company_active)
+            inactive = len(leads) - active
+            print(f"  Companies active: {active}  |  inactive: {inactive}")
+        print(f"{'='*60}\n")
+
+        return leads
+
 
 # ---------------------------------------------------------------------------
 # CLI Entry Point
@@ -3541,6 +3883,39 @@ def main():
         action="store_true",
         help="After finding domains, also scan them for procurement/supplier portal pages",
     )
+    parser.add_argument(
+        "--verify-csv",
+        type=str,
+        default="",
+        help="Maintenance mode: path to an existing CSV file to batch-verify",
+    )
+    parser.add_argument(
+        "--verify-domain",
+        action="store_true",
+        help="Maintenance mode: check if each domain's homepage is alive",
+    )
+    parser.add_argument(
+        "--verify-email",
+        action="store_true",
+        help="Maintenance mode: validate emails via ZeroBounce (requires API key)",
+    )
+    parser.add_argument(
+        "--verify-company",
+        action="store_true",
+        help="Maintenance mode: check whether companies appear still operating",
+    )
+    parser.add_argument(
+        "--verify-output",
+        type=str,
+        default="",
+        help="Maintenance mode: output CSV path (default: overwrite input file)",
+    )
+    parser.add_argument(
+        "--verify-workers",
+        type=int,
+        default=8,
+        help="Maintenance mode: max concurrent workers for verification (default: 8)",
+    )
     args = parser.parse_args()
 
     extra_excluded = set(d.strip().lower() for d in args.exclude.split(",") if d.strip())
@@ -3551,6 +3926,21 @@ def main():
     if args.supplier_portal_domains:
         domains = [d.strip() for d in args.supplier_portal_domains.split(",") if d.strip()]
         finder.run_supplier_portal_scan(domains=domains, output=args.output)
+        return
+
+    # Lead Maintenance / Verification mode
+    if args.verify_csv:
+        if not any([args.verify_domain, args.verify_email, args.verify_company]):
+            print("[ERROR] --verify-csv requires at least one of --verify-domain, --verify-email, --verify-company")
+            sys.exit(1)
+        finder.run_verification(
+            csv_path=args.verify_csv,
+            check_domain=args.verify_domain,
+            check_email=args.verify_email,
+            check_company=args.verify_company,
+            output=args.verify_output,
+            max_workers=args.verify_workers,
+        )
         return
 
     # Apollo People Search mode

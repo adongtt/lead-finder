@@ -141,9 +141,23 @@ def _init_db() -> None:
             user_name TEXT,
             status TEXT DEFAULT '已发邮件',
             next_follow_up TEXT,
-            created_at TEXT
+            created_at TEXT,
+            domain_alive BOOLEAN DEFAULT NULL,
+            email_valid BOOLEAN DEFAULT NULL,
+            company_active BOOLEAN DEFAULT NULL,
+            last_verified_at TEXT DEFAULT ''
         )
     """)
+
+    # Migrate existing contacts table (add verification columns)
+    for col in ("domain_alive", "email_valid", "company_active", "last_verified_at"):
+        try:
+            if col == "last_verified_at":
+                c.execute(f"ALTER TABLE contacts ADD COLUMN IF NOT EXISTS {col} TEXT DEFAULT ''")
+            else:
+                c.execute(f"ALTER TABLE contacts ADD COLUMN IF NOT EXISTS {col} BOOLEAN DEFAULT NULL")
+        except Exception:
+            pass
 
     c.execute("""
         CREATE TABLE IF NOT EXISTS followups (
@@ -1094,6 +1108,120 @@ async def stream_supplier_portal_scan(
                     "type": "done",
                     "status": "error",
                     "message": "Supplier portal scan completed but no output file was generated.",
+                }, ensure_ascii=False)
+                yield f"data: {payload}\n\n"
+        finally:
+            if proc.returncode is None:
+                proc.kill()
+                await proc.wait()
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
+    )
+
+
+@app.get("/api/leads/verify/stream")
+async def stream_verify_leads(
+    request: Request,
+    job_id: str,
+    verify_domain: bool = True,
+    verify_email: bool = True,
+    verify_company: bool = True,
+    user: dict = Depends(require_user),
+):
+    """Stream batch verification of an existing search result via SSE.
+
+    Reads the CSV from the searches table, runs the selected verification checks,
+    and returns an updated CSV as a new search record with source_type='verified'.
+    """
+    search = db_get_search(job_id)
+    if not search:
+        raise HTTPException(status_code=404, detail="搜索记录不存在")
+    if user["role"] != "admin" and search.get("user_id") != user["user_id"]:
+        raise HTTPException(status_code=403, detail="无权验证此记录")
+
+    csv_content = search.get("csv_content", "")
+    if not csv_content:
+        raise HTTPException(status_code=400, detail="该搜索记录没有 CSV 内容可供验证")
+
+    new_job_id = str(uuid.uuid4())[:8]
+    input_file = DATA_DIR / f"{new_job_id}_verify_in.csv"
+    output_file = DATA_DIR / f"{new_job_id}.csv"
+    input_file.write_text(csv_content, encoding="utf-8")
+
+    cmd = [
+        sys.executable or "python", "lead_finder.py",
+        "--verify-csv", str(input_file),
+        "--verify-output", str(output_file),
+        "--verify-workers", "6",
+    ]
+    if verify_domain:
+        cmd.append("--verify-domain")
+    if verify_email:
+        cmd.append("--verify-email")
+    if verify_company:
+        cmd.append("--verify-company")
+
+    async def event_generator():
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
+        try:
+            while True:
+                line = await proc.stdout.readline()
+                if not line:
+                    break
+                text = line.decode("utf-8", errors="replace").rstrip()
+                if text:
+                    payload = json.dumps({"type": "log", "content": text}, ensure_ascii=False)
+                    yield f"data: {payload}\n\n"
+
+            await proc.wait()
+
+            if output_file.exists():
+                new_csv_content = output_file.read_text(encoding="utf-8")
+                leads = []
+                lines = new_csv_content.splitlines()
+                if lines:
+                    lines[0] = lines[0].lstrip('﻿')
+                reader = csv.DictReader(lines)
+                for row in reader:
+                    leads.append({k: v for k, v in row.items()})
+                leads = db_enrich_leads(leads)
+                leads = _sort_leads_by_position(leads)
+
+                original_keyword = search.get("keyword") or "verified"
+                db_save_search(
+                    new_job_id,
+                    f"Verified: {original_keyword}"[:200],
+                    search.get("pages", 0) or 0,
+                    len(leads),
+                    user["user_id"],
+                    user["name"],
+                    bool(search.get("deep")),
+                    new_csv_content,
+                    source_type="verified",
+                )
+
+                payload = json.dumps({
+                    "type": "done",
+                    "status": "success",
+                    "job_id": new_job_id,
+                    "total": len(leads),
+                    "download_url": f"/api/leads/download/{new_job_id}",
+                    "preview": leads[:5] if leads else [],
+                    "leads": leads,
+                }, ensure_ascii=False)
+                yield f"data: {payload}\n\n"
+            else:
+                payload = json.dumps({
+                    "type": "done",
+                    "status": "error",
+                    "message": "Verification completed but no output file was generated.",
                 }, ensure_ascii=False)
                 yield f"data: {payload}\n\n"
         finally:
