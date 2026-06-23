@@ -2803,7 +2803,7 @@ class LeadFinder:
         print(f"  Domains searched : {domains_searched}")
         print(f"  Unique leads     : {len(leads)}")
         if no_email:
-            print(f"  No-email leads   : {no_email} (kept for phone/address)")
+            print(f"  No-email leads   : {no_email} (kept without email)")
         print(f"  Personal emails  : {personal}")
         print(f"  High confidence  : {high_conf}")
         if validated:
@@ -3107,10 +3107,20 @@ class LeadFinder:
         # -----------------------------------------------------------------------
         print(f"\n[Stage 4/4] Building leads...")
         all_leads: List[Lead] = []
+        skipped_no_contact = 0
+        apollo_has_email_but_empty = 0
         for person, domain in people_with_domains:
             email = (person.get("value") or "").lower().strip()
             has_email_flag = person.get("has_email", False)
-            has_direct_phone = person.get("has_direct_phone", False)
+            # Apollo may return strings like "Yes" or "Maybe: please request..."
+            # Only treat a confirmed "Yes" as a real direct phone signal.
+            raw_phone = person.get("has_direct_phone", False)
+            if isinstance(raw_phone, bool):
+                has_direct_phone = raw_phone
+            elif isinstance(raw_phone, str):
+                has_direct_phone = raw_phone.strip().lower() == "yes"
+            else:
+                has_direct_phone = bool(raw_phone)
             first_name = person.get("first_name", "")
             last_name = person.get("last_name", "")
             org_name = person.get("organization_name", "")
@@ -3136,9 +3146,19 @@ class LeadFinder:
                 if enriched_email:
                     email = enriched_email.lower().strip()
 
-            # Skip if no contact signal and not keeping no-email leads
-            has_contact_signal = bool(email) or has_email_flag or has_direct_phone
+            # Track Apollo contacts where the API claims an email exists but
+            # does not expose the actual address.
+            if has_email_flag and not email:
+                apollo_has_email_but_empty += 1
+
+            # Skip if no real contact signal and not keeping no-email leads.
+            # Note: Apollo's has_email flag alone is NOT treated as a contact
+            # signal, because the API often returns has_email=True without
+            # exposing the actual address. A real email or a confirmed direct
+            # phone keeps the contact by default.
+            has_contact_signal = bool(email) or has_direct_phone
             if not has_contact_signal and not keep_no_email:
+                skipped_no_contact += 1
                 continue
 
             if email and is_generic_email(email):
@@ -3169,6 +3189,11 @@ class LeadFinder:
                 has_direct_phone=has_direct_phone,
             )
             all_leads.append(lead)
+
+        if apollo_has_email_but_empty:
+            print(f"  [Apollo] {apollo_has_email_but_empty} contacts had has_email=True but no exposed email address")
+        if skipped_no_contact:
+            print(f"  [Apollo] Skipped {skipped_no_contact} contacts with no real email/phone (keep_no_email=False)")
 
         print(f"  Built {len(all_leads)} leads")
         print("PROGRESS: 85")
