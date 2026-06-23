@@ -59,6 +59,26 @@
       cursor: pointer;
     }
     .export-btn:hover { opacity: 0.9; }
+    .verify-btn {
+      display: inline-block;
+      padding: 8px 16px;
+      background: #f59e0b;
+      border: none;
+      border-radius: 8px;
+      color: #fff;
+      text-decoration: none;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      margin-right: 8px;
+    }
+    .verify-btn:hover { opacity: 0.9; }
+    .verify-btn:disabled { background: #cbd5e1; cursor: not-allowed; }
+    .verify-status {
+      color: var(--muted);
+      font-size: 13px;
+      margin-top: 8px;
+    }
     .filter-bar {
       display: flex;
       gap: 10px;
@@ -336,9 +356,12 @@
         <div class="meta" id="pageMeta"></div>
       </div>
       <div>
+        <button class="verify-btn" id="verifyBtn" onclick="verifyLeads()" style="display:none;">批量验证</button>
         <button class="export-btn" id="exportBtn" onclick="exportExcel()" style="display:none;">导出 Excel</button>
       </div>
     </div>
+
+    <div id="verifyStatus" class="verify-status" style="display:none;"></div>
 
     <div id="errorBox"></div>
 
@@ -503,6 +526,7 @@
         document.getElementById('pageTitle').textContent = escapeHtml(data.keyword || '搜索结果');
         document.getElementById('pageMeta').textContent = `共 ${data.total} 条结果 · 搜索 ID: ${data.job_id}`;
         document.getElementById('exportBtn').style.display = 'inline-block';
+        document.getElementById('verifyBtn').style.display = 'inline-block';
         if (allLeads.length === 0) {
           document.getElementById('emptyState').textContent = '暂无结果';
           document.getElementById('emptyState').style.display = 'block';
@@ -515,6 +539,46 @@
       } catch (err) {
         showError('网络错误，请刷新重试');
       }
+    }
+
+    function verifyLeads() {
+      if (!jobId) return;
+      const btn = document.getElementById('verifyBtn');
+      const status = document.getElementById('verifyStatus');
+      btn.disabled = true;
+      status.style.display = 'block';
+      status.textContent = '验证中，请稍候...';
+
+      const params = new URLSearchParams();
+      params.append('job_id', jobId);
+      params.append('verify_domain', 'true');
+      params.append('verify_email', 'true');
+      params.append('verify_company', 'true');
+      const streamUrl = `/api/leads/verify/stream?${params.toString()}`;
+
+      const es = new EventSource(streamUrl);
+      es.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        if (data.type === 'log') {
+          status.textContent = '验证中：' + data.content;
+        } else if (data.type === 'done') {
+          es.close();
+          btn.disabled = false;
+          if (data.status === 'success' && data.job_id) {
+            status.innerHTML = `验证完成，新搜索 ID: ${escapeHtml(data.job_id)}，正在跳转...`;
+            setTimeout(() => {
+              location.href = '/result?job_id=' + encodeURIComponent(data.job_id);
+            }, 800);
+          } else {
+            status.innerHTML = `<span style="color:#dc2626">验证失败：${escapeHtml(data.message || '未知错误')}</span>`;
+          }
+        }
+      };
+      es.onerror = () => {
+        es.close();
+        btn.disabled = false;
+        status.innerHTML = '<span style="color:#dc2626">连接错误，请重试。</span>';
+      };
     }
 
     function showError(msg) {
