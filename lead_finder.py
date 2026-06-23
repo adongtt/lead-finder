@@ -1628,6 +1628,80 @@ class ApolloClient:
     def __init__(self, api_key: str):
         self.api_key = api_key
         self.base_url = "https://api.apollo.io/v1"
+        self._match_cache: Dict[str, dict] = {}
+
+    def _enrich_person(self, person: dict) -> dict:
+        """Call /people/match to reveal full contact details."""
+        pid = person.get("id")
+        if not pid:
+            return person
+        if pid in self._match_cache:
+            cached = self._match_cache[pid]
+            if cached.get("email"):
+                person["email"] = cached["email"]
+            if cached.get("last_name"):
+                person["last_name"] = cached["last_name"]
+            if cached.get("_enriched_org"):
+                person["_enriched_org"] = cached["_enriched_org"]
+            if cached.get("_parent_org_name"):
+                person["_parent_org_name"] = cached["_parent_org_name"]
+            if cached.get("_hq_country"):
+                person["_hq_country"] = cached["_hq_country"]
+            if cached.get("_org_structure_type"):
+                person["_org_structure_type"] = cached["_org_structure_type"]
+            if cached.get("organization_website"):
+                person["organization_website"] = cached["organization_website"]
+            return person
+
+        headers = {
+            "Content-Type": "application/json",
+            "x-api-key": self.api_key,
+        }
+        try:
+            match_resp = requests.post(
+                f"{self.base_url}/people/match",
+                headers=headers,
+                json={"id": pid},
+                timeout=10,
+            )
+            if match_resp.status_code == 200:
+                match_data = match_resp.json()
+                enriched = match_data.get("person", {})
+                if enriched.get("email"):
+                    person["email"] = enriched["email"]
+                if enriched.get("last_name"):
+                    person["last_name"] = enriched["last_name"]
+                enriched_org = enriched.get("organization", {}) or {}
+                if enriched_org:
+                    person["_enriched_org"] = enriched_org
+                    person["_parent_org_name"] = enriched_org.get("parent_organization_name", "")
+                    hq = enriched_org.get("headquarters", {}) or {}
+                    if isinstance(hq, dict):
+                        person["_hq_country"] = hq.get("country", "")
+                    else:
+                        person["_hq_country"] = ""
+                    if enriched_org.get("is_subsidiary") or person["_parent_org_name"]:
+                        person["_org_structure_type"] = "subsidiary"
+                    elif enriched_org.get("is_subsidiary") is False:
+                        person["_org_structure_type"] = "independent"
+                    else:
+                        person["_org_structure_type"] = ""
+                    if enriched_org.get("primary_domain"):
+                        person["organization_website"] = f"http://{enriched_org['primary_domain']}"
+                    elif enriched_org.get("website_url"):
+                        person["organization_website"] = enriched_org["website_url"]
+                self._match_cache[pid] = {
+                    "email": person.get("email"),
+                    "last_name": person.get("last_name"),
+                    "_enriched_org": person.get("_enriched_org"),
+                    "_parent_org_name": person.get("_parent_org_name"),
+                    "_hq_country": person.get("_hq_country"),
+                    "_org_structure_type": person.get("_org_structure_type"),
+                    "organization_website": person.get("organization_website"),
+                }
+        except Exception:
+            pass
+        return person
 
     def domain_search(self, domain: str, limit: int = 50) -> List[dict]:
         """Search contacts by domain. Returns list of email dicts."""
@@ -1701,6 +1775,7 @@ class ApolloClient:
         zip_code: Optional[str] = None,
         per_page: int = 100,
         page: int = 1,
+        enrich: bool = True,
     ) -> List[dict]:
         """Search people via Apollo.io People Search API.
 
@@ -1768,54 +1843,10 @@ class ApolloClient:
             # ------------------------------------------------------------------
             # Parallel enrichment via /people/match to get real email + last_name
             # ------------------------------------------------------------------
-            def _enrich_one(person: dict) -> dict:
-                """Call /people/match to reveal full contact details."""
-                pid = person.get("id")
-                if not pid:
-                    return person
-                try:
-                    match_resp = requests.post(
-                        f"{self.base_url}/people/match",
-                        headers=headers,
-                        json={"id": pid},
-                        timeout=15,
-                    )
-                    if match_resp.status_code == 200:
-                        match_data = match_resp.json()
-                        enriched = match_data.get("person", {})
-                        if enriched.get("email"):
-                            person["email"] = enriched["email"]
-                        if enriched.get("last_name"):
-                            person["last_name"] = enriched["last_name"]
-                        # Save enriched org data for downstream relevance scoring + domain resolution
-                        enriched_org = enriched.get("organization", {})
-                        if enriched_org:
-                            person["_enriched_org"] = enriched_org
-                            # NEW: Extract parent company / headquarters data
-                            person["_parent_org_name"] = enriched_org.get("parent_organization_name", "")
-                            hq = enriched_org.get("headquarters", {}) or {}
-                            if isinstance(hq, dict):
-                                person["_hq_country"] = hq.get("country", "")
-                            else:
-                                person["_hq_country"] = ""
-                            if enriched_org.get("is_subsidiary") or person["_parent_org_name"]:
-                                person["_org_structure_type"] = "subsidiary"
-                            elif enriched_org.get("is_subsidiary") is False:
-                                person["_org_structure_type"] = "independent"
-                            else:
-                                person["_org_structure_type"] = ""
-                            if enriched_org.get("primary_domain"):
-                                person["organization_website"] = f"http://{enriched_org['primary_domain']}"
-                            elif enriched_org.get("website_url"):
-                                person["organization_website"] = enriched_org["website_url"]
-                except Exception:
-                    pass
-                return person
-
-            if people:
+            if people and enrich:
                 enriched_count = 0
-                with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-                    future_to_p = {executor.submit(_enrich_one, p.copy()): p for p in people}
+                with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+                    future_to_p = {executor.submit(self._enrich_person, p.copy()): p for p in people}
                     for future in concurrent.futures.as_completed(future_to_p):
                         p_enriched = future.result()
                         original = future_to_p[future]
@@ -3446,6 +3477,7 @@ class LeadFinder:
                 zip_code=zip_code or None,
                 per_page=per_page,
                 page=page,
+                enrich=False,
             )
             if not people:
                 print("  No more results.")
@@ -3455,13 +3487,64 @@ class LeadFinder:
             if len(people) < per_page:
                 break
             page += 1
-            time.sleep(1)
+            time.sleep(0.2)
 
         print(f"\n[Apollo] Total contacts fetched: {len(all_people)}")
         if not all_people:
             print("[WARNING] No contacts returned by Apollo.")
             return []
         print("PROGRESS: 15")
+
+        # -----------------------------------------------------------------------
+        # Stage 1.5: Coarse pre-filter + lazy /people/match enrichment
+        # Avoid calling /people/match for contacts that are obviously irrelevant.
+        # -----------------------------------------------------------------------
+        def _coarse_keep(person: dict) -> bool:
+            org = person.get("organization", {}) or {}
+            org_name = (org.get("name") or person.get("organization_name") or "").lower()
+            org_website = org.get("website_url") or person.get("organization_website") or ""
+            title = (person.get("title") or person.get("position") or "").lower()
+            if org_website:
+                return True
+            if organization_keywords:
+                for kw in organization_keywords:
+                    if kw.lower() in org_name:
+                        return True
+            for pos in APOLLO_POSITIVE_KEYWORDS:
+                if pos in org_name:
+                    return True
+            if any(t in title for t in ["buyer", "purchasing", "procurement", "sourcing"]):
+                return True
+            return False
+
+        people_to_enrich = [p for p in all_people if _coarse_keep(p)]
+        skipped_coarse = len(all_people) - len(people_to_enrich)
+        print(f"\n[Apollo] Coarse pre-filter: {len(people_to_enrich)} to enrich, {skipped_coarse} skipped")
+
+        if people_to_enrich:
+            enriched_count = 0
+            with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+                future_to_p = {executor.submit(self.apollo._enrich_person, p.copy()): p for p in people_to_enrich}
+                for future in concurrent.futures.as_completed(future_to_p):
+                    p_enriched = future.result()
+                    original = future_to_p[future]
+                    if p_enriched.get("email") and not original.get("email"):
+                        original["email"] = p_enriched["email"]
+                        enriched_count += 1
+                    if p_enriched.get("last_name") and not original.get("last_name"):
+                        original["last_name"] = p_enriched["last_name"]
+                    if p_enriched.get("_enriched_org") and not original.get("_enriched_org"):
+                        original["_enriched_org"] = p_enriched["_enriched_org"]
+                    if p_enriched.get("_parent_org_name") and not original.get("_parent_org_name"):
+                        original["_parent_org_name"] = p_enriched["_parent_org_name"]
+                    if p_enriched.get("_hq_country") and not original.get("_hq_country"):
+                        original["_hq_country"] = p_enriched["_hq_country"]
+                    if p_enriched.get("_org_structure_type") and not original.get("_org_structure_type"):
+                        original["_org_structure_type"] = p_enriched["_org_structure_type"]
+                    if p_enriched.get("organization_website") and not original.get("organization_website"):
+                        original["organization_website"] = p_enriched["organization_website"]
+            print(f"  [Apollo] Lazy enriched {enriched_count}/{len(people_to_enrich)} contacts via /people/match")
+        print("PROGRESS: 25")
 
         # -----------------------------------------------------------------------
         # Stage 2: Parallel domain resolution
@@ -3486,14 +3569,14 @@ class LeadFinder:
                 return None
             return (person, domain)
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
             future_to_person = {executor.submit(_resolve_domain_for_person, p): p for p in all_people}
             completed = 0
             total = len(all_people)
             for future in concurrent.futures.as_completed(future_to_person):
                 completed += 1
                 if completed % max(1, total // 5) == 0 or completed == total:
-                    pct = 15 + int((completed / total) * 25)
+                    pct = 25 + int((completed / total) * 25)
                     print(f"PROGRESS: {pct}")
                 result = future.result()
                 if result:
