@@ -79,8 +79,10 @@ def _get_pool():
     global _db_pool
     if _db_pool is None:
         kwargs = {"cursor_factory": RealDictCursor}
-        # Only add sslmode if the DSN doesn't already specify it
-        if "sslmode" not in DATABASE_URL:
+        # Render/Railway/Neon production DBs require SSL. Local dev may not.
+        # Set DISABLE_DB_SSL=1 to skip sslmode when the DSN itself doesn't specify it.
+        disable_ssl = os.environ.get("DISABLE_DB_SSL", "").lower() in ("1", "true", "yes")
+        if "sslmode" not in DATABASE_URL and not disable_ssl:
             kwargs["sslmode"] = "require"
         _db_pool = psycopg2_pool.ThreadedConnectionPool(
             minconn=1, maxconn=10, dsn=DATABASE_URL, **kwargs
@@ -760,6 +762,125 @@ async def me(request: Request):
 
 
 # ---------------------------------------------------------------------------
+# Streaming helper: subprocess with keep-alive pings and hard timeout
+# ---------------------------------------------------------------------------
+
+async def _stream_subprocess(
+    cmd: list,
+    output_file: Path,
+    job_id: str,
+    timeout_seconds: int = 180,
+    on_success=None,
+):
+    """Run a subprocess and yield SSE events with keep-alive pings.
+
+    Args:
+        cmd: subprocess command list.
+        output_file: expected CSV output path.
+        job_id: unique job id.
+        timeout_seconds: hard wall-clock limit for the subprocess.
+        on_success: async callable() invoked when CSV exists. Must return the
+            SSE 'done' payload dict (usually with status='success').
+    """
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+    )
+
+    start_time = time.time()
+    last_activity = start_time
+    PING_INTERVAL = 5.0
+
+    async def _read_loop():
+        nonlocal last_activity
+        while True:
+            try:
+                line = await asyncio.wait_for(proc.stdout.readline(), timeout=1.0)
+            except asyncio.TimeoutError:
+                continue
+            if not line:
+                break
+            last_activity = time.time()
+            text = line.decode("utf-8", errors="replace").rstrip()
+            if text:
+                payload = json.dumps({"type": "log", "content": text}, ensure_ascii=False)
+                yield f"data: {payload}\n\n"
+
+    try:
+        async for event in _read_loop():
+            yield event
+            now = time.time()
+            if now - start_time > timeout_seconds:
+                raise asyncio.TimeoutError()
+            if now - last_activity > PING_INTERVAL:
+                ping = json.dumps({"type": "ping", "elapsed": int(now - start_time)}, ensure_ascii=False)
+                yield f"data: {ping}\n\n"
+                last_activity = now
+
+        try:
+            await asyncio.wait_for(proc.wait(), timeout=5)
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.wait()
+
+        if proc.returncode != 0 and not output_file.exists():
+            payload = json.dumps({
+                "type": "done",
+                "status": "error",
+                "error_type": "subprocess_error",
+                "message": f"搜索进程异常退出（返回码 {proc.returncode}），未生成结果文件。",
+            }, ensure_ascii=False)
+            yield f"data: {payload}\n\n"
+            return
+
+        if output_file.exists():
+            if on_success is not None:
+                payload = await on_success()
+            else:
+                payload = {"type": "done", "status": "success", "job_id": job_id}
+            yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+        else:
+            payload = json.dumps({
+                "type": "done",
+                "status": "error",
+                "error_type": "no_output",
+                "message": "搜索已完成，但未生成结果文件（可能没有匹配结果）。",
+            }, ensure_ascii=False)
+            yield f"data: {payload}\n\n"
+
+    except asyncio.TimeoutError:
+        if proc.returncode is None:
+            proc.kill()
+            try:
+                await asyncio.wait_for(proc.wait(), timeout=5)
+            except Exception:
+                pass
+        payload = json.dumps({
+            "type": "done",
+            "status": "error",
+            "error_type": "timeout",
+            "message": f"搜索超时（超过 {timeout_seconds} 秒）。建议减少 pages / max_results，或稍后重试。",
+        }, ensure_ascii=False)
+        yield f"data: {payload}\n\n"
+
+    except Exception as exc:
+        if proc.returncode is None:
+            proc.kill()
+            try:
+                await asyncio.wait_for(proc.wait(), timeout=5)
+            except Exception:
+                pass
+        payload = json.dumps({
+            "type": "done",
+            "status": "error",
+            "error_type": "server_error",
+            "message": f"服务端错误: {exc}",
+        }, ensure_ascii=False)
+        yield f"data: {payload}\n\n"
+
+
+# ---------------------------------------------------------------------------
 # Search endpoints
 # ---------------------------------------------------------------------------
 
@@ -816,7 +937,33 @@ async def search_leads(
     if scan_supplier_pages:
         cmd.append("--scan-supplier-pages")
 
-    result = subprocess.run(cmd, capture_output=True, text=True, cwd=".", encoding="utf-8", errors="replace")
+    SYNC_SEARCH_TIMEOUT = int(os.environ.get("SYNC_SEARCH_TIMEOUT", "120"))
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            cwd=".",
+            encoding="utf-8",
+            errors="replace",
+            timeout=SYNC_SEARCH_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired as exc:
+        return {
+            "job_id": job_id,
+            "status": "error",
+            "error_type": "timeout",
+            "message": f"搜索超时（超过 {SYNC_SEARCH_TIMEOUT} 秒）。请改用流式搜索，或减少 pages / max_domains。",
+            "log": (exc.stdout or "")[-500:] if exc.stdout else "",
+        }
+    except Exception as exc:
+        return {
+            "job_id": job_id,
+            "status": "error",
+            "error_type": "subprocess_error",
+            "message": f"启动搜索进程失败: {exc}",
+            "log": "",
+        }
 
     if output_file.exists():
         db_increment_keyword(keyword)
@@ -907,64 +1054,43 @@ async def stream_leads(
         cmd.append("--scan-supplier-pages")
 
     async def event_generator():
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-        )
-        try:
-            while True:
-                line = await proc.stdout.readline()
-                if not line:
-                    break
-                text = line.decode("utf-8", errors="replace").rstrip()
-                if text:
-                    payload = json.dumps({"type": "log", "content": text}, ensure_ascii=False)
-                    yield f"data: {payload}\n\n"
-
-            await proc.wait()
-
-            if output_file.exists():
-                db_increment_keyword(keyword)
-                csv_content = output_file.read_text(encoding="utf-8")
-                leads = []
-                lines = csv_content.splitlines()
-                if lines:
-                    lines[0] = lines[0].lstrip('﻿')
-                reader = csv.DictReader(lines)
-                for row in reader:
-                    leads.append({k: v for k, v in row.items()})
-                leads = db_enrich_leads(leads)
-                leads = _sort_leads_by_position(leads)
-                if maps_region:
-                    source_type = "google_maps"
-                elif domains:
-                    source_type = "domains"
-                else:
-                    source_type = "keyword"
-                db_save_search(job_id, keyword, pages, len(leads), user["user_id"], user["name"], deep, csv_content, source_type=source_type)
-
-                payload = json.dumps({
-                    "type": "done",
-                    "status": "success",
-                    "job_id": job_id,
-                    "total": len(leads),
-                    "download_url": f"/api/leads/download/{job_id}",
-                    "preview": leads[:5] if leads else [],
-                    "leads": leads,
-                }, ensure_ascii=False)
-                yield f"data: {payload}\n\n"
+        async def on_success():
+            csv_content = output_file.read_text(encoding="utf-8")
+            leads = []
+            lines = csv_content.splitlines()
+            if lines:
+                lines[0] = lines[0].lstrip('﻿')
+            reader = csv.DictReader(lines)
+            for row in reader:
+                leads.append({k: v for k, v in row.items()})
+            leads = db_enrich_leads(leads)
+            leads = _sort_leads_by_position(leads)
+            if maps_region:
+                source_type = "google_maps"
+            elif domains:
+                source_type = "domains"
             else:
-                payload = json.dumps({
-                    "type": "done",
-                    "status": "error",
-                    "message": "Search completed but no output file was generated.",
-                }, ensure_ascii=False)
-                yield f"data: {payload}\n\n"
-        finally:
-            if proc.returncode is None:
-                proc.kill()
-                await proc.wait()
+                source_type = "keyword"
+            db_save_search(job_id, keyword, pages, len(leads), user["user_id"], user["name"], deep, csv_content, source_type=source_type)
+            db_increment_keyword(keyword)
+            return {
+                "type": "done",
+                "status": "success",
+                "job_id": job_id,
+                "total": len(leads),
+                "download_url": f"/api/leads/download/{job_id}",
+                "preview": leads[:5] if leads else [],
+                "leads": leads,
+            }
+
+        async for event in _stream_subprocess(
+            cmd,
+            output_file,
+            job_id,
+            timeout_seconds=int(os.environ.get("STREAM_SEARCH_TIMEOUT", "180")),
+            on_success=on_success,
+        ):
+            yield event
 
     return StreamingResponse(
         event_generator(),
@@ -1029,58 +1155,37 @@ async def stream_apollo_leads(
         cmd.append("--apollo-strict-mode")
 
     async def event_generator():
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-        )
-        try:
-            while True:
-                line = await proc.stdout.readline()
-                if not line:
-                    break
-                text = line.decode("utf-8", errors="replace").rstrip()
-                if text:
-                    payload = json.dumps({"type": "log", "content": text}, ensure_ascii=False)
-                    yield f"data: {payload}\n\n"
+        async def on_success():
+            csv_content = output_file.read_text(encoding="utf-8")
+            leads = []
+            lines = csv_content.splitlines()
+            if lines:
+                lines[0] = lines[0].lstrip('﻿')
+            reader = csv.DictReader(lines)
+            for row in reader:
+                leads.append({k: v for k, v in row.items()})
+            leads = db_enrich_leads(leads)
+            leads = _sort_leads_by_position(leads)
+            search_label = f"Apollo domains: {apollo_domains}" if apollo_domains else f"Apollo: {apollo_keywords}"
+            db_save_search(job_id, search_label, 0, len(leads), user["user_id"], user["name"], False, csv_content, source_type="apollo")
+            return {
+                "type": "done",
+                "status": "success",
+                "job_id": job_id,
+                "total": len(leads),
+                "download_url": f"/api/leads/download/{job_id}",
+                "preview": leads[:5] if leads else [],
+                "leads": leads,
+            }
 
-            await proc.wait()
-
-            if output_file.exists():
-                csv_content = output_file.read_text(encoding="utf-8")
-                leads = []
-                lines = csv_content.splitlines()
-                if lines:
-                    lines[0] = lines[0].lstrip('﻿')
-                reader = csv.DictReader(lines)
-                for row in reader:
-                    leads.append({k: v for k, v in row.items()})
-                leads = db_enrich_leads(leads)
-                leads = _sort_leads_by_position(leads)
-                search_label = f"Apollo domains: {apollo_domains}" if apollo_domains else f"Apollo: {apollo_keywords}"
-                db_save_search(job_id, search_label, 0, len(leads), user["user_id"], user["name"], False, csv_content, source_type="apollo")
-
-                payload = json.dumps({
-                    "type": "done",
-                    "status": "success",
-                    "job_id": job_id,
-                    "total": len(leads),
-                    "download_url": f"/api/leads/download/{job_id}",
-                    "preview": leads[:5] if leads else [],
-                    "leads": leads,
-                }, ensure_ascii=False)
-                yield f"data: {payload}\n\n"
-            else:
-                payload = json.dumps({
-                    "type": "done",
-                    "status": "error",
-                    "message": "Apollo search completed but no output file was generated.",
-                }, ensure_ascii=False)
-                yield f"data: {payload}\n\n"
-        finally:
-            if proc.returncode is None:
-                proc.kill()
-                await proc.wait()
+        async for event in _stream_subprocess(
+            cmd,
+            output_file,
+            job_id,
+            timeout_seconds=int(os.environ.get("STREAM_APOLLO_TIMEOUT", "240")),
+            on_success=on_success,
+        ):
+            yield event
 
     return StreamingResponse(
         event_generator(),
@@ -1109,56 +1214,35 @@ async def stream_supplier_portal_scan(
     ]
 
     async def event_generator():
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-        )
-        try:
-            while True:
-                line = await proc.stdout.readline()
-                if not line:
-                    break
-                text = line.decode("utf-8", errors="replace").rstrip()
-                if text:
-                    payload = json.dumps({"type": "log", "content": text}, ensure_ascii=False)
-                    yield f"data: {payload}\n\n"
+        async def on_success():
+            csv_content = output_file.read_text(encoding="utf-8")
+            leads = []
+            lines = csv_content.splitlines()
+            if lines:
+                lines[0] = lines[0].lstrip('﻿')
+            reader = csv.DictReader(lines)
+            for row in reader:
+                leads.append({k: v for k, v in row.items()})
+            leads = db_enrich_leads(leads)
+            db_save_search(job_id, f"Supplier Portal: {domains[:50]}", 0, len(leads), user["user_id"], user["name"], False, csv_content, source_type="supplier_portal")
+            return {
+                "type": "done",
+                "status": "success",
+                "job_id": job_id,
+                "total": len(leads),
+                "download_url": f"/api/leads/download/{job_id}",
+                "preview": leads[:5] if leads else [],
+                "leads": leads,
+            }
 
-            await proc.wait()
-
-            if output_file.exists():
-                csv_content = output_file.read_text(encoding="utf-8")
-                leads = []
-                lines = csv_content.splitlines()
-                if lines:
-                    lines[0] = lines[0].lstrip('﻿')
-                reader = csv.DictReader(lines)
-                for row in reader:
-                    leads.append({k: v for k, v in row.items()})
-                leads = db_enrich_leads(leads)
-                db_save_search(job_id, f"Supplier Portal: {domains[:50]}", 0, len(leads), user["user_id"], user["name"], False, csv_content, source_type="supplier_portal")
-
-                payload = json.dumps({
-                    "type": "done",
-                    "status": "success",
-                    "job_id": job_id,
-                    "total": len(leads),
-                    "download_url": f"/api/leads/download/{job_id}",
-                    "preview": leads[:5] if leads else [],
-                    "leads": leads,
-                }, ensure_ascii=False)
-                yield f"data: {payload}\n\n"
-            else:
-                payload = json.dumps({
-                    "type": "done",
-                    "status": "error",
-                    "message": "Supplier portal scan completed but no output file was generated.",
-                }, ensure_ascii=False)
-                yield f"data: {payload}\n\n"
-        finally:
-            if proc.returncode is None:
-                proc.kill()
-                await proc.wait()
+        async for event in _stream_subprocess(
+            cmd,
+            output_file,
+            job_id,
+            timeout_seconds=int(os.environ.get("STREAM_SUPPLIER_TIMEOUT", "120")),
+            on_success=on_success,
+        ):
+            yield event
 
     return StreamingResponse(
         event_generator(),
@@ -1210,69 +1294,48 @@ async def stream_verify_leads(
         cmd.append("--verify-company")
 
     async def event_generator():
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-        )
-        try:
-            while True:
-                line = await proc.stdout.readline()
-                if not line:
-                    break
-                text = line.decode("utf-8", errors="replace").rstrip()
-                if text:
-                    payload = json.dumps({"type": "log", "content": text}, ensure_ascii=False)
-                    yield f"data: {payload}\n\n"
+        async def on_success():
+            new_csv_content = output_file.read_text(encoding="utf-8")
+            leads = []
+            lines = new_csv_content.splitlines()
+            if lines:
+                lines[0] = lines[0].lstrip('﻿')
+            reader = csv.DictReader(lines)
+            for row in reader:
+                leads.append({k: v for k, v in row.items()})
+            leads = db_enrich_leads(leads)
+            leads = _sort_leads_by_position(leads)
 
-            await proc.wait()
+            original_keyword = search.get("keyword") or "verified"
+            db_save_search(
+                new_job_id,
+                f"Verified: {original_keyword}"[:200],
+                search.get("pages", 0) or 0,
+                len(leads),
+                user["user_id"],
+                user["name"],
+                bool(search.get("deep")),
+                new_csv_content,
+                source_type="verified",
+            )
+            return {
+                "type": "done",
+                "status": "success",
+                "job_id": new_job_id,
+                "total": len(leads),
+                "download_url": f"/api/leads/download/{new_job_id}",
+                "preview": leads[:5] if leads else [],
+                "leads": leads,
+            }
 
-            if output_file.exists():
-                new_csv_content = output_file.read_text(encoding="utf-8")
-                leads = []
-                lines = new_csv_content.splitlines()
-                if lines:
-                    lines[0] = lines[0].lstrip('﻿')
-                reader = csv.DictReader(lines)
-                for row in reader:
-                    leads.append({k: v for k, v in row.items()})
-                leads = db_enrich_leads(leads)
-                leads = _sort_leads_by_position(leads)
-
-                original_keyword = search.get("keyword") or "verified"
-                db_save_search(
-                    new_job_id,
-                    f"Verified: {original_keyword}"[:200],
-                    search.get("pages", 0) or 0,
-                    len(leads),
-                    user["user_id"],
-                    user["name"],
-                    bool(search.get("deep")),
-                    new_csv_content,
-                    source_type="verified",
-                )
-
-                payload = json.dumps({
-                    "type": "done",
-                    "status": "success",
-                    "job_id": new_job_id,
-                    "total": len(leads),
-                    "download_url": f"/api/leads/download/{new_job_id}",
-                    "preview": leads[:5] if leads else [],
-                    "leads": leads,
-                }, ensure_ascii=False)
-                yield f"data: {payload}\n\n"
-            else:
-                payload = json.dumps({
-                    "type": "done",
-                    "status": "error",
-                    "message": "Verification completed but no output file was generated.",
-                }, ensure_ascii=False)
-                yield f"data: {payload}\n\n"
-        finally:
-            if proc.returncode is None:
-                proc.kill()
-                await proc.wait()
+        async for event in _stream_subprocess(
+            cmd,
+            output_file,
+            new_job_id,
+            timeout_seconds=int(os.environ.get("STREAM_VERIFY_TIMEOUT", "300")),
+            on_success=on_success,
+        ):
+            yield event
 
     return StreamingResponse(
         event_generator(),

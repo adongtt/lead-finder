@@ -164,7 +164,9 @@
       "Bash(python -m py_compile lead_finder.py api.py lead_finder_mcp/server.py)",
       "Bash(timeout 120 python lead_finder.py \"football gloves distributor\" --pages 1 --max-domains 2 --output test_parent_authority.csv)",
       "Bash(timeout 120 python lead_finder.py \"test\" --domains battle.net,sportsunlimitedinc.com --pages 1 --output test_parent_authority.csv)",
-      "Bash(python -c \"from lead_finder_mcp.server import _summarize_csv, _format_result; print\\('MCP imports OK'\\)\")"
+      "Bash(python -c \"from lead_finder_mcp.server import _summarize_csv, _format_result; print\\('MCP imports OK'\\)\")",
+      "Bash(node --check /tmp/index_check.js)",
+      "Bash(python -m py_compile api.py lead_finder.py)"
     ],
     "additionalDirectories": [
       "\\tmp",

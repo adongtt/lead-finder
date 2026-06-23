@@ -1391,20 +1391,27 @@ class DuckDuckGoClient:
             print("  [ERROR] duckduckgo-search library not installed. Run: pip install duckduckgo-search")
             return results
 
-        try:
-            with DDGS() as ddgs:
-                raw = ddgs.text(query, max_results=max_results)
-                for r in raw:
-                    link = r.get("href")
-                    if link:
-                        results.append({
-                            "url": link,
-                            "title": r.get("title", ""),
-                            "snippet": r.get("body") or r.get("snippet", ""),
-                        })
-            print(f"  [DuckDuckGo] Found {len(results)} results")
-        except Exception as e:
-            print(f"  [DuckDuckGo ERROR] {e}")
+        last_error = ""
+        for attempt in range(3):
+            try:
+                with DDGS() as ddgs:
+                    raw = ddgs.text(query, max_results=max_results)
+                    for r in raw:
+                        link = r.get("href")
+                        if link:
+                            results.append({
+                                "url": link,
+                                "title": r.get("title", ""),
+                                "snippet": r.get("body") or r.get("snippet", ""),
+                            })
+                print(f"  [DuckDuckGo] Found {len(results)} results")
+                return results
+            except Exception as e:
+                last_error = str(e)
+                print(f"  [DuckDuckGo ERROR] attempt {attempt + 1}/3: {e}")
+                if attempt < 2:
+                    time.sleep(1.5 * (attempt + 1))
+        print(f"  [DuckDuckGo] All attempts failed. Last error: {last_error}")
         return results
 
 
@@ -1662,7 +1669,7 @@ class ApolloClient:
                 f"{self.base_url}/people/match",
                 headers=headers,
                 json={"id": pid},
-                timeout=10,
+                timeout=8,
             )
             if match_resp.status_code == 200:
                 match_data = match_resp.json()
@@ -1823,7 +1830,17 @@ class ApolloClient:
         # Quality is enforced by downstream relevance scoring + Hunter enrichment.
 
         try:
-            resp = requests.post(url, headers=headers, json=payload, timeout=30)
+            last_error = ""
+            for attempt in range(2):
+                try:
+                    resp = requests.post(url, headers=headers, json=payload, timeout=15)
+                    break
+                except requests.exceptions.Timeout as e:
+                    last_error = str(e)
+                    print(f"    [Apollo] people search timeout (attempt {attempt + 1}/2)")
+                    if attempt == 1:
+                        raise
+                    time.sleep(1)
             if resp.status_code == 429:
                 print(f"    [Apollo] Rate limited on people search. Sleeping 5s...")
                 time.sleep(5)
@@ -2464,10 +2481,11 @@ def _resolve_company_website(company_name: str) -> Optional[str]:
                     if domain and domain not in blocked:
                         _company_website_cache[cache_key] = domain
                         return domain
-    except Exception:
-        pass
+    except Exception as e:
+        # DDGS can hang/fail behind certain networks; fail fast.
+        print(f"    [Website resolve] DDGS failed for '{clean_name}': {e}")
 
-    # Fallback: simple heuristic guesses
+    # Fallback: simple heuristic guesses with very short probes
     simple = re.sub(r'[^\w\-]', '', clean_name.lower().replace(' ', '').replace('&', 'and'))
     candidates = [
         f"{simple}.com",
@@ -2476,7 +2494,7 @@ def _resolve_company_website(company_name: str) -> Optional[str]:
     ]
     for domain in candidates:
         try:
-            resp = requests.head(f"https://{domain}", timeout=5, allow_redirects=True)
+            resp = requests.head(f"https://{domain}", timeout=3, allow_redirects=True)
             if resp.status_code < 400:
                 _company_website_cache[cache_key] = domain
                 return domain
@@ -3517,15 +3535,22 @@ class LeadFinder:
                 return True
             return False
 
-        people_to_enrich = [p for p in all_people if _coarse_keep(p)]
+        MAX_PEOPLE_TO_ENRICH = 80
+        people_to_enrich = [p for p in all_people if _coarse_keep(p)][:MAX_PEOPLE_TO_ENRICH]
         skipped_coarse = len(all_people) - len(people_to_enrich)
-        print(f"\n[Apollo] Coarse pre-filter: {len(people_to_enrich)} to enrich, {skipped_coarse} skipped")
+        print(f"\n[Apollo] Coarse pre-filter: {len(people_to_enrich)} to enrich (max {MAX_PEOPLE_TO_ENRICH}), {skipped_coarse} skipped")
 
         if people_to_enrich:
             enriched_count = 0
+            print("  [Apollo] Starting /people/match enrichment...")
             with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
                 future_to_p = {executor.submit(self.apollo._enrich_person, p.copy()): p for p in people_to_enrich}
+                completed = 0
+                total = len(people_to_enrich)
                 for future in concurrent.futures.as_completed(future_to_p):
+                    completed += 1
+                    if completed % max(1, total // 4) == 0 or completed == total:
+                        print(f"    [Apollo] Enrichment progress: {completed}/{total}")
                     p_enriched = future.result()
                     original = future_to_p[future]
                     if p_enriched.get("email") and not original.get("email"):

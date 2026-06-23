@@ -1164,9 +1164,58 @@
       }
 
       const es = new EventSource(streamUrl);
+      let lastMessageAt = Date.now();
+      let slowNoticeShown = false;
+      let timeoutNoticeShown = false;
+      const activityCheckMs = 15000;
+      const hardTimeoutMs = 60000;
+
+      const activityTimer = setInterval(() => {
+        const elapsed = Date.now() - lastMessageAt;
+        if (!timeoutNoticeShown && elapsed > hardTimeoutMs) {
+          timeoutNoticeShown = true;
+          resultDiv.innerHTML = `
+            <div class="badge badge-error">请求超时</div>
+            <div class="error-box">
+              搜索已超过 60 秒未收到服务端响应，可能原因：
+              <ul style="margin:8px 0 0 16px;padding:0">
+                <li>网络到 DuckDuckGo / Apollo 不稳定</li>
+                <li>关键词返回结果过多，建议减少 pages / max_results</li>
+                <li>服务端进程被平台限制（如 Render 免费版 30 秒限制）</li>
+              </ul>
+            </div>
+            <button type="button" class="download-btn" onclick="document.getElementById('searchForm').dispatchEvent(new Event('submit'))" style="margin-top:12px">重新搜索</button>
+          `;
+          es.close();
+          clearInterval(activityTimer);
+          progressWrap.classList.remove('active');
+          btn.disabled = false;
+          resetSubmitButtonText();
+        } else if (!slowNoticeShown && elapsed > activityCheckMs) {
+          slowNoticeShown = true;
+          const hint = document.createElement('div');
+          hint.id = 'slowSearchHint';
+          hint.className = 'badge badge-error';
+          hint.style.background = 'rgba(245,158,11,0.15)';
+          hint.style.color = '#b45309';
+          hint.textContent = '搜索时间较长，仍在努力获取结果，请耐心等待...';
+          if (!document.getElementById('slowSearchHint')) {
+            resultDiv.appendChild(hint);
+          }
+        }
+      }, 2000);
 
       es.onmessage = (event) => {
+        lastMessageAt = Date.now();
+        slowNoticeShown = false;
+        timeoutNoticeShown = false;
+        const slowHint = document.getElementById('slowSearchHint');
+        if (slowHint) slowHint.remove();
+
         const data = JSON.parse(event.data);
+        if (data.type === 'ping') {
+          return;
+        }
         if (data.type === 'log') {
           const text = data.content;
           const m = text.match(/^PROGRESS:\s*(\d+)$/);
@@ -1177,6 +1226,7 @@
             logBox.scrollTop = logBox.scrollHeight;
           }
         } else if (data.type === 'done') {
+          clearInterval(activityTimer);
           es.close();
           progressWrap.classList.remove('active');
           btn.disabled = false;
@@ -1185,17 +1235,30 @@
             renderResult(data);
             loadKeywords();
           } else {
-            resultDiv.innerHTML = `<div class="badge badge-error">搜索失败</div><div class="error-box">${escapeHtml(data.message || '未知错误')}</div>`;
+            let title = '搜索失败';
+            if (data.error_type === 'timeout') title = '搜索超时';
+            if (data.error_type === 'subprocess_error') title = '搜索进程异常';
+            if (data.error_type === 'no_output') title = '未找到结果';
+            resultDiv.innerHTML = `
+              <div class="badge badge-error">${escapeHtml(title)}</div>
+              <div class="error-box">${escapeHtml(data.message || '未知错误')}</div>
+              <button type="button" class="download-btn" onclick="document.getElementById('searchForm').dispatchEvent(new Event('submit'))" style="margin-top:12px">重新搜索</button>
+            `;
           }
         }
       };
 
       es.onerror = () => {
+        clearInterval(activityTimer);
         es.close();
         progressWrap.classList.remove('active');
         btn.disabled = false;
         resetSubmitButtonText();
-        resultDiv.innerHTML = '<div class="badge badge-error">连接错误</div><div class="error-box">连接失败，请重试。</div>';
+        resultDiv.innerHTML = `
+          <div class="badge badge-error">连接错误</div>
+          <div class="error-box">连接已断开。可能原因：网络波动、服务端超时或浏览器限制。请检查网络后重试。</div>
+          <button type="button" class="download-btn" onclick="document.getElementById('searchForm').dispatchEvent(new Event('submit'))" style="margin-top:12px">重新搜索</button>
+        `;
       };
     });
 
@@ -1245,8 +1308,44 @@
       const streamUrl = `/api/leads/verify/stream?${params.toString()}`;
 
       const es = new EventSource(streamUrl);
+      let lastMessageAt = Date.now();
+      let verifySlowShown = false;
+      let verifyTimeoutShown = false;
+      const verifyTimer = setInterval(() => {
+        const elapsed = Date.now() - lastMessageAt;
+        if (!verifyTimeoutShown && elapsed > 60000) {
+          verifyTimeoutShown = true;
+          resultDiv.innerHTML = `
+            <div class="badge badge-error">验证超时</div>
+            <div class="error-box">批量验证已超过 60 秒未收到响应，请减少验证范围或稍后重试。</div>
+          `;
+          es.close();
+          clearInterval(verifyTimer);
+          progressWrap.classList.remove('active');
+          if (btn) btn.disabled = false;
+        } else if (!verifySlowShown && elapsed > 15000) {
+          verifySlowShown = true;
+          const hint = document.createElement('div');
+          hint.id = 'verifySlowHint';
+          hint.className = 'badge badge-error';
+          hint.style.background = 'rgba(245,158,11,0.15)';
+          hint.style.color = '#b45309';
+          hint.textContent = '验证时间较长，请耐心等待...';
+          if (!document.getElementById('verifySlowHint')) {
+            resultDiv.appendChild(hint);
+          }
+        }
+      }, 2000);
+
       es.onmessage = (event) => {
+        lastMessageAt = Date.now();
+        verifySlowShown = false;
+        verifyTimeoutShown = false;
+        const slowHint = document.getElementById('verifySlowHint');
+        if (slowHint) slowHint.remove();
+
         const data = JSON.parse(event.data);
+        if (data.type === 'ping') return;
         if (data.type === 'log') {
           const text = data.content;
           const m = text.match(/^PROGRESS:\s*(\d+)$/);
@@ -1257,21 +1356,25 @@
             logBox.scrollTop = logBox.scrollHeight;
           }
         } else if (data.type === 'done') {
+          clearInterval(verifyTimer);
           es.close();
           progressWrap.classList.remove('active');
           if (btn) btn.disabled = false;
           if (data.status === 'success') {
             renderResult(data);
           } else {
-            resultDiv.innerHTML = `<div class="badge badge-error">验证失败</div><div class="error-box">${escapeHtml(data.message || '未知错误')}</div>`;
+            let title = '验证失败';
+            if (data.error_type === 'timeout') title = '验证超时';
+            resultDiv.innerHTML = `<div class="badge badge-error">${escapeHtml(title)}</div><div class="error-box">${escapeHtml(data.message || '未知错误')}</div>`;
           }
         }
       };
       es.onerror = () => {
+        clearInterval(verifyTimer);
         es.close();
         progressWrap.classList.remove('active');
         if (btn) btn.disabled = false;
-        resultDiv.innerHTML = '<div class="badge badge-error">连接错误</div><div class="error-box">验证连接失败，请重试。</div>';
+        resultDiv.innerHTML = '<div class="badge badge-error">连接错误</div><div class="error-box">验证连接已断开，请检查网络后重试。</div>';
       };
     }
 
