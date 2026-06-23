@@ -928,6 +928,8 @@ async def stream_apollo_leads(
     keep_no_email: bool = False,
     employee_range: str = "",
     scan_supplier_pages: bool = False,
+    min_relevance: int = 0,
+    strict_mode: bool = False,
     user: dict = Depends(require_user),
 ):
     """Stream Apollo.io People Search progress via Server-Sent Events."""
@@ -962,6 +964,10 @@ async def stream_apollo_leads(
         cmd.append("--keep-no-email")
     if scan_supplier_pages:
         cmd.append("--scan-supplier-pages")
+    if min_relevance is not None:
+        cmd.extend(["--apollo-min-relevance", str(min_relevance)])
+    if strict_mode:
+        cmd.append("--apollo-strict-mode")
 
     async def event_generator():
         proc = await asyncio.create_subprocess_exec(

@@ -586,6 +586,21 @@
                   </div>
                 </div>
               </div>
+              <div style="margin-bottom:16px;padding:12px;background:#f8fafc;border:1px solid var(--border);border-radius:8px;">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+                  <label for="apolloMinRelevance" style="margin-bottom:0;">最小关联度</label>
+                  <span id="apolloMinRelevanceValue" style="font-size:13px;color:var(--muted);">0</span>
+                </div>
+                <input type="range" id="apolloMinRelevance" name="apollo_min_relevance" min="-50" max="50" value="0" step="5" style="width:100%;margin-bottom:6px;">
+                <p class="hint" style="margin-bottom:0;">默认 0：过滤明显不相关行业；拖到 10+ 开启严格模式；拖到 -50 放宽结果量</p>
+              </div>
+              <div style="margin-bottom:16px;padding:10px 0;">
+                <label style="display:flex;align-items:center;gap:8px;cursor:pointer;text-transform:none;letter-spacing:0;font-weight:500;color:var(--text);">
+                  <input type="checkbox" id="apolloStrictMode" style="width:auto;">
+                  严格模式（自动关联度 ≥10，仅保留采购类职位）
+                </label>
+                <p class="hint">结果更少但更精准，适合初次筛选高质量客户</p>
+              </div>
               <div style="margin-bottom:16px;padding:10px 0;">
                 <label style="display:flex;align-items:center;gap:8px;cursor:pointer;text-transform:none;letter-spacing:0;font-weight:500;color:var(--text);">
                   <input type="checkbox" id="apolloScanSupplierPages" style="width:auto;">
@@ -737,8 +752,9 @@
               <span style="font-size:13px;font-weight:700;color:#0369a1;">程序更新</span>
             </div>
             <div style="font-size:12px;color:#0c4a6e;line-height:1.6;">
-              <div><strong>更新时间：</strong>2026-06-22</div>
-              <div style="margin-top:4px;"><strong>本次更新：</strong>Google Maps 搜索优化：自动过滤已关门商家、增加关键词相关度评分、支持目标国家域名（TLD）筛选、支持结果数量上限控制。</div>
+              <div><strong>更新时间：</strong>2026-06-23</div>
+              <div style="margin-top:4px;"><strong>本次更新：</strong>Apollo 搜索质量优化：默认关联度阈值从 -50 提升至 0，过滤明显不相关行业；缺少公司信息的联系人默认降级；扩展负向行业/关键词词库（汽车、电子、家电、家具等）；关键词搜索增加二次校验，必须命中用户关键词或 B2B 正向信号；Apollo 面板新增"最小关联度"滑块与"严格模式"开关。</div>
+              <div style="margin-top:4px;"><strong>2026-06-22：</strong>Google Maps 搜索优化：自动过滤已关门商家、增加关键词相关度评分、支持目标国家域名（TLD）筛选、支持结果数量上限控制。</div>
               <div style="margin-top:4px;"><strong>2026-06-16：</strong>结果页“网站简介”悬浮提示改为跟随视口定位，记录少时也不会被底部截断。</div>
               <div style="margin-top:4px;"><strong>2026-06-16：</strong>新增左侧导航栏与“历史结果”页面；搜索记录支持按关键词、日期、模式、业务员筛选，管理员可查看所有人记录，业务员仅可查看自己的记录。</div>
               <div style="margin-top:4px;"><strong>2026-06-16：</strong>启用“供应商门户”模式：输入一批域名，自动扫描 procurement / become-a-supplier / vendor-portal 等采购/供应商页面，提取页面邮箱、申请表单链接与页面摘要。</div>
@@ -1035,6 +1051,14 @@
       else progressStep.textContent = '完成';
     }
 
+    const apolloMinRelevanceInput = document.getElementById('apolloMinRelevance');
+    const apolloMinRelevanceValue = document.getElementById('apolloMinRelevanceValue');
+    if (apolloMinRelevanceInput && apolloMinRelevanceValue) {
+      apolloMinRelevanceInput.addEventListener('input', () => {
+        apolloMinRelevanceValue.textContent = apolloMinRelevanceInput.value;
+      });
+    }
+
     form.addEventListener('submit', (e) => {
       e.preventDefault();
       resultDiv.innerHTML = '';
@@ -1059,6 +1083,8 @@
         const apolloKeepNoEmail = document.getElementById('apolloKeepNoEmail').checked;
         const apolloEmployeeRange = document.getElementById('apolloEmployeeRange').value;
         const apolloScanSupplierPages = document.getElementById('apolloScanSupplierPages').checked;
+        const apolloMinRelevance = document.getElementById('apolloMinRelevance').value;
+        const apolloStrictMode = document.getElementById('apolloStrictMode').checked;
 
         if (!apolloKeywords && !apolloDomains) {
           resultDiv.innerHTML = '<div class="badge badge-error">请输入关键词或域名</div>';
@@ -1079,6 +1105,11 @@
         if (apolloMaxResults) params.append('max_results', apolloMaxResults);
         if (apolloKeepNoEmail) params.append('keep_no_email', 'true');
         if (apolloScanSupplierPages) params.append('scan_supplier_pages', 'true');
+        if (apolloStrictMode) {
+          params.append('strict_mode', 'true');
+        } else if (apolloMinRelevance && apolloMinRelevance !== '0') {
+          params.append('min_relevance', apolloMinRelevance);
+        }
         streamUrl = `/api/leads/apollo/stream?${params.toString()}`;
       } else if (currentMode === 'supplier_portal') {
         const domainsInput = document.getElementById('domainsInput').value;

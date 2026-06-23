@@ -117,6 +117,8 @@ APOLLO_NEGATIVE_INDUSTRIES = {
     "government", "non-profit", "nonprofit", "education", "logistics",
     "transportation", "oil", "energy", "mining", "pharmaceutical",
     "biotechnology", "legal", "law practice", "accounting",
+    "automotive", "motor vehicles", "electronics", "electrical",
+    "appliances", "furniture", "home improvement", "plumbing",
 }
 
 APOLLO_POSITIVE_KEYWORDS = {
@@ -142,6 +144,9 @@ APOLLO_NEGATIVE_KEYWORDS = {
     "construction", "contractor", "builder", "engineering",
     "oil", "gas", "energy", "petroleum", "mining",
     "real estate", "property", "rental",
+    "automotive", "car", "vehicle", "truck", "motor",
+    "electronics", "semiconductor", "appliance", "appliances",
+    "furniture", "plumbing", "hvac", "maintenance",
 }
 
 # ---------------------------------------------------------------------------
@@ -309,6 +314,38 @@ def _score_apollo_contact_relevance(person: dict) -> int:
         score += 5
 
     return score
+
+
+def _apollo_has_positive_signal(person: dict, user_keywords: List[str]) -> bool:
+    """Return True if the contact's organization shows at least one positive signal:
+    user keyword match, B2B positive keyword match, or B2B positive industry.
+    Falls back to the raw organization_name when enriched org data is missing.
+    """
+    org = person.get("_enriched_org", {}) or {}
+    org_name = (org.get("name") or person.get("organization_name") or "").lower()
+    industry = (org.get("industry") or "").lower()
+    industries = [i.lower() for i in org.get("industries", [])]
+    keywords = [k.lower() for k in org.get("keywords", [])]
+    description = (org.get("short_description") or "").lower()
+
+    user_keywords_lower = [k.lower() for k in user_keywords if k.strip()]
+    all_text = f"{org_name} {industry} {' '.join(industries)} {' '.join(keywords)} {description}"
+
+    # User keyword match
+    if user_keywords_lower and any(kw in all_text for kw in user_keywords_lower):
+        return True
+
+    # B2B positive keyword match
+    if any(pos in all_text for pos in APOLLO_POSITIVE_KEYWORDS):
+        return True
+
+    # B2B positive industry match
+    if any(pos in industry for pos in APOLLO_POSITIVE_INDUSTRIES):
+        return True
+    if any(pos in ind for ind in industries for pos in APOLLO_POSITIVE_INDUSTRIES):
+        return True
+
+    return False
 
 
 # Country detection from TLD
@@ -2851,6 +2888,8 @@ class LeadFinder:
         city: Optional[str] = None,
         zip_code: Optional[str] = None,
         scan_supplier_pages: bool = False,
+        min_relevance: int = 0,
+        strict_mode: bool = False,
     ) -> List[Lead]:
         """Run an Apollo.io People Search and export leads.
 
@@ -2860,6 +2899,15 @@ class LeadFinder:
         if not self.apollo:
             print("[ERROR] Apollo client not initialized. Please set APOLLO_KEY in config.")
             return []
+
+        if strict_mode:
+            min_relevance = max(min_relevance, 10)
+            # Tighten titles to purchasing roles only
+            purchasing_titles = {"Buyer", "Purchasing Manager", "Procurement Manager", "Sourcing Manager"}
+            if person_titles:
+                person_titles = [t for t in person_titles if t in purchasing_titles] or list(purchasing_titles)
+            else:
+                person_titles = list(purchasing_titles)
 
         timestamp = datetime.now().isoformat()
         mode_label = "Domain Expansion" if organization_domains else "Keyword Search"
@@ -2872,6 +2920,7 @@ class LeadFinder:
         print(f"  Titles         : {person_titles}")
         print(f"  Locations      : {location_summary}")
         print(f"  Employee Range : {employee_range or 'Any'}")
+        print(f"  Min Relevance  : {min_relevance}{' (strict)' if strict_mode else ''}")
         print(f"  Max Results    : {max_results}")
         print(f"  Output         : {output}")
         print(f"{'='*60}\n")
@@ -2962,21 +3011,44 @@ class LeadFinder:
         # -----------------------------------------------------------------------
         # Stage 2.5: Relevance filtering based on enriched org data
         # -----------------------------------------------------------------------
-        print(f"\n[Stage 2.5/4] Scoring relevance for {len(people_with_domains)} contacts...")
+        print(f"\n[Stage 2.5/4] Scoring relevance for {len(people_with_domains)} contacts (min={min_relevance})...")
         scored_people: List[tuple] = []
         filtered_out = 0
         for person, domain in people_with_domains:
             score = _score_apollo_contact_relevance(person)
             has_org_data = bool(person.get("_enriched_org"))
+            org_name = (person.get("organization_name") or "").lower()
+
+            # Boost score when the company name directly contains the user's keyword.
+            # This compensates for missing Apollo enriched org data on small retailers.
+            if organization_keywords:
+                for kw in organization_keywords:
+                    if kw.lower() in org_name:
+                        score += 15
+                        break
+
             if not has_org_data:
-                score = 0
-            if score >= -50:
+                # Apollo did not return enriched org data. Infer relevance from the
+                # company name so that obviously relevant names (e.g. "Bobs Sporting Goods")
+                # are not discarded just because enrichment failed.
+                if organization_keywords and _apollo_has_positive_signal(person, organization_keywords):
+                    score = max(score, 0)
+                elif any(pos in org_name for pos in APOLLO_POSITIVE_KEYWORDS):
+                    score = max(score, 0)
+                else:
+                    score = min(score, -20)
+            # For keyword discovery, require at least one positive signal
+            # (user keyword, B2B keyword, or B2B industry) unless the user
+            # explicitly lowered the relevance threshold below 0.
+            if organization_keywords and min_relevance >= 0 and not _apollo_has_positive_signal(person, organization_keywords):
+                score = -25
+            if score >= min_relevance:
                 scored_people.append((person, domain, score))
             else:
                 filtered_out += 1
                 if filtered_out <= 5:
-                    org_name = person.get("organization_name", "")
-                    print(f"    [Filter] -'{org_name}' (score {score})")
+                    filtered_org_name = person.get("organization_name", "")
+                    print(f"    [Filter] -'{filtered_org_name}' (score {score})")
         # Sort by relevance score descending and attach score to person dict
         scored_people.sort(key=lambda x: x[2], reverse=True)
         people_with_domains = []
@@ -3324,6 +3396,17 @@ def main():
         help="Apollo.io zip/postal code filter, e.g. '90210'",
     )
     parser.add_argument(
+        "--apollo-min-relevance",
+        type=int,
+        default=0,
+        help="Minimum Apollo contact relevance score to keep (default: 0)",
+    )
+    parser.add_argument(
+        "--apollo-strict-mode",
+        action="store_true",
+        help="Strict Apollo filtering: raises min relevance to 10 and limits titles to purchasing roles",
+    )
+    parser.add_argument(
         "--supplier-portal-domains",
         type=str,
         default="",
@@ -3371,6 +3454,8 @@ def main():
             city=args.apollo_city or None,
             zip_code=args.apollo_zip or None,
             scan_supplier_pages=args.scan_supplier_pages,
+            min_relevance=args.apollo_min_relevance,
+            strict_mode=args.apollo_strict_mode,
         )
         return
 
