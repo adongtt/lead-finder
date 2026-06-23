@@ -345,6 +345,26 @@
     .timeline-action { font-weight: 600; font-size: 14px; }
     .timeline-notes { font-size: 13px; color: var(--muted); margin-top: 4px; }
     .modal-footer button { width: 100%; padding: 12px; margin-top: 10px; }
+    .verify-badge {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .verify-badge.ok { background: #dcfce7; color: #166534; }
+    .verify-badge.bad { background: #fee2e2; color: #991b1b; }
+    .verify-badge.unknown { background: #f1f5f9; color: #64748b; }
+    .filter-bar label.checkbox {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 14px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .filter-bar label.checkbox input { margin: 0; }
   </style>
 </head>
 <body>
@@ -371,6 +391,9 @@
         关联度 ≥
         <input type="number" id="relevanceFilter" value="" min="-50" max="100" placeholder="不限" style="width:70px;padding:6px 8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;font-size:14px;outline:none;">
       </label>
+      <label class="checkbox"><input type="checkbox" id="filterDomainAlive"> 仅域名存活</label>
+      <label class="checkbox"><input type="checkbox" id="filterEmailValid"> 仅邮箱有效</label>
+      <label class="checkbox"><input type="checkbox" id="filterCompanyActive"> 仅公司活跃</label>
       <button class="primary" onclick="applyFilter()">筛选</button>
       <button onclick="clearFilter()">重置</button>
     </div>
@@ -392,6 +415,9 @@
             <th>关联度</th>
             <th>LinkedIn</th>
             <th>置信度</th>
+            <th>域名状态</th>
+            <th>邮箱状态</th>
+            <th>公司状态</th>
             <th>状态</th>
             <th>操作</th>
           </tr>
@@ -604,6 +630,19 @@
       document.getElementById('sortCompany').textContent = sortState.column === 'company' ? (sortState.direction === 'asc' ? ' ↑' : ' ↓') : '';
     }
 
+    function isVerifyTrue(value) {
+      if (value === true || value === 'true' || value === 'True' || value === 1 || value === '1') return true;
+      if (value === false || value === 'false' || value === 'False' || value === 0 || value === '0' || value === '' || value === null || value === undefined) return false;
+      return false;
+    }
+
+    function renderVerifyBadge(value, error) {
+      const ok = isVerifyTrue(value);
+      if (ok) return '<span class="verify-badge ok">正常</span>';
+      if (value === '' || value === null || value === undefined || value === 'None') return '<span class="verify-badge unknown">未验证</span>';
+      return `<span class="verify-badge bad" title="${attrEscape(error || '')}">异常</span>`;
+    }
+
     function renderPage() {
       const start = (currentPage - 1) * PAGE_SIZE;
       const end = start + PAGE_SIZE;
@@ -636,6 +675,9 @@
           `<td>${escapeHtml(row.relevance_score !== undefined ? row.relevance_score : '')}</td>` +
           `<td>${row.linkedin_url ? `<a href="${escapeHtml(row.linkedin_url)}" target="_blank" rel="noopener noreferrer" style="color:#0a66c2;font-weight:500;">查看</a>` : ''}</td>` +
           `<td>${escapeHtml(row.confidence_score || '')}</td>` +
+          `<td>${renderVerifyBadge(row.domain_alive, row.domain_check_error)}</td>` +
+          `<td>${renderVerifyBadge(row.email_valid, '')}</td>` +
+          `<td>${renderVerifyBadge(row.company_active, row.company_status_notes)}</td>` +
           `<td>${badge}</td>` +
           `<td>` +
             (row.email
@@ -824,6 +866,9 @@
       const posFilter = document.getElementById('positionFilter').value.trim().toLowerCase();
       const relFilter = document.getElementById('relevanceFilter').value;
       const relMin = relFilter === '' ? null : parseFloat(relFilter);
+      const domainAliveOnly = document.getElementById('filterDomainAlive').checked;
+      const emailValidOnly = document.getElementById('filterEmailValid').checked;
+      const companyActiveOnly = document.getElementById('filterCompanyActive').checked;
 
       filteredLeads = allLeads.slice();
       if (posFilter) {
@@ -832,7 +877,16 @@
       if (relMin !== null && !isNaN(relMin)) {
         filteredLeads = filteredLeads.filter(l => (l.relevance_score || 0) >= relMin);
       }
-      if (!posFilter && relMin === null) {
+      if (domainAliveOnly) {
+        filteredLeads = filteredLeads.filter(l => isVerifyTrue(l.domain_alive));
+      }
+      if (emailValidOnly) {
+        filteredLeads = filteredLeads.filter(l => isVerifyTrue(l.email_valid));
+      }
+      if (companyActiveOnly) {
+        filteredLeads = filteredLeads.filter(l => isVerifyTrue(l.company_active));
+      }
+      if (!posFilter && relMin === null && !domainAliveOnly && !emailValidOnly && !companyActiveOnly) {
         clearFilter();
         return;
       }
@@ -840,6 +894,9 @@
       const parts = [];
       if (posFilter) parts.push(`职位："${posFilter}"`);
       if (relMin !== null) parts.push(`关联度 ≥ ${relMin}`);
+      if (domainAliveOnly) parts.push('域名存活');
+      if (emailValidOnly) parts.push('邮箱有效');
+      if (companyActiveOnly) parts.push('公司活跃');
       document.getElementById('filterInfo').textContent = parts.join(' · ') + ` · 共 ${filteredLeads.length} 条结果`;
       document.getElementById('filterInfo').style.display = 'block';
       renderPage();
@@ -849,6 +906,9 @@
     function clearFilter() {
       document.getElementById('positionFilter').value = '';
       document.getElementById('relevanceFilter').value = '';
+      document.getElementById('filterDomainAlive').checked = false;
+      document.getElementById('filterEmailValid').checked = false;
+      document.getElementById('filterCompanyActive').checked = false;
       filteredLeads = allLeads.slice();
       currentPage = 1;
       document.getElementById('filterInfo').style.display = 'none';
