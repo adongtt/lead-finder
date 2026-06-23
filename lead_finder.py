@@ -1951,13 +1951,33 @@ def _resolve_company_website(company_name: str) -> Optional[str]:
         return _company_website_cache[cache_key]
 
     blocked = {
+        # Social / video / marketplaces
         "facebook.com", "linkedin.com", "twitter.com", "x.com", "instagram.com",
-        "youtube.com", "wikipedia.org", "amazon.com", "ebay.com", "alibaba.com",
-        "aliexpress.com", "zoominfo.com", "crunchbase.com", "bbb.org",
-        "yellowpages.com", "yelp.com", "tripadvisor.com", "pinterest.com",
-        "reddit.com", "quora.com", "etsy.com", "walmart.com", "target.com",
-        "homedepot.com", "bestbuy.com", "costco.com", "wayfair.com", "macys.com",
-        "google.com", "bing.com", "baidu.com",
+        "youtube.com", "pinterest.com", "reddit.com", "quora.com", "tiktok.com",
+        # Reference / directories
+        "wikipedia.org", "amazon.com", "ebay.com", "alibaba.com", "aliexpress.com",
+        "etsy.com", "walmart.com", "target.com", "homedepot.com", "bestbuy.com",
+        "costco.com", "wayfair.com", "macys.com",
+        # Search engines
+        "google.com", "bing.com", "baidu.com", "duckduckgo.com", "yahoo.com",
+        # Business directories / review sites
+        "yellowpages.com", "yelp.com", "tripadvisor.com", "bbb.org", "manta.com",
+        "thomasnet.com", "kompass.com", "europages.com", "dnb.com", "hoovers.com",
+        "owler.com", "craft.co", "indeed.com", "glassdoor.com",
+        # B2B contact data platforms (often outrank official sites in search)
+        "zoominfo.com", "crunchbase.com", "apollo.io", "leadiq.com", "rocketreach.co",
+        "seamless.ai", "lusha.com", "contactout.com", "adapt.io", "signalhire.com",
+        "hunter.io", "snov.io", "voilanorbert.com", "clearbit.com", "fullcontact.com",
+        "discoverorg.com", "insideview.com", "datanyze.com", "b2bdata.com",
+        "email-format.com", "emailmatcher.com", "toofr.com", "anymailfinder.com",
+        "findthat.email", "skrapp.io", "getprospect.com", "salesql.com", "wiza.io",
+        "kaspr.io", "useartemis.com", "clay.earth", "phantombuster.com",
+        # News / blog platforms that may mention the company
+        "nj.com", "medium.com", "substack.com", "bloomberg.com", "reuters.com",
+        "forbes.com", "inc.com", "entrepreneur.com", "businessinsider.com",
+        "fastcompany.com", "techcrunch.com", "theguardian.com", "nytimes.com",
+        "washingtonpost.com", "cnn.com", "foxnews.com", "nbcnews.com", "cbsnews.com",
+        "abcnews.go.com", "usatoday.com", "latimes.com", "chicagotribune.com",
     }
 
     clean_name = company_name.strip().strip('"').strip("'")

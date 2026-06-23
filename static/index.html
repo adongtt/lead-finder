@@ -754,7 +754,7 @@
             </div>
             <div style="font-size:12px;color:#0c4a6e;line-height:1.6;">
               <div><strong>更新时间：</strong>2026-06-23</div>
-              <div style="margin-top:4px;"><strong>本次更新：</strong>Apollo 搜索质量优化：默认关联度阈值从 -50 提升至 0，过滤明显不相关行业；缺少公司信息的联系人默认降级；扩展负向行业/关键词词库（汽车、电子、家电、家具等）；关键词搜索增加二次校验，必须命中用户关键词或 B2B 正向信号；Apollo 面板新增"最小关联度"滑块与"严格模式"开关。修复 Apollo "无邮箱" 问题：默认不再保留 Apollo 返回 has_email=True 但未暴露真实地址的联系人，"保留无邮箱客户"选项语义更清晰；新增跳过日志。Apollo 模式增加 Hunter domain-search 兜底：当联系人缺少姓氏无法使用 email-finder 时，自动搜索域名下的公开邮箱并匹配最合适的地址。</div>
+              <div style="margin-top:4px;"><strong>本次更新：</strong>Apollo 搜索质量优化：默认关联度阈值从 -50 提升至 0，过滤明显不相关行业；缺少公司信息的联系人默认降级；扩展负向行业/关键词词库（汽车、电子、家电、家具等）；关键词搜索增加二次校验，必须命中用户关键词或 B2B 正向信号；Apollo 面板新增"最小关联度"滑块与"严格模式"开关。修复 Apollo "无邮箱" 问题：默认不再保留 Apollo 返回 has_email=True 但未暴露真实地址的联系人，"保留无邮箱客户"选项语义更清晰；新增跳过日志。Apollo 模式增加 Hunter domain-search 兜底：当联系人缺少姓氏无法使用 email-finder 时，自动搜索域名下的公开邮箱并匹配最合适的地址。修复公司域名解析：扩充屏蔽列表，过滤 LeadiQ、RocketReach、Seamless.AI 等 B2B 数据平台及常见新闻站点，避免把公司解析到错误域名。</div>
               <div style="margin-top:4px;"><strong>2026-06-22：</strong>Google Maps 搜索优化：自动过滤已关门商家、增加关键词相关度评分、支持目标国家域名（TLD）筛选、支持结果数量上限控制。</div>
               <div style="margin-top:4px;"><strong>2026-06-16：</strong>结果页“网站简介”悬浮提示改为跟随视口定位，记录少时也不会被底部截断。</div>
               <div style="margin-top:4px;"><strong>2026-06-16：</strong>新增左侧导航栏与“历史结果”页面；搜索记录支持按关键词、日期、模式、业务员筛选，管理员可查看所有人记录，业务员仅可查看自己的记录。</div>
