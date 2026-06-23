@@ -790,6 +790,7 @@ async def _stream_subprocess(
 
     start_time = time.time()
     PING_INTERVAL = 5.0
+    rate_limited = False
 
     async def _read_one():
         line = await proc.stdout.readline()
@@ -815,6 +816,8 @@ async def _stream_subprocess(
                 break
 
             if text:
+                if "[RATE_LIMIT]" in text:
+                    rate_limited = True
                 payload = json.dumps({"type": "log", "content": text}, ensure_ascii=False)
                 yield f"data: {payload}\n\n"
 
@@ -825,12 +828,20 @@ async def _stream_subprocess(
             await proc.wait()
 
         if proc.returncode != 0 and not output_file.exists():
-            payload = json.dumps({
-                "type": "done",
-                "status": "error",
-                "error_type": "subprocess_error",
-                "message": f"搜索进程异常退出（返回码 {proc.returncode}），未生成结果文件。",
-            }, ensure_ascii=False)
+            if rate_limited:
+                payload = json.dumps({
+                    "type": "done",
+                    "status": "error",
+                    "error_type": "rate_limit",
+                    "message": "SerpAPI 请求过于频繁（429）。已自动降级到 DuckDuckGo，如果仍失败请稍后重试，或考虑升级 SerpAPI 套餐。",
+                }, ensure_ascii=False)
+            else:
+                payload = json.dumps({
+                    "type": "done",
+                    "status": "error",
+                    "error_type": "subprocess_error",
+                    "message": f"搜索进程异常退出（返回码 {proc.returncode}），未生成结果文件。",
+                }, ensure_ascii=False)
             yield f"data: {payload}\n\n"
             return
 
@@ -841,12 +852,20 @@ async def _stream_subprocess(
                 payload = {"type": "done", "status": "success", "job_id": job_id}
             yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
         else:
-            payload = json.dumps({
-                "type": "done",
-                "status": "error",
-                "error_type": "no_output",
-                "message": "搜索已完成，但未生成结果文件（可能没有匹配结果）。",
-            }, ensure_ascii=False)
+            if rate_limited:
+                payload = json.dumps({
+                    "type": "done",
+                    "status": "error",
+                    "error_type": "rate_limit",
+                    "message": "SerpAPI 请求过于频繁（429），且未找到其他可用结果。建议切换搜索引擎为 DuckDuckGo，或稍后重试。",
+                }, ensure_ascii=False)
+            else:
+                payload = json.dumps({
+                    "type": "done",
+                    "status": "error",
+                    "error_type": "no_output",
+                    "message": "搜索已完成，但未生成结果文件（可能没有匹配结果）。",
+                }, ensure_ascii=False)
             yield f"data: {payload}\n\n"
 
     except asyncio.TimeoutError:

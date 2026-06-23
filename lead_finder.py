@@ -1375,7 +1375,11 @@ class SerpAPIClient:
                 if not organic:
                     break
             except requests.exceptions.RequestException as e:
-                print(f"  [SerpAPI ERROR] Page {page + 1}: {e}")
+                err_msg = str(e)
+                if "429" in err_msg or "Too Many Requests" in err_msg:
+                    print(f"  [RATE_LIMIT] SerpAPI search rate limited (429). Try --engine duckduckgo or upgrade your SerpAPI plan.")
+                else:
+                    print(f"  [SerpAPI ERROR] Page {page + 1}: {e}")
                 break
             time.sleep(1)  # Rate limit
         return results
@@ -2588,7 +2592,11 @@ class LinkedInDiscoveryClient:
                 if not organic:
                     break
             except requests.exceptions.RequestException as e:
-                print(f"  [LinkedInDiscovery ERROR] Page {page + 1}: {e}")
+                err_msg = str(e)
+                if "429" in err_msg or "Too Many Requests" in err_msg:
+                    print(f"  [RATE_LIMIT] SerpAPI LinkedIn discovery rate limited (429). Skipping LinkedIn enrichment.")
+                else:
+                    print(f"  [LinkedInDiscovery ERROR] Page {page + 1}: {e}")
                 break
             time.sleep(1)
         return results
@@ -2739,13 +2747,14 @@ class LeadFinder:
             return "google_maps"
         if self.engine != "auto":
             return self.engine
-        # Priority: serpapi > duckduckgo > browser
-        if self.serp is not None:
-            return "serpapi"
+        # Priority: duckduckgo > browser > serpapi
+        # SerpAPI is paid and rate-limits heavily; use it only when free engines are unavailable.
         if DDGS is not None:
             return "duckduckgo"
         if sync_playwright is not None:
             return "browser"
+        if self.serp is not None:
+            return "serpapi"
         print("[FATAL] No search engine available. Install duckduckgo-search or playwright.")
         sys.exit(1)
 

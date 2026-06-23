@@ -1239,6 +1239,7 @@
             if (data.error_type === 'timeout') title = '搜索超时';
             if (data.error_type === 'subprocess_error') title = '搜索进程异常';
             if (data.error_type === 'no_output') title = '未找到结果';
+            if (data.error_type === 'rate_limit') title = 'API 请求过于频繁';
             resultDiv.innerHTML = `
               <div class="badge badge-error">${escapeHtml(title)}</div>
               <div class="error-box">${escapeHtml(data.message || '未知错误')}</div>
