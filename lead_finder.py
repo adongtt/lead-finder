@@ -3065,13 +3065,54 @@ class LeadFinder:
         # Stage 3: Parallel Hunter enrichment for contacts missing email
         # -----------------------------------------------------------------------
         print(f"\n[Stage 3/4] Hunter enrichment for missing emails (parallel)...")
-        hunter_targets = [
+
+        # Contacts with full name -> Hunter email-finder
+        email_finder_targets = [
             (person, domain) for person, domain in people_with_domains
             if not person.get("value") and person.get("first_name") and person.get("last_name")
         ]
-        hunter_results: dict = {}
 
-        if hunter_targets and self.hunter:
+        # Contacts without full name -> Hunter domain-search fallback (unique domains)
+        domain_search_domains: List[str] = []
+        domain_search_seen: Set[str] = set()
+        for person, domain in people_with_domains:
+            if person.get("value"):
+                continue
+            if person.get("first_name") and person.get("last_name"):
+                continue  # handled by email-finder
+            if domain and domain not in domain_search_seen:
+                domain_search_seen.add(domain)
+                domain_search_domains.append(domain)
+
+        hunter_results: dict = {}          # id(person) -> (email, score)
+        domain_search_results: dict = {}   # domain -> list of email dicts
+
+        def _pick_best_hunter_email(emails: List[dict], first_name: str = "") -> Optional[dict]:
+            """Pick the best email from Hunter domain_search results."""
+            if not emails:
+                return None
+            # Drop generic department emails when possible
+            candidates = [e for e in emails if not is_generic_email(e.get("value", ""))]
+            if not candidates:
+                candidates = list(emails)
+            # Prefer personal type
+            personal = [e for e in candidates if e.get("type") == "personal"]
+            if personal:
+                candidates = personal
+            # If we have a first name, prefer prefix that contains it
+            if first_name:
+                fn_lower = first_name.lower().strip()
+                matching = [
+                    e for e in candidates
+                    if fn_lower in e.get("value", "").split("@")[0].lower()
+                ]
+                if matching:
+                    candidates = matching
+            # Highest confidence first
+            candidates.sort(key=lambda e: e.get("confidence", 0), reverse=True)
+            return candidates[0]
+
+        if self.hunter and (email_finder_targets or domain_search_domains):
             def _enrich_one(args: tuple) -> tuple:
                 person, domain = args
                 fn = person.get("first_name", "")
@@ -3084,20 +3125,58 @@ class LeadFinder:
                     pass
                 return (id(person), None, 0)
 
-            with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
-                future_to_idx = {executor.submit(_enrich_one, item): item for item in hunter_targets}
-                completed = 0
-                total_h = len(hunter_targets)
-                for future in concurrent.futures.as_completed(future_to_idx):
-                    completed += 1
-                    if completed % max(1, total_h // 4) == 0 or completed == total_h:
-                        pct = 40 + int((completed / total_h) * 30)
-                        print(f"PROGRESS: {min(pct, 70)}")
-                    pid, email, score = future.result()
-                    hunter_results[pid] = (email, score)
+            def _domain_search_one(domain: str) -> tuple:
+                try:
+                    emails = self.hunter.domain_search(domain, limit=10)
+                    return (domain, emails)
+                except Exception:
+                    return (domain, [])
 
-            enriched_count = sum(1 for e, _ in hunter_results.values() if e)
-            print(f"  Hunter enriched: {enriched_count}/{len(hunter_targets)}")
+            total_tasks = len(email_finder_targets) + len(domain_search_domains)
+            completed = 0
+            with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+                future_to_item = {}
+                for item in email_finder_targets:
+                    future = executor.submit(_enrich_one, item)
+                    future_to_item[future] = ("email_finder", item)
+                for domain in domain_search_domains:
+                    future = executor.submit(_domain_search_one, domain)
+                    future_to_item[future] = ("domain_search", domain)
+
+                for future in concurrent.futures.as_completed(future_to_item):
+                    completed += 1
+                    if completed % max(1, total_tasks // 4) == 0 or completed == total_tasks:
+                        pct = 40 + int((completed / total_tasks) * 30)
+                        print(f"PROGRESS: {min(pct, 70)}")
+
+                    task_type, item = future_to_item[future]
+                    if task_type == "email_finder":
+                        pid, email, score = future.result()
+                        hunter_results[pid] = (email, score)
+                    else:
+                        domain, emails = future.result()
+                        domain_search_results[domain] = emails
+
+            # Apply domain-search fallback to contacts that couldn't use email-finder
+            domain_enriched_count = 0
+            for person, domain in people_with_domains:
+                if person.get("value"):
+                    continue
+                if id(person) in hunter_results and hunter_results[id(person)][0]:
+                    continue  # already enriched via email-finder
+                emails = domain_search_results.get(domain, [])
+                best = _pick_best_hunter_email(emails, person.get("first_name", ""))
+                if best and best.get("value"):
+                    hunter_results[id(person)] = (best["value"], best.get("confidence", 50))
+                    domain_enriched_count += 1
+
+            email_finder_enriched = sum(
+                1 for pid, (e, _) in hunter_results.items()
+                if e and any(pid == id(p) for p, _ in email_finder_targets)
+            )
+            domains_with_emails = sum(1 for emails in domain_search_results.values() if emails)
+            print(f"  Hunter email-finder enriched: {email_finder_enriched}/{len(email_finder_targets)}")
+            print(f"  Hunter domain-search fallback: {domains_with_emails}/{len(domain_search_domains)} domains ({domain_enriched_count} contacts)")
         else:
             print("  No enrichment needed or Hunter not configured.")
         print("PROGRESS: 75")
