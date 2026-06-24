@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>B2B Lead Finder 使用手册</title>
+<style>
+:root {
+  --bg: #f8fafc; --card: #fff; --text: #1f2937; --muted: #6b7280;
+  --primary: #2563eb; --border: #e5e7eb; --code: #f3f4f6;
+}
+* { box-sizing: border-box; }
+body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; background: var(--bg); color: var(--text); line-height: 1.7; }
+.container { max-width: 900px; margin: 0 auto; padding: 32px 24px; }
+h1 { font-size: 28px; border-bottom: 2px solid var(--primary); padding-bottom: 12px; margin-bottom: 24px; }
+h2 { font-size: 22px; margin-top: 36px; margin-bottom: 14px; color: #111827; }
+h3 { font-size: 18px; margin-top: 24px; margin-bottom: 10px; color: #374151; }
+p { margin: 10px 0; }
+ul, ol { margin: 10px 0; padding-left: 24px; }
+li { margin: 6px 0; }
+table { width: 100%; border-collapse: collapse; margin: 16px 0; background: var(--card); border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+th, td { padding: 12px 14px; border: 1px solid var(--border); text-align: left; font-size: 14px; }
+th { background: #f1f5f9; font-weight: 600; }
+code { background: var(--code); padding: 2px 6px; border-radius: 4px; font-family: Consolas, monospace; font-size: 90%; }
+pre { background: var(--code); padding: 14px; border-radius: 8px; overflow-x: auto; }
+pre code { background: transparent; padding: 0; }
+blockquote { margin: 16px 0; padding: 12px 18px; border-left: 4px solid var(--primary); background: #eff6ff; color: #1e40af; }
+a { color: var(--primary); text-decoration: none; }
+a:hover { text-decoration: underline; }
+hr { border: none; border-top: 1px solid var(--border); margin: 28px 0; }
+@media (max-width: 640px) {
+  .container { padding: 20px 16px; }
+  table { font-size: 13px; }
+}
+</style>
+</head>
+<body>
+<div class="container">
+<h1 id="b2b-lead-finder">B2B Lead Finder 使用手册</h1>
+<blockquote>
+<p>版本：2026-06-24<br />
+适用对象：业务员 / 采购开发 / 管理员</p>
+</blockquote>
+<hr />
+<h2 id="_1">目录</h2>
+<ol>
+<li><a href="#一登录与账号">登录与账号</a></li>
+<li><a href="#二搜索模式总览">搜索模式总览</a></li>
+<li><a href="#三apollo-搜索推荐">Apollo 搜索（推荐）</a></li>
+<li><a href="#四关键词搜索">关键词搜索</a></li>
+<li><a href="#五google-maps-搜索">Google Maps 搜索</a></li>
+<li><a href="#六批量导入域名">批量导入域名</a></li>
+<li><a href="#七供应商门户扫描">供应商门户扫描</a></li>
+<li><a href="#八结果查看与导出">结果查看与导出</a></li>
+<li><a href="#九crm-跟进">CRM 跟进</a></li>
+<li><a href="#十写开发信">写开发信</a></li>
+<li><a href="#十一数据看板">数据看板</a></li>
+<li><a href="#十二常见问题">常见问题</a></li>
+</ol>
+<hr />
+<h2 id="_2">一、登录与账号</h2>
+<p>打开网站后进入登录页，输入用户名和密码即可进入主界面。</p>
+<ul>
+<li>角色分为 <strong>管理员（admin）</strong> 和 <strong>业务员（sales）</strong></li>
+<li>管理员可查看所有人的搜索记录和联系人</li>
+<li>业务员只能查看自己的数据</li>
+<li>首次使用请管理员在 <code>users.json</code> 中创建账号</li>
+</ul>
+<h3 id="11">1.1 左侧导航栏</h3>
+<p>登录后左侧固定导航栏可快速切换：</p>
+<table>
+<thead>
+<tr>
+<th>入口</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>搜索</strong></td>
+<td>进入首页，选择搜索模式</td>
+</tr>
+<tr>
+<td><strong>历史结果</strong></td>
+<td>查看所有搜索记录并下载 CSV/Excel</td>
+</tr>
+<tr>
+<td><strong>数据看板</strong></td>
+<td>查看本周线索、已联系、成交、待跟进数量</td>
+</tr>
+<tr>
+<td><strong>已联系客户</strong></td>
+<td>CRM 跟进列表</td>
+</tr>
+<tr>
+<td><strong>使用手册</strong></td>
+<td>打开本手册</td>
+</tr>
+<tr>
+<td><strong>更新日志</strong></td>
+<td>查看最近功能更新（主界面左侧边栏底部）</td>
+</tr>
+<tr>
+<td><strong>退出</strong></td>
+<td>退出登录</td>
+</tr>
+</tbody>
+</table>
+<p>在窄屏或移动端，左侧导航会折叠为图标模式，更新日志自动隐藏。</p>
+<hr />
+<h2 id="_3">二、搜索模式总览</h2>
+<p>页面顶部有 5 种搜索模式切换：</p>
+<table>
+<thead>
+<tr>
+<th>模式</th>
+<th>适用场景</th>
+<th>数据来源</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Apollo 搜索</strong></td>
+<td>按产品关键词/域名找采购决策人</td>
+<td>Apollo.io</td>
+</tr>
+<tr>
+<td><strong>供应商门户</strong></td>
+<td>已知一批域名，扫描采购/供应商页面</td>
+<td>网站主动扫描</td>
+</tr>
+<tr>
+<td><strong>Google Maps 搜索</strong></td>
+<td>按地区找线下商家</td>
+<td>Google Places API</td>
+</tr>
+<tr>
+<td><strong>关键词搜索</strong></td>
+<td>用 Google 搜索找 B2B 客户</td>
+<td>DuckDuckGo（优先）/ 浏览器抓取 / SerpAPI（备用）</td>
+</tr>
+<tr>
+<td><strong>批量导入域名</strong></td>
+<td>直接用域名列表跑邮箱挖掘</td>
+<td>Hunter / Snov / Apollo</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="apollo">三、Apollo 搜索（推荐）</h2>
+<h3 id="31">3.1 适用场景</h3>
+<ul>
+<li>知道目标行业，但不知道具体公司</li>
+<li>想直接找到 <strong>Buyer / Purchasing Manager / Procurement Manager</strong></li>
+<li>需要按国家、州、城市、公司规模精准过滤</li>
+</ul>
+<h3 id="32">3.2 填写步骤</h3>
+<ol>
+<li><strong>公司关键词</strong>：输入产品或行业英文词，例如 <code>sporting goods</code>、<code>football gloves</code></li>
+<li><strong>目标职位</strong>：按住 Ctrl/Cmd 多选，建议只选采购相关职位</li>
+<li><strong>公司规模</strong>：推荐 <code>2-50 人</code>（小经销商最精准）</li>
+<li><strong>目标地区</strong>：按国家/州/城市/邮编逐级精确</li>
+<li><strong>最大结果数</strong>：默认 100，Apollo 每页最多 100 条</li>
+<li><strong>保留无邮箱客户</strong>：适合电话开发时勾选</li>
+<li><strong>同时扫描采购/供应商页面</strong>：勾选后会进一步探测该公司的 procurement / vendor 页面</li>
+</ol>
+<h3 id="33">3.3 已有客户扩量</h3>
+<p>在 <strong>📥 已有客户域名扩量</strong> 框中粘贴合作客户域名（每行一个），Apollo 会找出这些公司的联系人，用于：</p>
+<ul>
+<li>老客户深挖</li>
+<li>相似客户拓展</li>
+</ul>
+<h3 id="34">3.4 提高精准度技巧</h3>
+<ol>
+<li>关键词用 <strong><code>sporting goods</code></strong> 比 <strong><code>football gloves</code></strong> 更精准</li>
+<li>职位只选 Buyer / Purchasing / Procurement / Sourcing，别选 CEO</li>
+<li>结合地区过滤，减少不相关国家结果</li>
+</ol>
+<hr />
+<h2 id="_4">四、关键词搜索</h2>
+<h3 id="41">4.1 适用场景</h3>
+<ul>
+<li>有明确的产品词</li>
+<li>想发现 Google 上的分销商、进口商、零售商</li>
+</ul>
+<h3 id="42">4.2 填写步骤</h3>
+<ol>
+<li><strong>关键词</strong>：例如 <code>baseball gloves distributor</code></li>
+<li><strong>搜索页数</strong>：默认 20 页，越多结果越全但越慢</li>
+<li><strong>最大域名数</strong>：限制处理的域名数量，留空则无限制</li>
+<li><strong>排除域名</strong>：跳过竞争对手或不想要的域名，逗号分隔</li>
+<li><strong>目标国家/地区</strong>：按住 Ctrl/Cmd 多选 TLD，如 <code>.de</code>、<code>.uk</code>、<code>.au</code></li>
+</ol>
+<p><strong>搜索引擎优先级</strong>：系统默认优先使用 DuckDuckGo，未安装或失败时自动使用浏览器抓取，配置了 SerpAPI 时作为最后备用。若 SerpAPI 触发速率限制，界面会提示 "API 请求过于频繁"，此时可稍后重试，或临时移除 <code>config.yaml</code> 中的 <code>serpapi_key</code> 以强制使用 DuckDuckGo。</p>
+<h3 id="43">4.3 更多选项</h3>
+<p>点击 <strong>更多选项 ▼</strong> 展开：</p>
+<table>
+<thead>
+<tr>
+<th>选项</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>深度搜索</td>
+<td>跳过前 5 页，避开大品牌和 Wikipedia</td>
+</tr>
+<tr>
+<td>排除大平台</td>
+<td>过滤 Alibaba / ThomasNet / Yelp 等目录站</td>
+</tr>
+<tr>
+<td>高级搜索语法</td>
+<td>标题必须包含关键词，结果更精准但数量更少</td>
+</tr>
+<tr>
+<td>严格模式</td>
+<td>一键开启大平台排除 + 高级语法 + 提高关联度门槛</td>
+</tr>
+<tr>
+<td>关联度最低分</td>
+<td>调高可过滤低关联站点</td>
+</tr>
+<tr>
+<td>同时搜索 Amazon 品牌</td>
+<td>从 Amazon 热门产品中发现潜在品牌客户</td>
+</tr>
+<tr>
+<td>同时扫描采购/供应商页面</td>
+<td>搜索完成后扫描 procurement / vendor 页面</td>
+</tr>
+</tbody>
+</table>
+<h3 id="44">4.4 推荐关键词模板</h3>
+<p>页面提供快速模板：棒球手套分销商、橄榄球装备进口商、体育用品批发商美国等。</p>
+<hr />
+<h2 id="google-maps">五、Google Maps 搜索</h2>
+<h3 id="51">5.1 适用场景</h3>
+<ul>
+<li>想找某个地区的线下经销商或门店</li>
+<li>需要电话、地址、评分等线下信息</li>
+</ul>
+<h3 id="52">5.2 填写步骤</h3>
+<ol>
+<li><strong>关键词</strong>：产品词，例如 <code>baseball gloves</code></li>
+<li><strong>目标地区</strong>：例如 <code>USA</code>、<code>Germany</code>、<code>Southeast Asia</code></li>
+<li>可勾选 <strong>保留无邮箱客户</strong> 和 <strong>同时扫描采购/供应商页面</strong></li>
+</ol>
+<hr />
+<h2 id="_5">六、批量导入域名</h2>
+<h3 id="61">6.1 适用场景</h3>
+<ul>
+<li>已有展会名单、海关数据、客户名单</li>
+<li>直接对域名列表挖掘邮箱</li>
+</ul>
+<h3 id="62">6.2 填写步骤</h3>
+<ol>
+<li>切换至 <strong>批量导入域名</strong> 模式</li>
+<li>在文本框中粘贴域名，每行一个或逗号分隔</li>
+<li>可勾选 <strong>保留无邮箱客户</strong> 和 <strong>同时扫描采购/供应商页面</strong></li>
+</ol>
+<hr />
+<h2 id="_6">七、供应商门户扫描</h2>
+<h3 id="71">7.1 适用场景</h3>
+<ul>
+<li>已知一批目标公司域名</li>
+<li>想批量查找这些公司的采购入口、供应商注册通道</li>
+</ul>
+<h3 id="72">7.2 扫描页面</h3>
+<p>系统会自动扫描以下常见路径：</p>
+<pre><code>/procurement
+/purchasing
+/sourcing
+/become-a-supplier
+/become-a-vendor
+/supplier-portal
+/vendor-portal
+/supplier-registration
+/sell-to-us
+/work-with-us
+/partner-with-us
+</code></pre>
+<h3 id="73">7.3 提取信息</h3>
+<ul>
+<li>采购/供应商页面 URL</li>
+<li>页面标题</li>
+<li>页面上的采购邮箱</li>
+<li>申请表单链接</li>
+<li>页面摘要</li>
+</ul>
+<h3 id="74">7.4 注意事项</h3>
+<ul>
+<li>扫描速度与域名数量成正比</li>
+<li>勾选“同时扫描采购/供应商页面”的 Apollo / 关键词搜索也会触发类似扫描</li>
+<li>部分公司可能没有专门的供应商页面</li>
+</ul>
+<hr />
+<h2 id="_7">八、结果查看与导出</h2>
+<h3 id="81">8.1 结果表格</h3>
+<p>搜索完成后页面会显示前几条结果预览，包含：</p>
+<ul>
+<li>邮箱、姓名、职位、国家</li>
+<li>电话、公司、域名</li>
+<li>LinkedIn 链接</li>
+<li>来源类型</li>
+<li>公司简介</li>
+<li>采购/供应商页面（如启用扫描）</li>
+</ul>
+<h3 id="82">8.2 查看全部</h3>
+<p>点击 <strong>查看全部</strong> 进入结果详情页，可查看完整列表。</p>
+<h3 id="83">8.3 导出</h3>
+<ul>
+<li>结果详情页提供 <strong>下载 CSV</strong> 按钮</li>
+<li>历史搜索记录也可随时下载</li>
+<li>搜索历史支持导出 Excel，并可按职位过滤</li>
+</ul>
+<h3 id="84">8.4 批量验证</h3>
+<p>在结果详情页顶部可点击 <strong>批量验证</strong>，系统会对当前结果中的客户进行三项检查：</p>
+<table>
+<thead>
+<tr>
+<th>检查项</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>域名存活</strong></td>
+<td>域名是否能正常解析/访问</td>
+</tr>
+<tr>
+<td><strong>邮箱有效</strong></td>
+<td>通过 ZeroBounce 重新验证邮箱（需配置密钥）</td>
+</tr>
+<tr>
+<td><strong>公司活跃</strong></td>
+<td>网站内容是否显示公司仍在运营</td>
+</tr>
+</tbody>
+</table>
+<p>验证过程中页面会保持连接并每 5 秒发送一次心跳，避免长时间安静的验证任务被代理/浏览器断线。若验证失败，可点击 <strong>重新验证</strong> 再次执行。</p>
+<hr />
+<h2 id="crm">九、CRM 跟进</h2>
+<h3 id="91">9.1 标记已联系</h3>
+<p>在结果列表中点击 <strong>标记已联系</strong>，系统会记录：</p>
+<ul>
+<li>联系时间</li>
+<li>跟进人</li>
+<li>客户邮箱和域名</li>
+</ul>
+<h3 id="92">9.2 查看客户详情</h3>
+<p>点击 <strong>跟进</strong> 按钮可查看：</p>
+<ul>
+<li>当前状态</li>
+<li>完整跟进历史</li>
+<li>下次跟进时间</li>
+</ul>
+<h3 id="93">9.3 添加跟进记录</h3>
+<p>在客户详情弹窗中：</p>
+<ol>
+<li>选择状态：已发邮件 / 已回复 / 已报价 / 谈判中 / 成交 / 放弃</li>
+<li>填写备注</li>
+<li>设置下次跟进时间</li>
+<li>点击 <strong>保存跟进</strong></li>
+</ol>
+<h3 id="94">9.4 跟进提醒</h3>
+<p>数据看板会显示 <strong>待跟进</strong> 数量，方便安排日常工作。</p>
+<hr />
+<h2 id="_8">十、写开发信</h2>
+<h3 id="101">10.1 打开邮件面板</h3>
+<p>在结果列表中点击 <strong>发邮件</strong>，右侧会弹出邮件撰写面板。</p>
+<h3 id="102">10.2 选择模板</h3>
+<p>提供 3 种模板：</p>
+<ul>
+<li><strong>品牌 / 分销商（欧美）</strong>：通用型开发信</li>
+<li><strong>采购经理</strong>：针对采购角色</li>
+<li><strong>跟进邮件</strong>：二次跟进</li>
+</ul>
+<h3 id="103">10.3 邮件签名</h3>
+<p>在右侧边栏 <strong>邮件签名</strong> 卡片中填写：</p>
+<ul>
+<li>您的姓名</li>
+<li>公司名称</li>
+<li>电话 / WhatsApp</li>
+</ul>
+<p>点击 <strong>保存签名</strong> 后会自动带入邮件正文。</p>
+<h3 id="104">10.4 复制邮件</h3>
+<p>写好邮件后点击 <strong>复制邮件</strong>，即可粘贴到邮件客户端发送。</p>
+<hr />
+<h2 id="_9">十一、数据看板</h2>
+<p>右侧边栏显示：</p>
+<table>
+<thead>
+<tr>
+<th>指标</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>本周线索</td>
+<td>本周搜索到的线索总数</td>
+</tr>
+<tr>
+<td>已联系</td>
+<td>已标记为联系的客户数</td>
+</tr>
+<tr>
+<td>成交</td>
+<td>状态为“成交”的客户数</td>
+</tr>
+<tr>
+<td>待跟进</td>
+<td>需要继续跟进的客户数</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="_10">十二、常见问题</h2>
+<h3 id="q1-apollo">Q1：为什么 Apollo 搜索结果里有很多不相关的公司？</h3>
+<p>Apollo 的匹配逻辑较宽泛，工具已经通过行业关键词、职位、地区等维度自动过滤和打分。建议：</p>
+<ul>
+<li>使用更精准的行业词，如 <code>sporting goods</code></li>
+<li>只选采购相关职位</li>
+<li>添加地区过滤</li>
+</ul>
+<h3 id="q2">Q2：为什么有些域名没有邮箱？</h3>
+<p>可能原因：</p>
+<ul>
+<li>该公司未在 Hunter / Apollo 数据库中</li>
+<li>使用的是通用邮箱，被过滤掉了</li>
+<li>可勾选 <strong>保留无邮箱客户</strong>，用于电话开发</li>
+</ul>
+<h3 id="q3">Q3：扫描采购/供应商页面会不会很慢？</h3>
+<p>会额外增加一些时间。每个域名会并发扫描多个常见路径。影响速度的因素：</p>
+<ul>
+<li>域名数量</li>
+<li>目标网站响应速度</li>
+<li>网络环境</li>
+</ul>
+<p>建议：</p>
+<ul>
+<li>少量域名时勾选</li>
+<li>大量域名时先用普通搜索筛选，再单独使用供应商门户模式</li>
+</ul>
+<h3 id="q4">Q4：搜索失败或超时怎么办？</h3>
+<ul>
+<li>检查 API 密钥是否配置正确（<code>config.yaml</code> 或环境变量）</li>
+<li>减少搜索页数或最大域名数</li>
+<li>关键词搜索出现 <strong>"API 请求过于频繁"</strong> 时，说明 SerpAPI 触发了速率限制（HTTP 429），系统会自动降级到 DuckDuckGo，可稍后重试；也可临时移除 <code>config.yaml</code> 中的 <code>serpapi_key</code> 强制使用 DuckDuckGo</li>
+<li>若长时间卡在 "正在验证..."，批量验证已增加心跳保活和 60 秒超时保护，可点击 <strong>重新验证</strong></li>
+<li>查看日志框中的具体错误信息</li>
+</ul>
+<h3 id="q5-excel-csv">Q5：如何导出 Excel 而不是 CSV？</h3>
+<p>在历史搜索列表或结果详情页，点击 <strong>导出 Excel</strong> 即可下载 <code>.xlsx</code> 文件。</p>
+<h3 id="q6">Q6：管理员如何查看所有人的数据？</h3>
+<p>管理员登录后：</p>
+<ul>
+<li>搜索历史页面显示所有人的搜索记录</li>
+<li>已联系客户页面显示所有人的跟进记录</li>
+<li>业务员只能看到自己的数据</li>
+</ul>
+<hr />
+<h2 id="_11">更新日志</h2>
+<ul>
+<li><strong>2026-06-24</strong>：修复搜索/验证连接超时与 SerpAPI 429 提示；批量验证支持重新验证；左侧导航栏新增「更新日志」。</li>
+<li><strong>2026-06-23</strong>：Apollo 搜索质量优化；修复 Apollo “无邮箱” 问题；修复公司域名解析过滤。</li>
+<li><strong>2026-06-22</strong>：Google Maps 搜索优化：过滤已关门商家、增加关键词相关度评分、支持 TLD 筛选与结果上限。</li>
+<li><strong>2026-06-16</strong>：启用”供应商门户”模式；普通搜索 / Apollo 搜索支持勾选”同时扫描采购/供应商页面”。</li>
+</ul>
+</div>
+</body>
+</html>
