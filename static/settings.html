@@ -195,6 +195,11 @@
         </div>
       </div>
 
+      <div class="card" id="apolloCreditsCard" style="display:none;">
+        <h3>Apollo.io 额度</h3>
+        <div id="apolloCreditsBox"></div>
+      </div>
+
       <div class="card">
         <h3>运行环境</h3>
         <div id="envBox">
@@ -279,6 +284,61 @@
             <span class="status-badge ${data.database_connected ? 'status-ok' : 'status-missing'}">${data.database_connected ? '正常' : '异常'}</span>
           </div>
         `;
+
+        if (data.apollo_credits && data.apollo_credits.configured) {
+          const card = document.getElementById('apolloCreditsCard');
+          const box = document.getElementById('apolloCreditsBox');
+          const c = data.apollo_credits;
+          let html = '';
+          if (c.reachable === false) {
+            html = `
+              <div class="status-item">
+                <div>
+                  <div class="name">额度查询失败</div>
+                  <div class="source">${c.error || '未知错误'}</div>
+                </div>
+                <span class="status-badge status-missing">异常</span>
+              </div>
+            `;
+          } else {
+            const used = Number.isFinite(Number(c.credits_used)) ? Number(c.credits_used) : 0;
+            const total = Number.isFinite(Number(c.credits_total)) ? Number(c.credits_total) : 0;
+            const remaining = Number.isFinite(Number(c.credits_remaining))
+              ? Number(c.credits_remaining)
+              : (total > used ? total - used : null);
+            const pct = total > 0 ? Math.round((used / total) * 100) : 0;
+            html = `
+              <div class="info-row">
+                <span class="label">套餐</span>
+                <span>${c.plan || '未知'}</span>
+              </div>
+              <div class="info-row">
+                <span class="label">已用 credits</span>
+                <span>${used}</span>
+              </div>
+              <div class="info-row">
+                <span class="label">剩余 credits</span>
+                <span>${remaining !== null ? remaining : '-'}</span>
+              </div>
+              ${total ? `
+              <div class="info-row">
+                <span class="label">总额度</span>
+                <span>${total}</span>
+              </div>` : ''}
+              <div style="margin-top:12px;">
+                <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:4px;">
+                  <span>已用 ${pct}%</span>
+                  <span>${remaining !== null ? '剩余 ' + remaining : ''}</span>
+                </div>
+                <div style="height:8px;background:#e2e8f0;border-radius:4px;overflow:hidden;">
+                  <div style="width:${pct}%;height:100%;background:${pct > 90 ? '#dc2626' : pct > 70 ? '#d97706' : '#059669'};"></div>
+                </div>
+              </div>
+            `;
+          }
+          box.innerHTML = html;
+          card.style.display = 'block';
+        }
 
         if (data.session_secret_default) {
           const warn = document.getElementById('warnBox');

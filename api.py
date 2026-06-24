@@ -19,6 +19,7 @@ import json
 import os
 import os
 import psycopg2
+import requests
 from psycopg2.extras import RealDictCursor
 from psycopg2 import pool as psycopg2_pool
 import subprocess
@@ -88,6 +89,93 @@ def _load_config_status():
             "source": source if file_val else "env",
         }
     return status
+
+
+def _load_config_dict():
+    """Load config.yaml into a dict, falling back to empty dict on error."""
+    config = {}
+    if CONFIG_PATH.exists():
+        try:
+            import yaml
+            with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+                config = yaml.safe_load(f) or {}
+        except Exception:
+            pass
+    return config
+
+
+def _fetch_apollo_credits_sync():
+    """Query Apollo.io /auth/whoami for current plan/credits."""
+    config = _load_config_dict()
+    api_key = config.get("apollo_key") or os.environ.get("APOLLO_KEY", "")
+    if not api_key:
+        return {"configured": False}
+
+    try:
+        resp = requests.get(
+            "https://api.apollo.io/v1/auth/whoami",
+            headers={"x-api-key": api_key},
+            timeout=10,
+        )
+        if resp.status_code == 401:
+            return {"configured": True, "reachable": False, "error": "API key 无效或已失效"}
+        if resp.status_code == 403:
+            return {"configured": True, "reachable": False, "error": "权限不足（免费版可能无法使用 People Search）"}
+        if resp.status_code != 200:
+            return {"configured": True, "reachable": False, "error": f"Apollo 返回 HTTP {resp.status_code}"}
+
+        data = resp.json() or {}
+        team = data.get("team") or data.get("active_team") or {}
+        if not isinstance(team, dict):
+            team = {}
+
+        credits_used = (
+            team.get("credits_used")
+            or team.get("team_credits_used")
+            or data.get("credits_used")
+        )
+        credits_remaining = (
+            team.get("credits_remaining")
+            or team.get("team_credits_remaining")
+            or data.get("credits_remaining")
+        )
+        credits_total = (
+            team.get("credits_limit")
+            or team.get("team_credits_limit")
+            or team.get("credits_total")
+            or team.get("team_credits_total")
+            or data.get("credits_total")
+        )
+        plan = (
+            team.get("plan")
+            or team.get("billing_plan")
+            or data.get("plan")
+            or data.get("billing_plan")
+            or "未知"
+        )
+
+        return {
+            "configured": True,
+            "reachable": True,
+            "plan": plan,
+            "credits_used": credits_used,
+            "credits_remaining": credits_remaining,
+            "credits_total": credits_total,
+        }
+    except requests.exceptions.Timeout:
+        return {"configured": True, "reachable": False, "error": "查询 Apollo 额度超时"}
+    except Exception as e:
+        return {"configured": True, "reachable": False, "error": str(e)}
+
+
+async def _get_apollo_credits():
+    """Cached async wrapper around _fetch_apollo_credits_sync."""
+    cached = _cache_get("apollo_credits")
+    if cached is not None:
+        return cached
+    result = await asyncio.to_thread(_fetch_apollo_credits_sync)
+    _cache_set("apollo_credits", result)
+    return result
 
 # ---------------------------------------------------------------------------
 # Simple in-memory TTL cache for read-heavy endpoints (stats, searches)
@@ -848,11 +936,14 @@ async def config_status(user: dict = Depends(require_user)):
     except Exception:
         db_ok = False
 
+    apollo_credits = await _get_apollo_credits()
+
     return {
         "config_source": "config.yaml" if CONFIG_PATH.exists() else "env",
         "keys": key_status,
         "database_connected": db_ok,
         "session_secret_default": SESSION_SECRET == "lead-finder-dev-secret-change-in-production",
+        "apollo_credits": apollo_credits,
     }
 
 
