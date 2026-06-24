@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>批量工具 - B2B 客户开发工具</title>
+  <style>
+    :root {
+      --bg: #f8fafc;
+      --card: #ffffff;
+      --text: #0f172a;
+      --muted: #64748b;
+      --primary: #0284c7;
+      --success: #059669;
+      --danger: #dc2626;
+      --warning: #d97706;
+      --border: #e2e8f0;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    .app { display: flex; min-height: 100vh; }
+
+    .sidebar {
+      width: 220px;
+      background: #fff;
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      padding: 24px 16px;
+      position: fixed;
+      inset: 0 auto 0 0;
+      z-index: 50;
+    }
+    .sidebar h2 { font-size: 18px; margin-bottom: 32px; padding-left: 12px; }
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px;
+      border-radius: 8px;
+      margin-bottom: 6px;
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--muted);
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .nav-item:hover { background: var(--bg); color: var(--text); }
+    .nav-item.active { background: #e0f2fe; color: var(--primary); }
+    .nav-item.logout { margin-top: auto; color: var(--danger); }
+    .nav-item.logout:hover { background: #fef2f2; }
+
+    .main {
+      flex: 1;
+      margin-left: 220px;
+      padding: 28px 32px;
+      max-width: calc(100% - 220px);
+    }
+
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 24px;
+    }
+    .topbar h1 { font-size: 24px; }
+    .user-chip {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 14px;
+    }
+    .badge {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .badge-role { background: var(--bg); color: var(--muted); }
+
+    .tools-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+      gap: 20px;
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+    }
+    .card h3 {
+      font-size: 16px;
+      margin-bottom: 12px;
+    }
+    .card p {
+      font-size: 13px;
+      color: var(--muted);
+      line-height: 1.6;
+      margin-bottom: 16px;
+    }
+
+    .form-group { margin-bottom: 14px; }
+    .form-group label {
+      display: block;
+      font-size: 13px;
+      color: var(--muted);
+      margin-bottom: 6px;
+      font-weight: 500;
+    }
+    .form-group input[type="file"],
+    .form-group textarea {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 14px;
+      background: var(--bg);
+    }
+    .form-group textarea { resize: vertical; min-height: 120px; }
+    .checkbox-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    .checkbox-group label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    .checkbox-group input { width: auto; }
+
+    .btn {
+      padding: 10px 16px;
+      border-radius: 8px;
+      border: none;
+      font-size: 14px;
+      cursor: pointer;
+      font-weight: 500;
+      transition: all 0.15s;
+    }
+    .btn-primary { background: var(--primary); color: #fff; }
+    .btn-primary:hover { background: #0369a1; }
+    .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+    .result-box {
+      margin-top: 16px;
+      padding: 14px;
+      border-radius: 8px;
+      font-size: 14px;
+      display: none;
+    }
+    .result-box.show { display: block; }
+    .result-success { background: #f0fdf4; border: 1px solid #86efac; color: #166534; }
+    .result-error { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; }
+    .result-box a { color: var(--primary); text-decoration: underline; }
+
+    .error-box {
+      background: #fef2f2;
+      color: var(--danger);
+      border: 1px solid #fecaca;
+      border-radius: 8px;
+      padding: 12px 16px;
+      margin-bottom: 20px;
+      font-size: 14px;
+    }
+
+    @media (max-width: 768px) {
+      .sidebar { width: 64px; padding: 16px 8px; }
+      .sidebar h2 { display: none; }
+      .nav-item span:last-child { display: none; }
+      .main { margin-left: 64px; max-width: calc(100% - 64px); padding: 16px; }
+      .tools-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar" data-active="tools"></aside>
+
+    <main class="main">
+      <div class="topbar">
+        <h1>批量工具</h1>
+        <div class="user-chip">
+          <span id="userName">--</span>
+          <span id="userRole" class="badge badge-role">--</span>
+        </div>
+      </div>
+
+      <div id="errorBox" class="error-box" style="display:none;"></div>
+
+      <div class="tools-grid">
+        <div class="card">
+          <h3>批量验证 CSV</h3>
+          <p>上传已有线索 CSV，对域名、邮箱、公司活跃度进行批量验证，生成新的验证结果 CSV。</p>
+
+          <div class="form-group">
+            <label>选择 CSV 文件</label>
+            <input type="file" id="verifyFile" accept=".csv">
+          </div>
+
+          <div class="form-group">
+            <label>验证项目</label>
+            <div class="checkbox-group">
+              <label><input type="checkbox" id="verifyDomain" checked> 域名存活</label>
+              <label><input type="checkbox" id="verifyEmail" checked> 邮箱有效</label>
+              <label><input type="checkbox" id="verifyCompany" checked> 公司活跃</label>
+            </div>
+          </div>
+
+          <button class="btn btn-primary" id="verifyBtn" onclick="runVerify()">开始验证</button>
+          <div id="verifyResult" class="result-box"></div>
+        </div>
+
+        <div class="card">
+          <h3>批量导入域名挖邮箱</h3>
+          <p>粘贴一批域名，直接对域名列表挖掘决策人邮箱，跳过搜索引擎环节。</p>
+
+          <div class="form-group">
+            <label>域名列表（每行一个或逗号分隔）</label>
+            <textarea id="domainsInput" placeholder="sportsunlimitedinc.com
+rawlings.com"></textarea>
+          </div>
+
+          <div class="form-group">
+            <div class="checkbox-group">
+              <label><input type="checkbox" id="keepNoEmail"> 保留无邮箱客户</label>
+              <label><input type="checkbox" id="scanSupplierPages"> 同时扫描采购/供应商页面</label>
+            </div>
+          </div>
+
+          <button class="btn btn-primary" id="domainsBtn" onclick="runDomains()">开始挖掘</button>
+          <div id="domainsResult" class="result-box"></div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="/static/components/sidebar.js"></script>
+  <script>
+    async function checkAuth() {
+      try {
+        const res = await fetch('/api/me');
+        if (!res.ok) { window.location.href = '/login'; return; }
+        const user = await res.json();
+        document.getElementById('userName').textContent = user.name || user.user_id;
+        document.getElementById('userRole').textContent = user.role === 'admin' ? '管理员' : '业务员';
+      } catch (err) {
+        window.location.href = '/login';
+      }
+    }
+
+    async function logout() {
+      try { await fetch('/logout', { method: 'POST' }); } catch (e) {}
+      window.location.href = '/login';
+    }
+
+    function showError(msg) {
+      const box = document.getElementById('errorBox');
+      box.textContent = msg;
+      box.style.display = 'block';
+    }
+
+    function setResult(id, success, html) {
+      const box = document.getElementById(id);
+      box.className = 'result-box show ' + (success ? 'result-success' : 'result-error');
+      box.innerHTML = html;
+    }
+
+    async function runVerify() {
+      const fileInput = document.getElementById('verifyFile');
+      if (!fileInput.files || !fileInput.files[0]) {
+        setResult('verifyResult', false, '请先选择 CSV 文件');
+        return;
+      }
+      const btn = document.getElementById('verifyBtn');
+      btn.disabled = true;
+      btn.textContent = '验证中...';
+
+      const form = new FormData();
+      form.append('file', fileInput.files[0]);
+      form.append('verify_domain', document.getElementById('verifyDomain').checked ? '1' : '');
+      form.append('verify_email', document.getElementById('verifyEmail').checked ? '1' : '');
+      form.append('verify_company', document.getElementById('verifyCompany').checked ? '1' : '');
+
+      try {
+        const res = await fetch('/api/leads/verify/file', { method: 'POST', body: form });
+        const data = await res.json();
+        if (data.status === 'success') {
+          setResult('verifyResult', true, `验证完成，共 ${data.total} 条线索。 <a href="${data.download_url}" target="_blank">下载 CSV</a>`);
+        } else {
+          setResult('verifyResult', false, (data.message || '验证失败').replace(/\n/g, '<br>'));
+        }
+      } catch (err) {
+        setResult('verifyResult', false, '请求失败：' + err.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '开始验证';
+      }
+    }
+
+    async function runDomains() {
+      const domains = document.getElementById('domainsInput').value.trim();
+      if (!domains) {
+        setResult('domainsResult', false, '请填写域名列表');
+        return;
+      }
+      const btn = document.getElementById('domainsBtn');
+      btn.disabled = true;
+      btn.textContent = '挖掘中...';
+
+      const params = new URLSearchParams();
+      params.append('domains', domains);
+      params.append('keep_no_email', document.getElementById('keepNoEmail').checked ? '1' : '');
+      params.append('scan_supplier_pages', document.getElementById('scanSupplierPages').checked ? '1' : '');
+
+      try {
+        const res = await fetch('/api/leads/domains', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: params.toString(),
+        });
+        const data = await res.json();
+        if (data.status === 'success') {
+          setResult('domainsResult', true, `挖掘完成，共 ${data.total} 条线索。 <a href="${data.download_url}" target="_blank">下载 CSV</a>`);
+        } else {
+          setResult('domainsResult', false, (data.message || '挖掘失败').replace(/\n/g, '<br>'));
+        }
+      } catch (err) {
+        setResult('domainsResult', false, '请求失败：' + err.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '开始挖掘';
+      }
+    }
+
+    checkAuth();
+  </script>
+</body>
+</html>

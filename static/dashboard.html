@@ -282,15 +282,7 @@
 </head>
 <body>
   <div class="app">
-    <aside class="sidebar">
-      <h2>B2B 客户开发</h2>
-      <div class="nav-item" onclick="location.href='/'"><span>🔍</span><span>搜索</span></div>
-      <div class="nav-item" onclick="location.href='/history'"><span>📁</span><span>历史结果</span></div>
-      <div class="nav-item active" onclick="location.href='/dashboard'"><span>📊</span><span>数据看板</span></div>
-      <div class="nav-item" onclick="location.href='/'"><span>📇</span><span>已联系客户</span></div>
-      <div class="nav-item" onclick="location.href='/static/USER_GUIDE.html'"><span>📖</span><span>使用手册</span></div>
-      <div class="nav-item logout" onclick="logout()"><span>🚪</span><span>退出</span></div>
-    </aside>
+    <aside class="sidebar" data-active="dashboard"></aside>
 
     <main class="main">
       <div class="topbar">
@@ -751,5 +743,6 @@
     checkAuth().then(() => loadDashboard());
   </script>
   <div id="toast" class="toast"></div>
+  <script src="/static/components/sidebar.js"></script>
 </body>
 </html>

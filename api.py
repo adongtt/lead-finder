@@ -30,7 +30,7 @@ from typing import Optional
 
 import bcrypt
 from openpyxl import Workbook
-from fastapi import Depends, FastAPI, Form, HTTPException, Request, status
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile, status
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
@@ -51,6 +51,42 @@ USERS_FILE = Path("users.json")
 
 SESSION_SECRET = os.environ.get("SESSION_SECRET", "lead-finder-dev-secret-change-in-production")
 app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET, max_age=86400 * 7)
+
+CONFIG_PATH = Path("config.yaml")
+
+
+def _load_config_status():
+    """Return which API keys are configured without exposing their values."""
+    key_names = [
+        "serpapi_key",
+        "google_maps_key",
+        "hunter_key",
+        "snov_key",
+        "apollo_key",
+        "norbert_key",
+        "zerobounce_key",
+    ]
+    config = {}
+    source = "env"
+    if CONFIG_PATH.exists():
+        try:
+            import yaml
+            with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+                config = yaml.safe_load(f) or {}
+            source = "config.yaml"
+        except Exception:
+            pass
+
+    status = {}
+    for key in key_names:
+        file_val = config.get(key, "")
+        env_val = os.environ.get(key.upper(), "")
+        value = file_val or env_val
+        status[key.replace("_key", "")] = {
+            "configured": bool(value),
+            "source": source if file_val else "env",
+        }
+    return status
 
 # ---------------------------------------------------------------------------
 # Simple in-memory TTL cache for read-heavy endpoints (stats, searches)
@@ -734,6 +770,41 @@ async def dashboard_page(user: dict = Depends(require_user)):
         return HTMLResponse(content=f.read())
 
 
+@app.get("/contacts", response_class=HTMLResponse)
+async def contacts_page(user: dict = Depends(require_user)):
+    """Serve the contacted customers / CRM page."""
+    with open("static/contacts.html", "r", encoding="utf-8") as f:
+        return HTMLResponse(content=f.read())
+
+
+@app.get("/templates", response_class=HTMLResponse)
+async def templates_page(user: dict = Depends(require_user)):
+    """Serve the quick search templates page."""
+    with open("static/templates.html", "r", encoding="utf-8") as f:
+        return HTMLResponse(content=f.read())
+
+
+@app.get("/tools", response_class=HTMLResponse)
+async def tools_page(user: dict = Depends(require_user)):
+    """Serve the batch tools page."""
+    with open("static/tools.html", "r", encoding="utf-8") as f:
+        return HTMLResponse(content=f.read())
+
+
+@app.get("/settings", response_class=HTMLResponse)
+async def settings_page(user: dict = Depends(require_user)):
+    """Serve the system status / settings page."""
+    with open("static/settings.html", "r", encoding="utf-8") as f:
+        return HTMLResponse(content=f.read())
+
+
+@app.get("/feedback", response_class=HTMLResponse)
+async def feedback_page(user: dict = Depends(require_user)):
+    """Serve the issue feedback page."""
+    with open("static/feedback.html", "r", encoding="utf-8") as f:
+        return HTMLResponse(content=f.read())
+
+
 @app.post("/login")
 async def login(request: Request, username: str = Form(...), password: str = Form(...)):
     """Authenticate and set session cookie."""
@@ -759,6 +830,29 @@ async def me(request: Request):
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="未登录")
     return user
+
+
+@app.get("/api/config/status")
+async def config_status(user: dict = Depends(require_user)):
+    """Return non-sensitive configuration / connectivity status."""
+    key_status = _load_config_status()
+    db_ok = False
+    try:
+        conn = _get_conn()
+        c = conn.cursor()
+        c.execute("SELECT 1")
+        c.fetchone()
+        _put_conn(conn)
+        db_ok = True
+    except Exception:
+        db_ok = False
+
+    return {
+        "config_source": "config.yaml" if CONFIG_PATH.exists() else "env",
+        "keys": key_status,
+        "database_connected": db_ok,
+        "session_secret_default": SESSION_SECRET == "lead-finder-dev-secret-change-in-production",
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -998,6 +1092,172 @@ async def search_leads(
         leads = _sort_leads_by_position(leads)
         source_type = "google_maps" if maps_region else "keyword"
         db_save_search(job_id, keyword, pages, len(leads), user["user_id"], user["name"], deep, csv_content, source_type=source_type)
+
+        return {
+            "job_id": job_id,
+            "status": "success",
+            "total": len(leads),
+            "download_url": f"/api/leads/download/{job_id}",
+            "preview": leads[:5] if leads else [],
+            "leads": leads,
+            "log": result.stdout[-500:] if result.stdout else "",
+        }
+    else:
+        return {
+            "job_id": job_id,
+            "status": "error",
+            "message": (result.stdout + "\n" + result.stderr)[-1000:],
+        }
+
+
+@app.post("/api/leads/domains")
+async def search_domains(
+    domains: str = Form(...),
+    keep_no_email: bool = Form(False),
+    scan_supplier_pages: bool = Form(False),
+    user: dict = Depends(require_user),
+):
+    """Run a bulk domain import search synchronously."""
+    job_id = str(uuid.uuid4())[:8]
+    output_file = DATA_DIR / f"{job_id}.csv"
+
+    cmd = [
+        sys.executable or "python", "lead_finder.py", "bulk-domain-search",
+        "--domains", domains.replace("\n", ",").replace("\r", ""),
+        "--output", str(output_file),
+    ]
+    if keep_no_email:
+        cmd.append("--keep-no-email")
+    if scan_supplier_pages:
+        cmd.append("--scan-supplier-pages")
+
+    SYNC_SEARCH_TIMEOUT = int(os.environ.get("SYNC_SEARCH_TIMEOUT", "120"))
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            cwd=".",
+            encoding="utf-8",
+            errors="replace",
+            timeout=SYNC_SEARCH_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired as exc:
+        return {
+            "job_id": job_id,
+            "status": "error",
+            "error_type": "timeout",
+            "message": f"批量域名搜索超时（超过 {SYNC_SEARCH_TIMEOUT} 秒）。请减少域名数量或使用流式搜索。",
+            "log": (exc.stdout or "")[-500:] if exc.stdout else "",
+        }
+    except Exception as exc:
+        return {
+            "job_id": job_id,
+            "status": "error",
+            "error_type": "subprocess_error",
+            "message": f"启动批量域名搜索失败: {exc}",
+            "log": "",
+        }
+
+    if output_file.exists():
+        csv_content = output_file.read_text(encoding="utf-8")
+        leads = []
+        lines = csv_content.splitlines()
+        if lines:
+            lines[0] = lines[0].lstrip('﻿')
+        reader = csv.DictReader(lines)
+        for row in reader:
+            leads.append({k: v for k, v in row.items()})
+        leads = db_enrich_leads(leads)
+        leads = _sort_leads_by_position(leads)
+        db_save_search(job_id, f"Bulk domains ({len(domains.splitlines())} rows)", 0, len(leads), user["user_id"], user["name"], False, csv_content, source_type="domains")
+
+        return {
+            "job_id": job_id,
+            "status": "success",
+            "total": len(leads),
+            "download_url": f"/api/leads/download/{job_id}",
+            "preview": leads[:5] if leads else [],
+            "leads": leads,
+            "log": result.stdout[-500:] if result.stdout else "",
+        }
+    else:
+        return {
+            "job_id": job_id,
+            "status": "error",
+            "message": (result.stdout + "\n" + result.stderr)[-1000:],
+        }
+
+
+@app.post("/api/leads/verify/file")
+async def verify_file(
+    file: UploadFile = File(...),
+    verify_domain: bool = Form(True),
+    verify_email: bool = Form(True),
+    verify_company: bool = Form(True),
+    user: dict = Depends(require_user),
+):
+    """Upload a CSV and run batch verification synchronously."""
+    job_id = str(uuid.uuid4())[:8]
+    input_file = DATA_DIR / f"{job_id}_verify_in.csv"
+    output_file = DATA_DIR / f"{job_id}.csv"
+
+    content = await file.read()
+    input_file.write_bytes(content)
+
+    cmd = [
+        sys.executable or "python", "lead_finder.py",
+        "--verify-csv", str(input_file),
+        "--verify-output", str(output_file),
+        "--verify-workers", "6",
+    ]
+    if verify_domain:
+        cmd.append("--verify-domain")
+    if verify_email:
+        cmd.append("--verify-email")
+    if verify_company:
+        cmd.append("--verify-company")
+
+    VERIFY_TIMEOUT = int(os.environ.get("SYNC_VERIFY_TIMEOUT", "300"))
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            cwd=".",
+            encoding="utf-8",
+            errors="replace",
+            timeout=VERIFY_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired as exc:
+        return {
+            "job_id": job_id,
+            "status": "error",
+            "error_type": "timeout",
+            "message": f"批量验证超时（超过 {VERIFY_TIMEOUT} 秒）。请减少 CSV 行数。",
+            "log": (exc.stdout or "")[-500:] if exc.stdout else "",
+        }
+    except Exception as exc:
+        return {
+            "job_id": job_id,
+            "status": "error",
+            "error_type": "subprocess_error",
+            "message": f"启动验证失败: {exc}",
+            "log": "",
+        }
+
+    if output_file.exists():
+        csv_content = output_file.read_text(encoding="utf-8")
+        leads = []
+        lines = csv_content.splitlines()
+        if lines:
+            lines[0] = lines[0].lstrip('﻿')
+        reader = csv.DictReader(lines)
+        for row in reader:
+            leads.append({k: v for k, v in row.items()})
+        leads = db_enrich_leads(leads)
+        leads = _sort_leads_by_position(leads)
+        db_save_search(job_id, f"Verified: uploaded CSV", 0, len(leads), user["user_id"], user["name"], False, csv_content, source_type="verified")
 
         return {
             "job_id": job_id,
@@ -1652,6 +1912,35 @@ async def post_followup(
     """Add a follow-up record and update status."""
     db_add_followup(email, action, notes, next_follow_up, user["user_id"], user["name"])
     return {"status": "ok"}
+
+
+@app.post("/api/feedback")
+async def post_feedback(
+    request: Request,
+    feedback_type: str = Form(...),
+    description: str = Form(...),
+    log: str = Form(""),
+    user: dict = Depends(require_user),
+):
+    """Save user feedback to a local JSON file."""
+    feedback_dir = Path("feedback")
+    feedback_dir.mkdir(exist_ok=True)
+    now = datetime.now().isoformat()
+    safe_time = now.replace(":", "-").replace(".", "-")
+    filename = feedback_dir / f"feedback_{safe_time}_{user['user_id']}.json"
+    payload = {
+        "created_at": now,
+        "user_id": user["user_id"],
+        "user_name": user.get("name", ""),
+        "type": feedback_type,
+        "description": description,
+        "log": log,
+    }
+    filename.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return {"status": "ok", "id": filename.name}
 
 
 @app.put("/api/contacted/{email}/status")

@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>已联系客户 - B2B 客户开发工具</title>
+  <style>
+    :root {
+      --bg: #f8fafc;
+      --card: #ffffff;
+      --text: #0f172a;
+      --muted: #64748b;
+      --primary: #0284c7;
+      --success: #059669;
+      --danger: #dc2626;
+      --warning: #d97706;
+      --purple: #7c3aed;
+      --border: #e2e8f0;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+    a { text-decoration: none; color: inherit; }
+
+    .app { display: flex; min-height: 100vh; }
+
+    .sidebar {
+      width: 220px;
+      background: #fff;
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      padding: 24px 16px;
+      position: fixed;
+      inset: 0 auto 0 0;
+      z-index: 50;
+    }
+    .sidebar h2 { font-size: 18px; margin-bottom: 32px; padding-left: 12px; }
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px;
+      border-radius: 8px;
+      margin-bottom: 6px;
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--muted);
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .nav-item:hover { background: var(--bg); color: var(--text); }
+    .nav-item.active { background: #e0f2fe; color: var(--primary); }
+    .nav-item.logout { margin-top: auto; color: var(--danger); }
+    .nav-item.logout:hover { background: #fef2f2; }
+
+    .main {
+      flex: 1;
+      margin-left: 220px;
+      padding: 28px 32px;
+      max-width: calc(100% - 220px);
+    }
+
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 24px;
+    }
+    .topbar h1 { font-size: 24px; }
+    .user-chip {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 14px;
+    }
+    .badge {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .badge-role { background: var(--bg); color: var(--muted); }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+    .card h3 {
+      font-size: 15px;
+      color: var(--muted);
+      margin-bottom: 16px;
+      font-weight: 600;
+    }
+
+    .filters {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+    .filter-group { display: flex; flex-direction: column; gap: 6px; }
+    .filter-group label { font-size: 13px; color: var(--muted); font-weight: 500; }
+    .filter-group input, .filter-group select {
+      padding: 8px 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 14px;
+      background: var(--bg);
+    }
+
+    .btn {
+      padding: 8px 14px;
+      border-radius: 8px;
+      border: none;
+      font-size: 13px;
+      cursor: pointer;
+      font-weight: 500;
+      transition: all 0.15s;
+    }
+    .btn-primary { background: var(--primary); color: #fff; }
+    .btn-primary:hover { background: #0369a1; }
+    .btn-sm { padding: 5px 10px; font-size: 12px; }
+
+    .contacts-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+    .contacts-table th, .contacts-table td {
+      padding: 12px 10px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+    }
+    .contacts-table th {
+      color: var(--muted);
+      font-weight: 600;
+      font-size: 12px;
+      text-transform: uppercase;
+    }
+    .contacts-table tr:hover { background: #f8fafc; }
+    .status-badge {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 500;
+    }
+    .status-sent { background: #e0f2fe; color: #0369a1; }
+    .status-replied { background: #dcfce7; color: #166534; }
+    .status-quoted { background: #fef3c7; color: #92400e; }
+    .status-negotiating { background: #f3e8ff; color: #7c3aed; }
+    .status-won { background: #d1fae5; color: #065f46; }
+    .status-lost { background: #f1f5f9; color: #64748b; }
+    .status-other { background: #f1f5f9; color: #475569; }
+
+    .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+    .empty { padding: 40px; text-align: center; color: var(--muted); font-size: 14px; }
+    .error-box {
+      background: #fef2f2;
+      color: var(--danger);
+      border: 1px solid #fecaca;
+      border-radius: 8px;
+      padding: 12px 16px;
+      margin-bottom: 20px;
+      font-size: 14px;
+    }
+
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.5);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+      padding: 20px;
+    }
+    .modal-overlay.show { display: flex; }
+    .modal {
+      background: var(--card);
+      border-radius: 12px;
+      width: 100%;
+      max-width: 560px;
+      max-height: 90vh;
+      overflow-y: auto;
+      padding: 24px;
+    }
+    .modal h2 { font-size: 18px; margin-bottom: 16px; }
+    .modal-row { margin-bottom: 14px; }
+    .modal-row label {
+      display: block;
+      font-size: 13px;
+      color: var(--muted);
+      margin-bottom: 6px;
+      font-weight: 500;
+    }
+    .modal-row input, .modal-row select, .modal-row textarea {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 14px;
+      background: var(--bg);
+    }
+    .modal-row textarea { resize: vertical; min-height: 80px; }
+    .modal-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      margin-top: 20px;
+    }
+    .btn-secondary { background: #f1f5f9; color: var(--text); }
+    .btn-secondary:hover { background: #e2e8f0; }
+
+    .history-list { margin-top: 10px; }
+    .history-item {
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      margin-bottom: 8px;
+      font-size: 13px;
+    }
+    .history-meta { color: var(--muted); font-size: 12px; margin-top: 4px; }
+
+    @media (max-width: 768px) {
+      .sidebar { width: 64px; padding: 16px 8px; }
+      .sidebar h2 { display: none; }
+      .nav-item span:last-child { display: none; }
+      .main { margin-left: 64px; max-width: calc(100% - 64px); padding: 16px; }
+      .contacts-table { font-size: 12px; }
+      .contacts-table th, .contacts-table td { padding: 8px 6px; }
+      .actions { flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar" data-active="contacts"></aside>
+
+    <main class="main">
+      <div class="topbar">
+        <h1>已联系客户</h1>
+        <div class="user-chip">
+          <span id="userName">--</span>
+          <span id="userRole" class="badge badge-role">--</span>
+        </div>
+      </div>
+
+      <div id="errorBox" class="error-box" style="display:none;"></div>
+
+      <div class="card">
+        <div class="filters">
+          <div class="filter-group">
+            <label>搜索邮箱 / 域名</label>
+            <input type="text" id="filterText" placeholder="输入邮箱或域名" oninput="renderContacts()">
+          </div>
+          <div class="filter-group">
+            <label>状态</label>
+            <select id="filterStatus" onchange="renderContacts()">
+              <option value="">全部</option>
+              <option value="已发邮件">已发邮件</option>
+              <option value="已回复">已回复</option>
+              <option value="已报价">已报价</option>
+              <option value="谈判中">谈判中</option>
+              <option value="成交">成交</option>
+              <option value="放弃">放弃</option>
+            </select>
+          </div>
+        </div>
+
+        <div id="contactsBox">
+          <div class="empty">加载中...</div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <div id="modalOverlay" class="modal-overlay" onclick="closeModal(event)">
+    <div class="modal" onclick="event.stopPropagation()">
+      <h2 id="modalTitle">客户跟进</h2>
+      <div id="modalInfo" class="modal-row" style="font-size:13px;color:var(--muted);"></div>
+
+      <div class="modal-row">
+        <label>状态</label>
+        <select id="modalStatus">
+          <option value="已发邮件">已发邮件</option>
+          <option value="已回复">已回复</option>
+          <option value="已报价">已报价</option>
+          <option value="谈判中">谈判中</option>
+          <option value="成交">成交</option>
+          <option value="放弃">放弃</option>
+        </select>
+      </div>
+
+      <div class="modal-row">
+        <label>下次跟进时间</label>
+        <input type="date" id="modalNext">
+      </div>
+
+      <div class="modal-row">
+        <label>跟进备注</label>
+        <textarea id="modalNotes" placeholder="记录沟通内容"></textarea>
+      </div>
+
+      <div id="modalHistory" class="modal-row">
+        <label>跟进历史</label>
+        <div class="history-list" id="historyList"></div>
+      </div>
+
+      <div class="modal-actions">
+        <button class="btn btn-secondary" onclick="hideModal()">取消</button>
+        <button class="btn btn-primary" onclick="saveFollowup()">保存跟进</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/components/sidebar.js"></script>
+  <script>
+    let currentUser = null;
+    let allContacts = [];
+    let currentEmail = null;
+
+    const statusClasses = {
+      '已发邮件': 'status-sent',
+      '已回复': 'status-replied',
+      '已报价': 'status-quoted',
+      '谈判中': 'status-negotiating',
+      '成交': 'status-won',
+      '放弃': 'status-lost',
+    };
+
+    async function checkAuth() {
+      try {
+        const res = await fetch('/api/me');
+        if (!res.ok) { window.location.href = '/login'; return; }
+        currentUser = await res.json();
+        document.getElementById('userName').textContent = currentUser.name || currentUser.user_id;
+        document.getElementById('userRole').textContent = currentUser.role === 'admin' ? '管理员' : '业务员';
+      } catch (err) {
+        window.location.href = '/login';
+      }
+    }
+
+    async function logout() {
+      try { await fetch('/logout', { method: 'POST' }); } catch (e) {}
+      window.location.href = '/login';
+    }
+
+    function showError(msg) {
+      const box = document.getElementById('errorBox');
+      box.textContent = msg;
+      box.style.display = 'block';
+    }
+
+    function clearError() {
+      document.getElementById('errorBox').style.display = 'none';
+    }
+
+    async function loadContacts() {
+      clearError();
+      try {
+        const res = await fetch('/api/contacted');
+        if (!res.ok) throw new Error((await res.text()).slice(0, 100));
+        const data = await res.json();
+        allContacts = data.items || [];
+        renderContacts();
+      } catch (err) {
+        showError('加载客户列表失败：' + err.message);
+      }
+    }
+
+    function renderContacts() {
+      const text = document.getElementById('filterText').value.trim().toLowerCase();
+      const status = document.getElementById('filterStatus').value;
+      const filtered = allContacts.filter(c => {
+        const matchText = !text || ((c.email || '').toLowerCase().includes(text) || (c.domain || '').toLowerCase().includes(text));
+        const matchStatus = !status || (c.status || '') === status;
+        return matchText && matchStatus;
+      });
+
+      const box = document.getElementById('contactsBox');
+      if (!filtered.length) {
+        box.innerHTML = '<div class="empty">暂无匹配客户</div>';
+        return;
+      }
+
+      let html = `
+        <table class="contacts-table">
+          <thead>
+            <tr>
+              <th>邮箱</th>
+              <th>域名</th>
+              <th>状态</th>
+              <th>下次跟进</th>
+              ${currentUser && currentUser.role === 'admin' ? '<th>业务员</th>' : ''}
+              <th>最近更新</th>
+              <th style="width:140px">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+      `;
+      filtered.forEach(c => {
+        const badgeClass = statusClasses[c.status] || 'status-other';
+        const next = c.next_follow_up || '-';
+        const updated = c.created_at ? c.created_at.slice(0, 10) : '-';
+        const owner = currentUser && currentUser.role === 'admin' ? `<td>${escapeHtml(c.user_name || c.user_id || '-')}</td>` : '';
+        html += `
+          <tr>
+            <td>${escapeHtml(c.email)}</td>
+            <td>${escapeHtml(c.domain || '-')}</td>
+            <td><span class="status-badge ${badgeClass}">${escapeHtml(c.status || '未联系')}</span></td>
+            <td>${escapeHtml(next)}</td>
+            ${owner}
+            <td>${escapeHtml(updated)}</td>
+            <td>
+              <div class="actions">
+                <button class="btn btn-primary btn-sm" onclick="openModal('${escapeHtml(c.email)}')">跟进</button>
+              </div>
+            </td>
+          </tr>
+        `;
+      });
+      html += '</tbody></table>';
+      box.innerHTML = html;
+    }
+
+    async function openModal(email) {
+      currentEmail = email;
+      document.getElementById('modalTitle').textContent = '客户跟进：' + email;
+      document.getElementById('modalNotes').value = '';
+      document.getElementById('modalNext').value = '';
+
+      try {
+        const res = await fetch('/api/contacted/' + encodeURIComponent(email));
+        if (!res.ok) throw new Error((await res.text()).slice(0, 100));
+        const contact = await res.json();
+        document.getElementById('modalStatus').value = contact.status || '已发邮件';
+        document.getElementById('modalNext').value = contact.next_follow_up || '';
+
+        const infoParts = [];
+        if (contact.domain) infoParts.push('域名：' + contact.domain);
+        if (contact.notes) infoParts.push('备注：' + contact.notes);
+        document.getElementById('modalInfo').textContent = infoParts.join('  |  ');
+
+        const history = contact.history || [];
+        const list = document.getElementById('historyList');
+        if (!history.length) {
+          list.innerHTML = '<div class="history-item">暂无跟进记录</div>';
+        } else {
+          list.innerHTML = history.slice().reverse().map(h => `
+            <div class="history-item">
+              <div><strong>${escapeHtml(h.action || '-')}</strong>${h.notes ? '：' + escapeHtml(h.notes) : ''}</div>
+              <div class="history-meta">${escapeHtml(h.user_name || h.user_id || '-')} · ${escapeHtml(h.at ? h.at.slice(0, 19).replace('T', ' ') : '-')}</div>
+            </div>
+          `).join('');
+        }
+      } catch (err) {
+        showError('加载客户详情失败：' + err.message);
+        return;
+      }
+
+      document.getElementById('modalOverlay').classList.add('show');
+    }
+
+    function hideModal() {
+      document.getElementById('modalOverlay').classList.remove('show');
+      currentEmail = null;
+    }
+
+    function closeModal(e) {
+      if (e.target === document.getElementById('modalOverlay')) hideModal();
+    }
+
+    async function saveFollowup() {
+      if (!currentEmail) return;
+      const action = document.getElementById('modalStatus').value;
+      const notes = document.getElementById('modalNotes').value.trim();
+      const next = document.getElementById('modalNext').value;
+
+      try {
+        const params = new URLSearchParams({ action, notes, next_follow_up: next });
+        const res = await fetch('/api/contacted/' + encodeURIComponent(currentEmail) + '/followup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: params.toString(),
+        });
+        if (!res.ok) throw new Error((await res.text()).slice(0, 100));
+        hideModal();
+        await loadContacts();
+      } catch (err) {
+        showError('保存跟进失败：' + err.message);
+      }
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text || '';
+      return div.innerHTML;
+    }
+
+    checkAuth().then(() => loadContacts());
+  </script>
+</body>
+</html>

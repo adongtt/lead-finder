@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>问题反馈 - B2B 客户开发工具</title>
+  <style>
+    :root {
+      --bg: #f8fafc;
+      --card: #ffffff;
+      --text: #0f172a;
+      --muted: #64748b;
+      --primary: #0284c7;
+      --success: #059669;
+      --danger: #dc2626;
+      --border: #e2e8f0;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    .app { display: flex; min-height: 100vh; }
+
+    .sidebar {
+      width: 220px;
+      background: #fff;
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      padding: 24px 16px;
+      position: fixed;
+      inset: 0 auto 0 0;
+      z-index: 50;
+    }
+    .sidebar h2 { font-size: 18px; margin-bottom: 32px; padding-left: 12px; }
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px;
+      border-radius: 8px;
+      margin-bottom: 6px;
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--muted);
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .nav-item:hover { background: var(--bg); color: var(--text); }
+    .nav-item.active { background: #e0f2fe; color: var(--primary); }
+    .nav-item.logout { margin-top: auto; color: var(--danger); }
+    .nav-item.logout:hover { background: #fef2f2; }
+
+    .main {
+      flex: 1;
+      margin-left: 220px;
+      padding: 28px 32px;
+      max-width: calc(100% - 220px);
+    }
+
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 24px;
+    }
+    .topbar h1 { font-size: 24px; }
+    .user-chip {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 14px;
+    }
+    .badge {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .badge-role { background: var(--bg); color: var(--muted); }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px;
+      max-width: 720px;
+    }
+    .card h3 {
+      font-size: 16px;
+      margin-bottom: 8px;
+    }
+    .card > p {
+      font-size: 13px;
+      color: var(--muted);
+      margin-bottom: 20px;
+    }
+
+    .form-group { margin-bottom: 18px; }
+    .form-group label {
+      display: block;
+      font-size: 13px;
+      color: var(--muted);
+      margin-bottom: 6px;
+      font-weight: 500;
+    }
+    .form-group select,
+    .form-group textarea,
+    .form-group input {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 14px;
+      background: var(--bg);
+    }
+    .form-group textarea { resize: vertical; min-height: 120px; }
+
+    .btn {
+      padding: 10px 18px;
+      border-radius: 8px;
+      border: none;
+      font-size: 14px;
+      cursor: pointer;
+      font-weight: 500;
+      transition: all 0.15s;
+    }
+    .btn-primary { background: var(--primary); color: #fff; }
+    .btn-primary:hover { background: #0369a1; }
+    .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+    .result-box {
+      margin-top: 16px;
+      padding: 14px;
+      border-radius: 8px;
+      font-size: 14px;
+      display: none;
+    }
+    .result-box.show { display: block; }
+    .result-success { background: #f0fdf4; border: 1px solid #86efac; color: #166534; }
+    .result-error { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; }
+
+    .error-box {
+      background: #fef2f2;
+      color: var(--danger);
+      border: 1px solid #fecaca;
+      border-radius: 8px;
+      padding: 12px 16px;
+      margin-bottom: 20px;
+      font-size: 14px;
+    }
+
+    @media (max-width: 768px) {
+      .sidebar { width: 64px; padding: 16px 8px; }
+      .sidebar h2 { display: none; }
+      .nav-item span:last-child { display: none; }
+      .main { margin-left: 64px; max-width: calc(100% - 64px); padding: 16px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar" data-active="feedback"></aside>
+
+    <main class="main">
+      <div class="topbar">
+        <h1>问题反馈</h1>
+        <div class="user-chip">
+          <span id="userName">--</span>
+          <span id="userRole" class="badge badge-role">--</span>
+        </div>
+      </div>
+
+      <div id="errorBox" class="error-box" style="display:none;"></div>
+
+      <div class="card">
+        <h3>提交问题或建议</h3>
+        <p>遇到搜索失败、验证错误、界面异常，或有新功能想法，都可以在这里提交。建议附上日志或截图描述，方便快速定位。</p>
+
+        <div class="form-group">
+          <label>反馈类型</label>
+          <select id="fbType">
+            <option value="搜索失败">搜索失败</option>
+            <option value="验证失败">验证失败</option>
+            <option value="界面问题">界面问题</option>
+            <option value="功能建议">功能建议</option>
+            <option value="其他">其他</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>问题描述</label>
+          <textarea id="fbDesc" placeholder="请描述遇到的问题，例如：搜索关键词、错误提示、出现时间等"></textarea>
+        </div>
+
+        <div class="form-group">
+          <label>相关日志 / 截图说明（可选）</label>
+          <textarea id="fbLog" placeholder="可粘贴搜索日志、错误信息或截图内容"></textarea>
+        </div>
+
+        <button class="btn btn-primary" id="submitBtn" onclick="submitFeedback()">提交反馈</button>
+        <div id="resultBox" class="result-box"></div>
+      </div>
+    </main>
+  </div>
+
+  <script src="/static/components/sidebar.js"></script>
+  <script>
+    async function checkAuth() {
+      try {
+        const res = await fetch('/api/me');
+        if (!res.ok) { window.location.href = '/login'; return; }
+        const user = await res.json();
+        document.getElementById('userName').textContent = user.name || user.user_id;
+        document.getElementById('userRole').textContent = user.role === 'admin' ? '管理员' : '业务员';
+      } catch (err) {
+        window.location.href = '/login';
+      }
+    }
+
+    async function logout() {
+      try { await fetch('/logout', { method: 'POST' }); } catch (e) {}
+      window.location.href = '/login';
+    }
+
+    function showError(msg) {
+      const box = document.getElementById('errorBox');
+      box.textContent = msg;
+      box.style.display = 'block';
+    }
+
+    function setResult(success, msg) {
+      const box = document.getElementById('resultBox');
+      box.className = 'result-box show ' + (success ? 'result-success' : 'result-error');
+      box.textContent = msg;
+    }
+
+    async function submitFeedback() {
+      const type = document.getElementById('fbType').value;
+      const description = document.getElementById('fbDesc').value.trim();
+      const log = document.getElementById('fbLog').value.trim();
+
+      if (!description) {
+        setResult(false, '请填写问题描述');
+        return;
+      }
+
+      const btn = document.getElementById('submitBtn');
+      btn.disabled = true;
+      btn.textContent = '提交中...';
+
+      const params = new URLSearchParams();
+      params.append('feedback_type', type);
+      params.append('description', description);
+      params.append('log', log);
+
+      try {
+        const res = await fetch('/api/feedback', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: params.toString(),
+        });
+        const data = await res.json();
+        if (res.ok && data.status === 'ok') {
+          setResult(true, '反馈已提交，谢谢！');
+          document.getElementById('fbDesc').value = '';
+          document.getElementById('fbLog').value = '';
+        } else {
+          setResult(false, '提交失败：' + (data.detail || '请稍后重试'));
+        }
+      } catch (err) {
+        setResult(false, '提交失败：' + err.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '提交反馈';
+      }
+    }
+
+    checkAuth();
+  </script>
+</body>
+</html>
