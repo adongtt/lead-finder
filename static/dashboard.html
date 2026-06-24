@@ -199,6 +199,75 @@
       font-size: 14px;
     }
 
+    .keyword-ref-card .ref-scroll {
+      max-height: 560px;
+      overflow-y: auto;
+      padding-right: 4px;
+    }
+    .ref-section { margin-bottom: 18px; }
+    .ref-section:last-child { margin-bottom: 0; }
+    .ref-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--muted);
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .ref-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .ref-tag {
+      display: inline-flex;
+      align-items: center;
+      padding: 5px 10px;
+      background: #f1f5f9;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      font-size: 13px;
+      cursor: pointer;
+      transition: all 0.15s;
+      user-select: none;
+    }
+    .ref-tag:hover {
+      background: #e0f2fe;
+      border-color: var(--primary);
+      color: var(--primary);
+    }
+    .ref-example {
+      background: #f8fafc;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      font-size: 13px;
+      line-height: 1.7;
+    }
+    .ref-tip {
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 10px;
+    }
+
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #1e293b;
+      color: #fff;
+      padding: 10px 18px;
+      border-radius: 8px;
+      font-size: 13px;
+      z-index: 100;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s;
+    }
+    .toast.show { opacity: 1; }
+
     @media (max-width: 1100px) {
       .dashboard-grid { grid-template-columns: 1fr; }
     }
@@ -281,6 +350,114 @@
           <div class="card">
             <h3>线索质量（平均线索数 / 搜索）</h3>
             <div class="chart-wrap small"><canvas id="qualityChart"></canvas></div>
+          </div>
+
+          <div class="card keyword-ref-card">
+            <h3>Apollo 关键词参考</h3>
+            <div class="ref-scroll">
+              <div class="ref-section">
+                <div class="ref-title">产品类型 / 材质</div>
+                <div class="ref-tags">
+                  <span class="ref-tag" onclick="copyRef('gloves')">gloves</span>
+                  <span class="ref-tag" onclick="copyRef('hand protection')">hand protection</span>
+                  <span class="ref-tag" onclick="copyRef('PPE')">PPE</span>
+                  <span class="ref-tag" onclick="copyRef('safety products')">safety products</span>
+                  <span class="ref-tag" onclick="copyRef('nitrile gloves')">nitrile gloves</span>
+                  <span class="ref-tag" onclick="copyRef('latex gloves')">latex gloves</span>
+                  <span class="ref-tag" onclick="copyRef('vinyl gloves')">vinyl gloves</span>
+                  <span class="ref-tag" onclick="copyRef('leather gloves')">leather gloves</span>
+                  <span class="ref-tag" onclick="copyRef('rubber gloves')">rubber gloves</span>
+                  <span class="ref-tag" onclick="copyRef('cut resistant gloves')">cut resistant gloves</span>
+                  <span class="ref-tag" onclick="copyRef('chemical resistant gloves')">chemical resistant gloves</span>
+                  <span class="ref-tag" onclick="copyRef('disposable gloves')">disposable gloves</span>
+                  <span class="ref-tag" onclick="copyRef('industrial gloves')">industrial gloves</span>
+                  <span class="ref-tag" onclick="copyRef('medical gloves')">medical gloves</span>
+                  <span class="ref-tag" onclick="copyRef('surgical gloves')">surgical gloves</span>
+                  <span class="ref-tag" onclick="copyRef('kitchen gloves')">kitchen gloves</span>
+                  <span class="ref-tag" onclick="copyRef('cleaning gloves')">cleaning gloves</span>
+                  <span class="ref-tag" onclick="copyRef('tactical gloves')">tactical gloves</span>
+                  <span class="ref-tag" onclick="copyRef('winter gloves')">winter gloves</span>
+                </div>
+              </div>
+
+              <div class="ref-section">
+                <div class="ref-title">目标客户类型</div>
+                <div class="ref-tags">
+                  <span class="ref-tag" onclick="copyRef('distributor')">distributor</span>
+                  <span class="ref-tag" onclick="copyRef('wholesaler')">wholesaler</span>
+                  <span class="ref-tag" onclick="copyRef('importer')">importer</span>
+                  <span class="ref-tag" onclick="copyRef('trader')">trader</span>
+                  <span class="ref-tag" onclick="copyRef('retailer')">retailer</span>
+                  <span class="ref-tag" onclick="copyRef('e-commerce')">e-commerce</span>
+                </div>
+              </div>
+
+              <div class="ref-section">
+                <div class="ref-title">决策职位</div>
+                <div class="ref-tags">
+                  <span class="ref-tag" onclick="copyRef('procurement manager')">procurement manager</span>
+                  <span class="ref-tag" onclick="copyRef('purchasing manager')">purchasing manager</span>
+                  <span class="ref-tag" onclick="copyRef('buyer')">buyer</span>
+                  <span class="ref-tag" onclick="copyRef('sourcing manager')">sourcing manager</span>
+                  <span class="ref-tag" onclick="copyRef('supply chain manager')">supply chain manager</span>
+                  <span class="ref-tag" onclick="copyRef('logistics manager')">logistics manager</span>
+                  <span class="ref-tag" onclick="copyRef('CEO')">CEO</span>
+                  <span class="ref-tag" onclick="copyRef('Owner')">Owner</span>
+                  <span class="ref-tag" onclick="copyRef('Founder')">Founder</span>
+                </div>
+              </div>
+
+              <div class="ref-section">
+                <div class="ref-title">下游应用行业</div>
+                <div class="ref-tags">
+                  <span class="ref-tag" onclick="copyRef('hospital')">hospital</span>
+                  <span class="ref-tag" onclick="copyRef('clinic')">clinic</span>
+                  <span class="ref-tag" onclick="copyRef('medical center')">medical center</span>
+                  <span class="ref-tag" onclick="copyRef('pharmaceutical')">pharmaceutical</span>
+                  <span class="ref-tag" onclick="copyRef('dental')">dental</span>
+                  <span class="ref-tag" onclick="copyRef('veterinary')">veterinary</span>
+                  <span class="ref-tag" onclick="copyRef('manufacturing')">manufacturing</span>
+                  <span class="ref-tag" onclick="copyRef('construction')">construction</span>
+                  <span class="ref-tag" onclick="copyRef('automotive')">automotive</span>
+                  <span class="ref-tag" onclick="copyRef('chemical')">chemical</span>
+                  <span class="ref-tag" onclick="copyRef('mining')">mining</span>
+                  <span class="ref-tag" onclick="copyRef('oil and gas')">oil and gas</span>
+                  <span class="ref-tag" onclick="copyRef('food processing')">food processing</span>
+                  <span class="ref-tag" onclick="copyRef('catering')">catering</span>
+                  <span class="ref-tag" onclick="copyRef('restaurant')">restaurant</span>
+                  <span class="ref-tag" onclick="copyRef('hospitality')">hospitality</span>
+                  <span class="ref-tag" onclick="copyRef('aerospace')">aerospace</span>
+                  <span class="ref-tag" onclick="copyRef('electronics')">electronics</span>
+                  <span class="ref-tag" onclick="copyRef('cleaning service')">cleaning service</span>
+                </div>
+              </div>
+
+              <div class="ref-section">
+                <div class="ref-title">购买意向（Buying Intent）</div>
+                <div class="ref-tags">
+                  <span class="ref-tag" onclick="copyRef('PPE suppliers')">PPE suppliers</span>
+                  <span class="ref-tag" onclick="copyRef('safety gloves')">safety gloves</span>
+                  <span class="ref-tag" onclick="copyRef('industrial safety')">industrial safety</span>
+                  <span class="ref-tag" onclick="copyRef('workplace safety')">workplace safety</span>
+                  <span class="ref-tag" onclick="copyRef('OSHA compliance')">OSHA compliance</span>
+                  <span class="ref-tag" onclick="copyRef('hand injury prevention')">hand injury prevention</span>
+                  <span class="ref-tag" onclick="copyRef('nitrile gloves wholesale')">nitrile gloves wholesale</span>
+                  <span class="ref-tag" onclick="copyRef('medical supplies procurement')">medical supplies procurement</span>
+                </div>
+              </div>
+
+              <div class="ref-section">
+                <div class="ref-title">组合示例</div>
+                <div class="ref-example">
+                  <strong>工业丁腈手套 · 美国</strong><br>
+                  公司关键词：<code>industrial gloves</code> / <code>safety products</code><br>
+                  行业筛选：Wholesale / Industrial Machinery &amp; Equipment<br>
+                  地区筛选：United States<br>
+                  目标职位：Procurement Manager / Buyer / Supply Chain Manager
+                </div>
+                <div class="ref-tip">💡 点击上方任意关键词可复制，然后到「搜索」页的 Apollo 搜索框粘贴使用。建议把大目标拆成多个小搜索，不要一次性搜太宽泛的词。</div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -530,6 +707,24 @@
       return div.innerHTML;
     }
 
+    async function copyRef(text) {
+      try {
+        await navigator.clipboard.writeText(text);
+        showToast(`已复制：${text}`);
+      } catch (err) {
+        showToast('复制失败，请手动选中复制');
+      }
+    }
+
+    let toastTimer = null;
+    function showToast(msg) {
+      const toast = document.getElementById('toast');
+      toast.textContent = msg;
+      toast.classList.add('show');
+      if (toastTimer) clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => toast.classList.remove('show'), 2000);
+    }
+
     async function loadDashboard() {
       clearError();
       try {
@@ -555,5 +750,6 @@
 
     checkAuth().then(() => loadDashboard());
   </script>
+  <div id="toast" class="toast"></div>
 </body>
 </html>
