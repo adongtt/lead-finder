@@ -1862,14 +1862,16 @@
         setInput('apolloState', params.get('apollo_state'));
         setInput('apolloCity', params.get('apollo_city'));
         setInput('apolloZip', params.get('apollo_zip'));
-        setInput('apolloEmployeeRange', params.get('apollo_employee_range'));
-        setInput('apolloMaxResults', params.get('apollo_max_results'));
+        // Templates use prefixed params; the form itself sends the shorter names.
+        setInput('apolloEmployeeRange', params.get('apollo_employee_range') || params.get('employee_range'));
+        setInput('apolloMaxResults', params.get('apollo_max_results') || params.get('max_results'));
         setCheckbox('apolloKeepNoEmail', params.get('keep_no_email'));
-        setInput('apolloMinRelevance', params.get('apollo_min_relevance'));
-        if (params.has('apollo_min_relevance')) {
-          document.getElementById('apolloMinRelevanceValue').textContent = params.get('apollo_min_relevance');
+        const apolloMinRel = params.get('apollo_min_relevance') || params.get('min_relevance');
+        setInput('apolloMinRelevance', apolloMinRel);
+        if (apolloMinRel !== null) {
+          document.getElementById('apolloMinRelevanceValue').textContent = apolloMinRel;
         }
-        setCheckbox('apolloStrictMode', params.get('apollo_strict_mode'));
+        setCheckbox('apolloStrictMode', params.get('apollo_strict_mode') || params.get('strict_mode'));
         setCheckbox('apolloScanSupplierPages', params.get('scan_supplier_pages'));
       }
 
