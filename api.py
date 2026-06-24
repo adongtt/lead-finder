@@ -105,62 +105,62 @@ def _load_config_dict():
 
 
 def _fetch_apollo_credits_sync():
-    """Query Apollo.io /auth/whoami for current plan/credits."""
+    """Probe Apollo.io usage via a minimal /mixed_people/api_search call.
+
+    Apollo does not expose a dedicated credits endpoint, but the people search
+    endpoint returns rate-limit headers for every request. We send an empty
+    payload (which returns an empty result list) to read current usage without
+    consuming contact-enrichment credits.
+    """
     config = _load_config_dict()
     api_key = config.get("apollo_key") or os.environ.get("APOLLO_KEY", "")
     if not api_key:
         return {"configured": False}
 
+    url = "https://api.apollo.io/v1/mixed_people/api_search"
+    headers = {"Content-Type": "application/json", "x-api-key": api_key}
+
     try:
-        resp = requests.get(
-            "https://api.apollo.io/v1/auth/whoami",
-            headers={"x-api-key": api_key},
-            timeout=10,
-        )
+        resp = requests.post(url, headers=headers, json={}, timeout=10)
         if resp.status_code == 401:
             return {"configured": True, "reachable": False, "error": "API key 无效或已失效"}
         if resp.status_code == 403:
             return {"configured": True, "reachable": False, "error": "权限不足（免费版可能无法使用 People Search）"}
-        if resp.status_code != 200:
+        if resp.status_code == 429:
+            return {"configured": True, "reachable": False, "error": "API 请求过于频繁（已超速率限制）"}
+        if resp.status_code not in (200, 422):
             return {"configured": True, "reachable": False, "error": f"Apollo 返回 HTTP {resp.status_code}"}
 
-        data = resp.json() or {}
-        team = data.get("team") or data.get("active_team") or {}
-        if not isinstance(team, dict):
-            team = {}
+        # Apollo returns usage/limit headers even for an empty payload.
+        def _int(header_name):
+            value = resp.headers.get(header_name)
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                return None
 
-        credits_used = (
-            team.get("credits_used")
-            or team.get("team_credits_used")
-            or data.get("credits_used")
-        )
-        credits_remaining = (
-            team.get("credits_remaining")
-            or team.get("team_credits_remaining")
-            or data.get("credits_remaining")
-        )
-        credits_total = (
-            team.get("credits_limit")
-            or team.get("team_credits_limit")
-            or team.get("credits_total")
-            or team.get("team_credits_total")
-            or data.get("credits_total")
-        )
-        plan = (
-            team.get("plan")
-            or team.get("billing_plan")
-            or data.get("plan")
-            or data.get("billing_plan")
-            or "未知"
-        )
+        usage = {
+            "minute": {
+                "used": _int("x-minute-usage"),
+                "remaining": _int("x-minute-requests-left"),
+                "limit": _int("x-rate-limit-minute"),
+            },
+            "hourly": {
+                "used": _int("x-hourly-usage"),
+                "remaining": _int("x-hourly-requests-left"),
+                "limit": _int("x-rate-limit-hourly"),
+            },
+            "daily": {
+                "used": _int("x-24-hour-usage"),
+                "remaining": _int("x-24-hour-requests-left"),
+                "limit": _int("x-rate-limit-24-hour"),
+            },
+        }
 
         return {
             "configured": True,
             "reachable": True,
-            "plan": plan,
-            "credits_used": credits_used,
-            "credits_remaining": credits_remaining,
-            "credits_total": credits_total,
+            "usage": usage,
         }
     except requests.exceptions.Timeout:
         return {"configured": True, "reachable": False, "error": "查询 Apollo 额度超时"}
@@ -170,7 +170,7 @@ def _fetch_apollo_credits_sync():
 
 async def _get_apollo_credits():
     """Cached async wrapper around _fetch_apollo_credits_sync."""
-    cached = _cache_get("apollo_credits")
+    cached = _cache_get("apollo_credits", _APOLLO_CREDITS_CACHE_TTL)
     if cached is not None:
         return cached
     result = await asyncio.to_thread(_fetch_apollo_credits_sync)
@@ -182,10 +182,11 @@ async def _get_apollo_credits():
 # ---------------------------------------------------------------------------
 _cache = {}
 _CACHE_TTL = 30  # seconds
+_APOLLO_CREDITS_CACHE_TTL = 300  # seconds
 
-def _cache_get(key):
+def _cache_get(key, ttl=None):
     entry = _cache.get(key)
-    if entry and (datetime.now() - entry["ts"]).total_seconds() < _CACHE_TTL:
+    if entry and (datetime.now() - entry["ts"]).total_seconds() < (ttl or _CACHE_TTL):
         return entry["value"]
     return None
 

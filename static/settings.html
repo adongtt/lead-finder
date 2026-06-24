@@ -300,40 +300,39 @@
                 <span class="status-badge status-missing">异常</span>
               </div>
             `;
-          } else {
-            const used = Number.isFinite(Number(c.credits_used)) ? Number(c.credits_used) : 0;
-            const total = Number.isFinite(Number(c.credits_total)) ? Number(c.credits_total) : 0;
-            const remaining = Number.isFinite(Number(c.credits_remaining))
-              ? Number(c.credits_remaining)
-              : (total > used ? total - used : null);
-            const pct = total > 0 ? Math.round((used / total) * 100) : 0;
+          } else if (c.usage) {
+            const u = c.usage;
+            const dayUsed = Number.isFinite(Number(u.daily.used)) ? Number(u.daily.used) : 0;
+            const dayLimit = Number.isFinite(Number(u.daily.limit)) ? Number(u.daily.limit) : 0;
+            const dayRemaining = Number.isFinite(Number(u.daily.remaining)) ? Number(u.daily.remaining) : (dayLimit - dayUsed);
+            const pct = dayLimit > 0 ? Math.round((dayUsed / dayLimit) * 100) : 0;
             html = `
               <div class="info-row">
-                <span class="label">套餐</span>
-                <span>${c.plan || '未知'}</span>
+                <span class="label">本分钟</span>
+                <span>${u.minute.used ?? '-'}/${u.minute.limit ?? '-'}（剩余 ${u.minute.remaining ?? '-'})</span>
               </div>
               <div class="info-row">
-                <span class="label">已用 credits</span>
-                <span>${used}</span>
+                <span class="label">本小时</span>
+                <span>${u.hourly.used ?? '-'}/${u.hourly.limit ?? '-'}（剩余 ${u.hourly.remaining ?? '-'})</span>
               </div>
               <div class="info-row">
-                <span class="label">剩余 credits</span>
-                <span>${remaining !== null ? remaining : '-'}</span>
+                <span class="label">近 24 小时</span>
+                <span>${dayUsed}/${dayLimit}（剩余 ${dayRemaining >= 0 ? dayRemaining : '-'})</span>
               </div>
-              ${total ? `
-              <div class="info-row">
-                <span class="label">总额度</span>
-                <span>${total}</span>
-              </div>` : ''}
               <div style="margin-top:12px;">
                 <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:4px;">
-                  <span>已用 ${pct}%</span>
-                  <span>${remaining !== null ? '剩余 ' + remaining : ''}</span>
+                  <span>24 小时已用 ${pct}%</span>
+                  <span>${dayRemaining >= 0 ? '剩余 ' + dayRemaining : ''}</span>
                 </div>
                 <div style="height:8px;background:#e2e8f0;border-radius:4px;overflow:hidden;">
                   <div style="width:${pct}%;height:100%;background:${pct > 90 ? '#dc2626' : pct > 70 ? '#d97706' : '#059669'};"></div>
                 </div>
               </div>
+              <p style="font-size:12px;color:var(--muted);margin-top:12px;line-height:1.5;">
+                注：此处为 Apollo API 请求次数额度。联系人的 “邮箱 reveal” credits 请在
+                <a href="https://app.apollo.io/#/settings/billing" target="_blank" style="color:var(--primary);">Apollo 后台 Billing</a>
+                查看。
+              </p>
             `;
           }
           box.innerHTML = html;
