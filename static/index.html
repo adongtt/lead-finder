@@ -59,6 +59,9 @@
       display: flex;
       flex-direction: column;
       gap: 10px;
+      max-height: 360px;
+      overflow-y: auto;
+      padding-right: 4px;
     }
     .changelog-item {
       padding: 8px 12px;
@@ -474,8 +477,31 @@
 
       <div class="changelog-section">
         <h3>更新日志</h3>
-        <div id="changelogList" class="changelog-list">
-          <div class="changelog-empty">加载中...</div>
+        <div class="changelog-list">
+          <div class="changelog-item">
+            <div class="changelog-date">2026-06-23</div>
+            <div><strong>Apollo 搜索质量优化</strong>：默认关联度阈值提升至 0；扩展负向行业词库；增加关键词二次校验；新增最小关联度滑块与严格模式开关。</div>
+          </div>
+          <div class="changelog-item">
+            <div class="changelog-date">2026-06-23</div>
+            <div><strong>修复 Apollo "无邮箱" 问题</strong>：默认过滤 has_email=True 但未暴露真实地址的联系人；增加 Hunter domain-search 兜底。</div>
+          </div>
+          <div class="changelog-item">
+            <div class="changelog-date">2026-06-23</div>
+            <div><strong>修复公司域名解析</strong>：过滤 LeadiQ、RocketReach、Seamless.AI 等数据平台及新闻站点。</div>
+          </div>
+          <div class="changelog-item">
+            <div class="changelog-date">2026-06-22</div>
+            <div><strong>Google Maps 搜索优化</strong>：自动过滤已关门商家、增加关键词相关度评分、支持 TLD 筛选与结果数量上限。</div>
+          </div>
+          <div class="changelog-item">
+            <div class="changelog-date">2026-06-16</div>
+            <div><strong>新增左侧导航栏与历史结果页面</strong>；搜索记录支持多维度筛选，管理员可查看所有人记录。</div>
+          </div>
+          <div class="changelog-item">
+            <div class="changelog-date">2026-06-16</div>
+            <div><strong>启用供应商门户模式</strong>：批量扫描域名采购/供应商页面，提取邮箱、表单链接与摘要。</div>
+          </div>
         </div>
       </div>
 
@@ -796,25 +822,6 @@
               <span id="btnText">查找客户</span>
             </button>
           </form>
-
-          <div class="card version-info" style="margin-top:16px;background:#f0f9ff;border-color:#bae6fd;">
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#0284c7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="12" cy="12" r="10"></circle>
-                <polyline points="12 6 12 12 16 14"></polyline>
-              </svg>
-              <span style="font-size:13px;font-weight:700;color:#0369a1;">程序更新</span>
-            </div>
-            <div style="font-size:12px;color:#0c4a6e;line-height:1.6;">
-              <div><strong>更新时间：</strong>2026-06-23</div>
-              <div style="margin-top:4px;"><strong>本次更新：</strong>Apollo 搜索质量优化：默认关联度阈值从 -50 提升至 0，过滤明显不相关行业；缺少公司信息的联系人默认降级；扩展负向行业/关键词词库（汽车、电子、家电、家具等）；关键词搜索增加二次校验，必须命中用户关键词或 B2B 正向信号；Apollo 面板新增"最小关联度"滑块与"严格模式"开关。修复 Apollo "无邮箱" 问题：默认不再保留 Apollo 返回 has_email=True 但未暴露真实地址的联系人，"保留无邮箱客户"选项语义更清晰；新增跳过日志。Apollo 模式增加 Hunter domain-search 兜底：当联系人缺少姓氏无法使用 email-finder 时，自动搜索域名下的公开邮箱并匹配最合适的地址。修复公司域名解析：扩充屏蔽列表，过滤 LeadiQ、RocketReach、Seamless.AI 等 B2B 数据平台及常见新闻站点，避免把公司解析到错误域名。</div>
-              <div style="margin-top:4px;"><strong>2026-06-22：</strong>Google Maps 搜索优化：自动过滤已关门商家、增加关键词相关度评分、支持目标国家域名（TLD）筛选、支持结果数量上限控制。</div>
-              <div style="margin-top:4px;"><strong>2026-06-16：</strong>结果页“网站简介”悬浮提示改为跟随视口定位，记录少时也不会被底部截断。</div>
-              <div style="margin-top:4px;"><strong>2026-06-16：</strong>新增左侧导航栏与“历史结果”页面；搜索记录支持按关键词、日期、模式、业务员筛选，管理员可查看所有人记录，业务员仅可查看自己的记录。</div>
-              <div style="margin-top:4px;"><strong>2026-06-16：</strong>启用“供应商门户”模式：输入一批域名，自动扫描 procurement / become-a-supplier / vendor-portal 等采购/供应商页面，提取页面邮箱、申请表单链接与页面摘要。</div>
-              <div style="margin-top:4px;"><strong>2026-06-16：</strong>普通搜索 / Apollo 搜索支持勾选“同时扫描采购/供应商页面”，搜索完成后自动对每个域名探测采购入口，并将结果写入 CSV 的 supplier_* 字段。</div>
-            </div>
-          </div>
 
           <div id="logBox" class="log-box"></div>
           <div id="progressWrap" class="progress-wrap">
@@ -1670,32 +1677,6 @@
       }
     }
 
-    async function loadChangelog() {
-      const list = document.getElementById('changelogList');
-      if (!list) return;
-      try {
-        const res = await fetch('/api/changelog');
-        if (!res.ok) {
-          list.innerHTML = '<div class="changelog-empty">暂无更新日志</div>';
-          return;
-        }
-        const data = await res.json();
-        const entries = data.entries || [];
-        if (entries.length === 0) {
-          list.innerHTML = '<div class="changelog-empty">暂无更新日志</div>';
-          return;
-        }
-        list.innerHTML = entries.map(e => `
-          <div class="changelog-item" title="${escapeHtml(e.subject)}">
-            <div class="changelog-date">${escapeHtml(e.date)} <span class="changelog-hash">${escapeHtml(e.hash)}</span></div>
-            <div>${escapeHtml(e.subject)}</div>
-          </div>
-        `).join('');
-      } catch (err) {
-        list.innerHTML = '<div class="changelog-empty">加载失败</div>';
-      }
-    }
-
     async function markContacted(idx) {
       const lead = window.currentLeads[idx];
       if (!lead) return;
@@ -1894,7 +1875,6 @@
 
     checkAuth();
     loadStats();
-    loadChangelog();
     loadContacted();
     restoreSignatureInputs();
     setMode('apollo');

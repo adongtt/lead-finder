@@ -1590,39 +1590,6 @@ async def get_keywords(user: dict = Depends(require_user)):
     return {"keywords": keywords}
 
 
-@app.get("/api/changelog")
-async def get_changelog(user: dict = Depends(require_user)):
-    """Return recent commit log as an update changelog.
-
-    Reads the current branch's git history. In production deployments without a
-    .git directory this will simply return an empty list.
-    """
-    try:
-        result = subprocess.run(
-            ["git", "log", "--pretty=format:%H|%s|%ci", "-n", "20"],
-            capture_output=True,
-            text=True,
-            cwd=".",
-            timeout=10,
-        )
-        if result.returncode != 0:
-            return {"entries": []}
-        entries = []
-        for line in result.stdout.strip().splitlines():
-            parts = line.split("|", 2)
-            if len(parts) != 3:
-                continue
-            commit_hash, subject, dt = parts
-            entries.append({
-                "hash": commit_hash[:7],
-                "subject": subject,
-                "date": dt[:10],
-            })
-        return {"entries": entries}
-    except Exception:
-        return {"entries": []}
-
-
 # ---------------------------------------------------------------------------
 # Contacted CRM endpoints
 # ---------------------------------------------------------------------------
