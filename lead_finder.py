@@ -1641,6 +1641,56 @@ class ApolloClient:
         self.base_url = "https://api.apollo.io/v1"
         self._match_cache: Dict[str, dict] = {}
 
+    @staticmethod
+    def _expand_keyword_tags(keywords: List[str]) -> List[str]:
+        """Expand composite 'product + channel role' keywords into Apollo keyword tags.
+
+        Apollo's q_organization_keyword_tags parameter matches against pre-existing
+        keyword tags in its database. Long-tail phrases like 'football gloves distributor'
+        rarely exist as a single tag, causing empty results. We preserve the original
+        phrase and additionally emit shorter product/role tags to improve recall.
+        """
+        channel_roles = {
+            "distributor", "distributors", "importer", "importers",
+            "supplier", "suppliers", "wholesaler", "wholesalers", "wholesale",
+            "dealer", "dealers", "reseller", "resellers", "buyer", "buyers",
+            "retailer", "retailers", "exporter", "exporters", "manufacturer",
+            "manufacturers", "oem", "odm", "vendor", "vendors",
+        }
+        tags: List[str] = []
+        seen: Set[str] = set()
+        for kw in keywords:
+            kw = kw.strip()
+            if not kw:
+                continue
+            original_lower = kw.lower()
+            if original_lower not in seen:
+                seen.add(original_lower)
+                tags.append(original_lower)
+            parts = original_lower.split()
+            if len(parts) <= 1:
+                continue
+            role_indices = [i for i, p in enumerate(parts) if p in channel_roles]
+            if role_indices:
+                first_role = role_indices[0]
+                product_phrase = " ".join(parts[:first_role]).strip()
+                if product_phrase and product_phrase not in seen:
+                    seen.add(product_phrase)
+                    tags.append(product_phrase)
+                for i in role_indices:
+                    if parts[i] not in seen:
+                        seen.add(parts[i])
+                        tags.append(parts[i])
+            else:
+                # No recognized channel role: emit sliding-window sub-phrases.
+                for length in range(len(parts) - 1, 0, -1):
+                    for start in range(0, len(parts) - length + 1):
+                        sub = " ".join(parts[start:start + length])
+                        if sub not in seen:
+                            seen.add(sub)
+                            tags.append(sub)
+        return tags
+
     def _merge_enriched_fields(self, person: dict, enriched: dict) -> dict:
         """Copy email/org fields from an Apollo enrichment response into person."""
         if enriched.get("email"):
@@ -1867,7 +1917,7 @@ class ApolloClient:
         if organization_domains:
             payload["organization_domains"] = organization_domains
         elif organization_keywords:
-            payload["q_organization_keyword_tags"] = organization_keywords
+            payload["q_organization_keyword_tags"] = self._expand_keyword_tags(organization_keywords)
         if person_titles:
             payload["person_titles"] = person_titles
         if person_locations:
