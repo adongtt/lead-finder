@@ -1641,27 +1641,40 @@ class ApolloClient:
         self.base_url = "https://api.apollo.io/v1"
         self._match_cache: Dict[str, dict] = {}
 
+    def _merge_enriched_fields(self, person: dict, enriched: dict) -> dict:
+        """Copy email/org fields from an Apollo enrichment response into person."""
+        if enriched.get("email"):
+            person["email"] = enriched["email"]
+        if enriched.get("last_name"):
+            person["last_name"] = enriched["last_name"]
+        enriched_org = enriched.get("organization", {}) or {}
+        if enriched_org:
+            person["_enriched_org"] = enriched_org
+            person["_parent_org_name"] = enriched_org.get("parent_organization_name", "")
+            hq = enriched_org.get("headquarters", {}) or {}
+            if isinstance(hq, dict):
+                person["_hq_country"] = hq.get("country", "")
+            else:
+                person["_hq_country"] = ""
+            if enriched_org.get("is_subsidiary") or person["_parent_org_name"]:
+                person["_org_structure_type"] = "subsidiary"
+            elif enriched_org.get("is_subsidiary") is False:
+                person["_org_structure_type"] = "independent"
+            else:
+                person["_org_structure_type"] = ""
+            if enriched_org.get("primary_domain"):
+                person["organization_website"] = f"http://{enriched_org['primary_domain']}"
+            elif enriched_org.get("website_url"):
+                person["organization_website"] = enriched_org["website_url"]
+        return person
+
     def _enrich_person(self, person: dict) -> dict:
         """Call /people/match to reveal full contact details."""
         pid = person.get("id")
         if not pid:
             return person
         if pid in self._match_cache:
-            cached = self._match_cache[pid]
-            if cached.get("email"):
-                person["email"] = cached["email"]
-            if cached.get("last_name"):
-                person["last_name"] = cached["last_name"]
-            if cached.get("_enriched_org"):
-                person["_enriched_org"] = cached["_enriched_org"]
-            if cached.get("_parent_org_name"):
-                person["_parent_org_name"] = cached["_parent_org_name"]
-            if cached.get("_hq_country"):
-                person["_hq_country"] = cached["_hq_country"]
-            if cached.get("_org_structure_type"):
-                person["_org_structure_type"] = cached["_org_structure_type"]
-            if cached.get("organization_website"):
-                person["organization_website"] = cached["organization_website"]
+            self._merge_enriched_fields(person, self._match_cache[pid])
             return person
 
         headers = {
@@ -1672,35 +1685,16 @@ class ApolloClient:
             match_resp = requests.post(
                 f"{self.base_url}/people/match",
                 headers=headers,
-                json={"id": pid},
+                json={
+                    "id": pid,
+                    "reveal_personal_emails": True,
+                },
                 timeout=8,
             )
             if match_resp.status_code == 200:
                 match_data = match_resp.json()
                 enriched = match_data.get("person", {})
-                if enriched.get("email"):
-                    person["email"] = enriched["email"]
-                if enriched.get("last_name"):
-                    person["last_name"] = enriched["last_name"]
-                enriched_org = enriched.get("organization", {}) or {}
-                if enriched_org:
-                    person["_enriched_org"] = enriched_org
-                    person["_parent_org_name"] = enriched_org.get("parent_organization_name", "")
-                    hq = enriched_org.get("headquarters", {}) or {}
-                    if isinstance(hq, dict):
-                        person["_hq_country"] = hq.get("country", "")
-                    else:
-                        person["_hq_country"] = ""
-                    if enriched_org.get("is_subsidiary") or person["_parent_org_name"]:
-                        person["_org_structure_type"] = "subsidiary"
-                    elif enriched_org.get("is_subsidiary") is False:
-                        person["_org_structure_type"] = "independent"
-                    else:
-                        person["_org_structure_type"] = ""
-                    if enriched_org.get("primary_domain"):
-                        person["organization_website"] = f"http://{enriched_org['primary_domain']}"
-                    elif enriched_org.get("website_url"):
-                        person["organization_website"] = enriched_org["website_url"]
+                self._merge_enriched_fields(person, enriched)
                 self._match_cache[pid] = {
                     "email": person.get("email"),
                     "last_name": person.get("last_name"),
@@ -1713,6 +1707,74 @@ class ApolloClient:
         except Exception:
             pass
         return person
+
+    def _bulk_enrich_people(self, people: List[dict]) -> List[dict]:
+        """Enrich up to 10 people per call using Apollo bulk match.
+
+        Apollo supports up to 10 details per request, so we chunk the input and
+        only call the API for contacts that are missing an email. This reduces
+        both API request overhead and reveal-credit consumption compared to 1:1
+        /people/match calls.
+        """
+        if not people:
+            return []
+
+        indexed = [(i, p) for i, p in enumerate(people) if p.get("id")]
+        results = [p.copy() for p in people]
+
+        headers = {
+            "Content-Type": "application/json",
+            "x-api-key": self.api_key,
+        }
+
+        def _enrich_chunk(chunk: List[tuple]) -> None:
+            payload = {
+                "details": [{"id": p.get("id")} for _, p in chunk],
+                "reveal_personal_emails": True,
+            }
+            try:
+                resp = requests.post(
+                    f"{self.base_url}/people/bulk_match",
+                    headers=headers,
+                    json=payload,
+                    timeout=20,
+                )
+                if resp.status_code == 429:
+                    print("    [Apollo] Bulk match rate limited. Sleeping 5s...")
+                    time.sleep(5)
+                    return
+                if resp.status_code != 200:
+                    print(f"    [Apollo] Bulk match returned {resp.status_code}, falling back to single /people/match")
+                    for idx, orig in chunk:
+                        enriched_copy = self._enrich_person(orig.copy())
+                        self._merge_enriched_fields(results[idx], enriched_copy)
+                    return
+                data = resp.json() if resp.text else {}
+                people_list = data.get("people", []) if isinstance(data, dict) else []
+                for enriched in people_list:
+                    pid = enriched.get("id")
+                    if not pid:
+                        continue
+                    for idx, orig in chunk:
+                        if orig.get("id") == pid:
+                            self._merge_enriched_fields(results[idx], enriched)
+                            self._match_cache[pid] = {
+                                "email": results[idx].get("email"),
+                                "last_name": results[idx].get("last_name"),
+                                "_enriched_org": results[idx].get("_enriched_org"),
+                                "_parent_org_name": results[idx].get("_parent_org_name"),
+                                "_hq_country": results[idx].get("_hq_country"),
+                                "_org_structure_type": results[idx].get("_org_structure_type"),
+                                "organization_website": results[idx].get("organization_website"),
+                            }
+                            break
+            except Exception as e:
+                print(f"    [Apollo ERROR] bulk enrich chunk: {e}")
+
+        for i in range(0, len(indexed), 10):
+            _enrich_chunk(indexed[i:i + 10])
+
+        return results
 
     def domain_search(self, domain: str, limit: int = 50) -> List[dict]:
         """Search contacts by domain. Returns list of email dicts."""
@@ -1862,32 +1924,36 @@ class ApolloClient:
             people = data.get("people", []) if isinstance(data, dict) else []
 
             # ------------------------------------------------------------------
-            # Parallel enrichment via /people/match to get real email + last_name
+            # Bulk enrichment via /people/bulk_match for contacts missing email.
+            # Skip contacts that already have an email from the free search.
             # ------------------------------------------------------------------
             if people and enrich:
-                enriched_count = 0
-                with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
-                    future_to_p = {executor.submit(self._enrich_person, p.copy()): p for p in people}
-                    for future in concurrent.futures.as_completed(future_to_p):
-                        p_enriched = future.result()
-                        original = future_to_p[future]
-                        if p_enriched.get("email") and not original.get("email"):
-                            original["email"] = p_enriched["email"]
+                to_enrich = [p for p in people if not p.get("email")]
+                if to_enrich:
+                    enriched_list = self._bulk_enrich_people(to_enrich)
+                    enriched_by_id = {p.get("id"): p for p in enriched_list if p.get("id")}
+                    enriched_count = 0
+                    for p in people:
+                        ep = enriched_by_id.get(p.get("id"))
+                        if not ep:
+                            continue
+                        if ep.get("email") and not p.get("email"):
+                            p["email"] = ep["email"]
                             enriched_count += 1
-                        if p_enriched.get("last_name") and not original.get("last_name"):
-                            original["last_name"] = p_enriched["last_name"]
-                        if p_enriched.get("_enriched_org") and not original.get("_enriched_org"):
-                            original["_enriched_org"] = p_enriched["_enriched_org"]
-                        if p_enriched.get("_parent_org_name") and not original.get("_parent_org_name"):
-                            original["_parent_org_name"] = p_enriched["_parent_org_name"]
-                        if p_enriched.get("_hq_country") and not original.get("_hq_country"):
-                            original["_hq_country"] = p_enriched["_hq_country"]
-                        if p_enriched.get("_org_structure_type") and not original.get("_org_structure_type"):
-                            original["_org_structure_type"] = p_enriched["_org_structure_type"]
-                        if p_enriched.get("organization_website") and not original.get("organization_website"):
-                            original["organization_website"] = p_enriched["organization_website"]
-                if enriched_count:
-                    print(f"    [Apollo] Enriched {enriched_count}/{len(people)} contacts via /people/match")
+                        if ep.get("last_name") and not p.get("last_name"):
+                            p["last_name"] = ep["last_name"]
+                        if ep.get("_enriched_org") and not p.get("_enriched_org"):
+                            p["_enriched_org"] = ep["_enriched_org"]
+                        if ep.get("_parent_org_name") and not p.get("_parent_org_name"):
+                            p["_parent_org_name"] = ep["_parent_org_name"]
+                        if ep.get("_hq_country") and not p.get("_hq_country"):
+                            p["_hq_country"] = ep["_hq_country"]
+                        if ep.get("_org_structure_type") and not p.get("_org_structure_type"):
+                            p["_org_structure_type"] = ep["_org_structure_type"]
+                        if ep.get("organization_website") and not p.get("organization_website"):
+                            p["organization_website"] = ep["organization_website"]
+                    if enriched_count:
+                        print(f"    [Apollo] Enriched {enriched_count}/{len(to_enrich)} missing contacts via bulk match")
 
             results = []
             for p in people:
@@ -3447,6 +3513,8 @@ class LeadFinder:
         scan_supplier_pages: bool = False,
         min_relevance: int = 0,
         strict_mode: bool = False,
+        max_enrich: int = 50,
+        no_enrich: bool = False,
     ) -> List[Lead]:
         """Run an Apollo.io People Search and export leads.
 
@@ -3479,6 +3547,7 @@ class LeadFinder:
         print(f"  Employee Range : {employee_range or 'Any'}")
         print(f"  Min Relevance  : {min_relevance}{' (strict)' if strict_mode else ''}")
         print(f"  Max Results    : {max_results}")
+        print(f"  Max Enrich     : {max_enrich}{' (skipped)' if no_enrich else ''}")
         print(f"  Output         : {output}")
         print(f"{'='*60}\n")
 
@@ -3523,8 +3592,9 @@ class LeadFinder:
         print("PROGRESS: 15")
 
         # -----------------------------------------------------------------------
-        # Stage 1.5: Coarse pre-filter + lazy /people/match enrichment
-        # Avoid calling /people/match for contacts that are obviously irrelevant.
+        # Stage 1.5: Coarse pre-filter + bulk /people/bulk_match enrichment
+        # Only enrich contacts that are missing an email; skip the rest to save
+        # Apollo reveal credits. Bulk match handles up to 10 people per call.
         # -----------------------------------------------------------------------
         def _coarse_keep(person: dict) -> bool:
             org = person.get("organization", {}) or {}
@@ -3544,40 +3614,42 @@ class LeadFinder:
                 return True
             return False
 
-        MAX_PEOPLE_TO_ENRICH = 80
-        people_to_enrich = [p for p in all_people if _coarse_keep(p)][:MAX_PEOPLE_TO_ENRICH]
-        skipped_coarse = len(all_people) - len(people_to_enrich)
-        print(f"\n[Apollo] Coarse pre-filter: {len(people_to_enrich)} to enrich (max {MAX_PEOPLE_TO_ENRICH}), {skipped_coarse} skipped")
+        if no_enrich:
+            people_to_enrich = []
+            print("\n[Apollo] Skipping /people/match enrichment (--apollo-no-enrich)")
+        else:
+            people_to_enrich = [p for p in all_people if _coarse_keep(p) and not p.get("email")][:max_enrich]
+            skipped_coarse = len(all_people) - len(people_to_enrich)
+            already_with_email = sum(1 for p in all_people if _coarse_keep(p) and p.get("email"))
+            print(f"\n[Apollo] Coarse pre-filter: {len(people_to_enrich)} to enrich (max {max_enrich}), {skipped_coarse} skipped")
+            if already_with_email:
+                print(f"    [Apollo] {already_with_email} contacts already have a free email and will not be enriched")
 
         if people_to_enrich:
             enriched_count = 0
-            print("  [Apollo] Starting /people/match enrichment...")
-            with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
-                future_to_p = {executor.submit(self.apollo._enrich_person, p.copy()): p for p in people_to_enrich}
-                completed = 0
-                total = len(people_to_enrich)
-                for future in concurrent.futures.as_completed(future_to_p):
-                    completed += 1
-                    if completed % max(1, total // 4) == 0 or completed == total:
-                        print(f"    [Apollo] Enrichment progress: {completed}/{total}")
-                    p_enriched = future.result()
-                    original = future_to_p[future]
-                    if p_enriched.get("email") and not original.get("email"):
-                        original["email"] = p_enriched["email"]
-                        enriched_count += 1
-                    if p_enriched.get("last_name") and not original.get("last_name"):
-                        original["last_name"] = p_enriched["last_name"]
-                    if p_enriched.get("_enriched_org") and not original.get("_enriched_org"):
-                        original["_enriched_org"] = p_enriched["_enriched_org"]
-                    if p_enriched.get("_parent_org_name") and not original.get("_parent_org_name"):
-                        original["_parent_org_name"] = p_enriched["_parent_org_name"]
-                    if p_enriched.get("_hq_country") and not original.get("_hq_country"):
-                        original["_hq_country"] = p_enriched["_hq_country"]
-                    if p_enriched.get("_org_structure_type") and not original.get("_org_structure_type"):
-                        original["_org_structure_type"] = p_enriched["_org_structure_type"]
-                    if p_enriched.get("organization_website") and not original.get("organization_website"):
-                        original["organization_website"] = p_enriched["organization_website"]
-            print(f"  [Apollo] Lazy enriched {enriched_count}/{len(people_to_enrich)} contacts via /people/match")
+            print("  [Apollo] Starting bulk /people/bulk_match enrichment...")
+            enriched_list = self.apollo._bulk_enrich_people(people_to_enrich)
+            enriched_by_id = {p.get("id"): p for p in enriched_list if p.get("id")}
+            for original in people_to_enrich:
+                ep = enriched_by_id.get(original.get("id"))
+                if not ep:
+                    continue
+                if ep.get("email"):
+                    original["email"] = ep["email"]
+                    enriched_count += 1
+                if ep.get("last_name") and not original.get("last_name"):
+                    original["last_name"] = ep["last_name"]
+                if ep.get("_enriched_org") and not original.get("_enriched_org"):
+                    original["_enriched_org"] = ep["_enriched_org"]
+                if ep.get("_parent_org_name") and not original.get("_parent_org_name"):
+                    original["_parent_org_name"] = ep["_parent_org_name"]
+                if ep.get("_hq_country") and not original.get("_hq_country"):
+                    original["_hq_country"] = ep["_hq_country"]
+                if ep.get("_org_structure_type") and not original.get("_org_structure_type"):
+                    original["_org_structure_type"] = ep["_org_structure_type"]
+                if ep.get("organization_website") and not original.get("organization_website"):
+                    original["organization_website"] = ep["organization_website"]
+            print(f"  [Apollo] Bulk enriched {enriched_count}/{len(people_to_enrich)} contacts")
         print("PROGRESS: 25")
 
         # -----------------------------------------------------------------------
@@ -4243,6 +4315,17 @@ def main():
         help="Strict Apollo filtering: raises min relevance to 10 and limits titles to purchasing roles",
     )
     parser.add_argument(
+        "--apollo-max-enrich",
+        type=int,
+        default=50,
+        help="Maximum Apollo contacts to enrich via /people/match per search (default: 50)",
+    )
+    parser.add_argument(
+        "--apollo-no-enrich",
+        action="store_true",
+        help="Skip Apollo /people/match enrichment; only use emails already present in search results",
+    )
+    parser.add_argument(
         "--supplier-portal-domains",
         type=str,
         default="",
@@ -4340,6 +4423,8 @@ def main():
             scan_supplier_pages=args.scan_supplier_pages,
             min_relevance=args.apollo_min_relevance,
             strict_mode=args.apollo_strict_mode,
+            max_enrich=args.apollo_max_enrich,
+            no_enrich=args.apollo_no_enrich,
         )
         return
 

@@ -1487,6 +1487,8 @@ async def stream_apollo_leads(
     scan_supplier_pages: bool = False,
     min_relevance: int = 0,
     strict_mode: bool = False,
+    apollo_max_enrich: int = 50,
+    apollo_no_enrich: bool = False,
     user: dict = Depends(require_user),
 ):
     """Stream Apollo.io People Search progress via Server-Sent Events."""
@@ -1525,6 +1527,10 @@ async def stream_apollo_leads(
         cmd.extend(["--apollo-min-relevance", str(min_relevance)])
     if strict_mode:
         cmd.append("--apollo-strict-mode")
+    if apollo_max_enrich is not None:
+        cmd.extend(["--apollo-max-enrich", str(apollo_max_enrich)])
+    if apollo_no_enrich:
+        cmd.append("--apollo-no-enrich")
 
     async def event_generator():
         async def on_success():
