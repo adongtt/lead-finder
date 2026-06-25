@@ -493,52 +493,52 @@
             <!-- Apollo 搜索 -->
             <div id="apolloWrap" style="margin-bottom:16px">
               <div style="margin-bottom:16px">
-                <label for="apolloKeywords">公司关键词（如产品 / 行业）</label>
-                <input type="text" id="apolloKeywords" name="apollo_keywords" placeholder='例如 "sporting goods" 或 "football gloves"' required>
-                <p class="hint">Apollo 会根据这些关键词匹配公司，建议用英文</p>
+                <label for="apolloKeywords">公司关键词（建议「产品 + 渠道角色」）</label>
+                <input type="text" id="apolloKeywords" name="apollo_keywords" placeholder='例如 "football gloves distributor" 或 "team sports supplier"' required>
+                <p class="hint">用「产品 + 渠道角色」的英文组合更精准，如 football gloves distributor、baseball equipment importer；多个关键词用逗号分隔</p>
                 <div class="keyword-tags" style="margin-top:10px;">
-                  <div style="font-size:12px;color:var(--muted);margin-bottom:6px;">点击快速填入推荐关键词（按产品分类）：</div>
+                  <div style="font-size:12px;color:var(--muted);margin-bottom:6px;">点击快速填入推荐关键词（已按产品和渠道组合）：</div>
                   <div class="tag-group">
                     <span class="tag-label">通用体育</span>
-                    <button type="button" class="tag-btn" onclick="setApolloKeyword('sporting goods')">sporting goods</button>
-                    <button type="button" class="tag-btn" onclick="setApolloKeyword('sports equipment')">sports equipment</button>
-                    <button type="button" class="tag-btn" onclick="setApolloKeyword('team sports')">team sports</button>
-                    <button type="button" class="tag-btn" onclick="setApolloKeyword('athletic apparel')">athletic apparel</button>
+                    <button type="button" class="tag-btn" onclick="setApolloKeyword('sporting goods distributor')">sporting goods distributor</button>
+                    <button type="button" class="tag-btn" onclick="setApolloKeyword('sports equipment wholesale')">sports equipment wholesale</button>
+                    <button type="button" class="tag-btn" onclick="setApolloKeyword('team sports supplier')">team sports supplier</button>
+                    <button type="button" class="tag-btn" onclick="setApolloKeyword('athletic apparel buyer')">athletic apparel buyer</button>
                   </div>
                   <div class="tag-group">
                     <span class="tag-label">足球手套</span>
-                    <button type="button" class="tag-btn" onclick="setApolloKeyword('football gear')">football gear</button>
-                    <button type="button" class="tag-btn" onclick="setApolloKeyword('football equipment')">football equipment</button>
-                    <button type="button" class="tag-btn" onclick="setApolloKeyword('receiver gloves')">receiver gloves</button>
+                    <button type="button" class="tag-btn" onclick="setApolloKeyword('football gloves distributor')">football gloves distributor</button>
+                    <button type="button" class="tag-btn" onclick="setApolloKeyword('football equipment importer')">football equipment importer</button>
+                    <button type="button" class="tag-btn" onclick="setApolloKeyword('receiver gloves supplier')">receiver gloves supplier</button>
+                    <button type="button" class="tag-btn" onclick="setApolloKeyword('football gear wholesale')">football gear wholesale</button>
                   </div>
                   <div class="tag-group">
                     <span class="tag-label">棒球手套</span>
-                    <button type="button" class="tag-btn" onclick="setApolloKeyword('baseball gear')">baseball gear</button>
-                    <button type="button" class="tag-btn" onclick="setApolloKeyword('baseball equipment')">baseball equipment</button>
-                    <button type="button" class="tag-btn" onclick="setApolloKeyword('batting gloves')">batting gloves</button>
+                    <button type="button" class="tag-btn" onclick="setApolloKeyword('baseball gloves distributor')">baseball gloves distributor</button>
+                    <button type="button" class="tag-btn" onclick="setApolloKeyword('baseball equipment importer')">baseball equipment importer</button>
+                    <button type="button" class="tag-btn" onclick="setApolloKeyword('batting gloves supplier')">batting gloves supplier</button>
+                    <button type="button" class="tag-btn" onclick="setApolloKeyword('baseball gear wholesale')">baseball gear wholesale</button>
                   </div>
                   <div class="tag-group">
                     <span class="tag-label">骑行/滑雪/户外</span>
-                    <button type="button" class="tag-btn" onclick="setApolloKeyword('cycling gear')">cycling gear</button>
-                    <button type="button" class="tag-btn" onclick="setApolloKeyword('bike accessories')">bike accessories</button>
-                    <button type="button" class="tag-btn" onclick="setApolloKeyword('ski gloves')">ski gloves</button>
-                    <button type="button" class="tag-btn" onclick="setApolloKeyword('ski equipment')">ski equipment</button>
-                    <button type="button" class="tag-btn" onclick="setApolloKeyword('outdoor gear')">outdoor gear</button>
+                    <button type="button" class="tag-btn" onclick="setApolloKeyword('cycling gloves distributor')">cycling gloves distributor</button>
+                    <button type="button" class="tag-btn" onclick="setApolloKeyword('ski gloves supplier')">ski gloves supplier</button>
+                    <button type="button" class="tag-btn" onclick="setApolloKeyword('outdoor gear buyer')">outdoor gear buyer</button>
+                    <button type="button" class="tag-btn" onclick="setApolloKeyword('bike accessories wholesale')">bike accessories wholesale</button>
                   </div>
                   <div class="tag-group">
                     <span class="tag-label">健身/劳保</span>
-                    <button type="button" class="tag-btn" onclick="setApolloKeyword('gym gloves')">gym gloves</button>
-                    <button type="button" class="tag-btn" onclick="setApolloKeyword('fitness accessories')">fitness accessories</button>
-                    <button type="button" class="tag-btn" onclick="setApolloKeyword('work gloves')">work gloves</button>
-                    <button type="button" class="tag-btn" onclick="setApolloKeyword('safety equipment')">safety equipment</button>
-                    <button type="button" class="tag-btn" onclick="setApolloKeyword('workwear')">workwear</button>
+                    <button type="button" class="tag-btn" onclick="setApolloKeyword('gym gloves supplier')">gym gloves supplier</button>
+                    <button type="button" class="tag-btn" onclick="setApolloKeyword('fitness accessories distributor')">fitness accessories distributor</button>
+                    <button type="button" class="tag-btn" onclick="setApolloKeyword('work gloves distributor')">work gloves distributor</button>
+                    <button type="button" class="tag-btn" onclick="setApolloKeyword('safety gloves supplier')">safety gloves supplier</button>
                   </div>
                   <div class="tag-group">
-                    <span class="tag-label">渠道类型</span>
-                    <button type="button" class="tag-btn" onclick="setApolloKeyword('sporting goods distributor')">distributor</button>
-                    <button type="button" class="tag-btn" onclick="setApolloKeyword('sports wholesale')">wholesale</button>
-                    <button type="button" class="tag-btn" onclick="setApolloKeyword('outdoor retailer')">outdoor retailer</button>
-                    <button type="button" class="tag-btn" onclick="setApolloKeyword('team sports supplier')">team sports supplier</button>
+                    <span class="tag-label">高精准组合</span>
+                    <button type="button" class="tag-btn" onclick="setApolloKeyword('football gloves distributor,football equipment importer')">football gloves 组合</button>
+                    <button type="button" class="tag-btn" onclick="setApolloKeyword('baseball gloves distributor,baseball equipment importer')">baseball gloves 组合</button>
+                    <button type="button" class="tag-btn" onclick="setApolloKeyword('team sports supplier,sports equipment wholesale')">team sports 组合</button>
+                    <button type="button" class="tag-btn" onclick="setApolloKeyword('work gloves distributor,safety gloves supplier')">work gloves 组合</button>
                   </div>
                 </div>
                 <div style="margin-top:16px;padding:12px;background:#f0fdf4;border:1px solid #86efac;border-radius:8px;">
@@ -549,7 +549,7 @@
                 <div class="apollo-tip" style="margin-top:10px;padding:10px 12px;background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;font-size:12px;color:#92400e;">
                   <strong>💡 提高精准度技巧：</strong><br>
                   1. Apollo 的匹配较宽泛，结果中会有不相关公司（如酒店、软件公司），工具会自动过滤并打分<br>
-                  2. 建议先用 <strong>"sporting goods"</strong> 或 <strong>"athletic apparel"</strong> 测试，比 "football gloves" 更精准<br>
+                  2. 建议优先用「产品 + 渠道角色」组合，如 <strong>football gloves distributor</strong>、<strong>baseball equipment importer</strong>，避免只填 "sporting goods" 等宽泛词<br>
                   3. 职位只选 <strong>Buyer + Purchasing Manager + Sourcing Manager</strong>，别选 CEO（会搜到大公司高管）
                 </div>
               </div>
