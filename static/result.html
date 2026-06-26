@@ -499,14 +499,35 @@
       return str.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     }
 
-    function renderDescCell(text) {
-      if (!text) return '<span style="font-size:12px;color:var(--muted);">-</span>';
-      const short = text.length > 30 ? text.slice(0, 30) + '...' : text;
+    function renderDescCell(row) {
+      const text = row.website_description || '';
+      if (!text && row.source_type !== 'google_maps') return '<span style="font-size:12px;color:var(--muted);">-</span>';
+
+      let full = text;
+      let short = text.length > 30 ? text.slice(0, 30) + '...' : text;
+
+      // Enrich Google Maps results with address, rating, and Maps link.
+      if (row.source_type === 'google_maps') {
+        const parts = [];
+        if (row.address) parts.push('📍 ' + row.address);
+        if (row.google_rating) {
+          const reviews = row.google_reviews_count ? ` (${row.google_reviews_count} 评论)` : '';
+          parts.push('⭐ ' + row.google_rating + reviews);
+        }
+        if (row.google_maps_url) {
+          parts.push(`<a href="${escapeHtml(row.google_maps_url)}" target="_blank" rel="noopener" style="color:#059669;">点击查看 Google Maps</a>`);
+        }
+        if (parts.length) {
+          full = text ? text + '\n' + parts.join('\n') : parts.join('\n');
+          short = text ? (text.length > 24 ? text.slice(0, 24) + '...' : text) : 'Maps 信息';
+        }
+      }
+
       return `<span class="desc-preview">
         <span class="desc-tooltip">${escapeHtml(short)}</span>
         <div class="preview-card">
           <div class="preview-title">公司简介</div>
-          <div class="preview-text">${escapeHtml(text)}</div>
+          <div class="preview-text">${escapeHtml(full).replace(/\n/g, '<br>')}</div>
           <div class="preview-meta">悬浮查看完整信息，无需跳转官网</div>
         </div>
       </span>`;
@@ -717,7 +738,7 @@
           `<td>${formatPhoneCell(row)}</td>` +
           `<td>${escapeHtml(row.domain || '')}</td>` +
           `<td>${sourceTypeLabel(row.source_type || '')}</td>` +
-          `<td>${renderDescCell(row.website_description)}</td>` +
+          `<td>${renderDescCell(row)}</td>` +
           `<td>${escapeHtml(row.relevance_score !== undefined ? row.relevance_score : '')}</td>` +
           `<td>${row.linkedin_url ? `<a href="${escapeHtml(row.linkedin_url)}" target="_blank" rel="noopener noreferrer" style="color:#0a66c2;font-weight:500;">查看</a>` : ''}</td>` +
           `<td>${escapeHtml(row.confidence_score || '')}</td>` +

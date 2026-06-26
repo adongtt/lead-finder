@@ -1013,21 +1013,26 @@ def _fetch_about_page(domain: str, headers: dict, timeout: int) -> tuple:
     """Try common about-page paths and return (html, extracted_text)."""
     about_paths = ["/about", "/about-us", "/aboutus", "/company", "/our-company", "/who-we-are", "/team", "/staff", "/people"]
     for path in about_paths:
-        url = f"https://{domain}{path}"
-        try:
-            resp = requests.get(url, headers=headers, timeout=timeout, allow_redirects=True)
-            if resp.status_code != 200:
+        # Try HTTPS first, then HTTP on SSL issues.
+        for scheme in ("https", "http"):
+            url = f"{scheme}://{domain}{path}"
+            try:
+                resp = requests.get(url, headers=headers, timeout=timeout, allow_redirects=True)
+                if resp.status_code != 200:
+                    break
+                html = resp.text
+                matches = re.findall(r"<p[^>]*>(.*?)</p>", html, flags=re.IGNORECASE | re.DOTALL)
+                for m in matches:
+                    text = _strip_html_tags(m).strip()
+                    if len(text) >= 30 and not text.lower().startswith(("home", "menu", "contact", "about us", "copyright")):
+                        if len(text) > 600:
+                            text = text[:600].rsplit(".", 1)[0] + "."
+                        return html, text
+                break  # path exists but no usable paragraph; don't retry other scheme
+            except requests.exceptions.SSLError:
                 continue
-            html = resp.text
-            matches = re.findall(r"<p[^>]*>(.*?)</p>", html, flags=re.IGNORECASE | re.DOTALL)
-            for m in matches:
-                text = _strip_html_tags(m).strip()
-                if len(text) >= 30 and not text.lower().startswith(("home", "menu", "contact", "about us", "copyright")):
-                    if len(text) > 600:
-                        text = text[:600].rsplit(".", 1)[0] + "."
-                    return html, text
-        except Exception:
-            continue
+            except Exception:
+                break
     return "", ""
 
 
@@ -1118,11 +1123,22 @@ def _fetch_with_browser(domain: str, timeout: int = 15) -> str:
             page = browser.new_page(
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
             )
-            page.goto(f"https://{domain}", timeout=timeout * 1000, wait_until="domcontentloaded")
-            time.sleep(1.5)  # Allow JS frameworks to hydrate
-            html = page.content()
+            # Try HTTPS first; some sites have broken certificates, so fall back to HTTP.
+            for scheme in ("https", "http"):
+                try:
+                    page.goto(f"{scheme}://{domain}", timeout=timeout * 1000, wait_until="domcontentloaded")
+                    time.sleep(1.5)  # Allow JS frameworks to hydrate
+                    html = page.content()
+                    browser.close()
+                    return html
+                except Exception as e:
+                    err = str(e).lower()
+                    if "ssl" in err or "certificate" in err or "tls" in err:
+                        continue
+                    browser.close()
+                    return ""
             browser.close()
-            return html
+            return ""
     except Exception:
         return ""
 
@@ -1146,13 +1162,18 @@ def fetch_domain_meta(domain: str, timeout: int = 10) -> dict:
     used_browser = False
 
     # --- Homepage metadata ---
-    try:
-        url = f"https://{domain}"
-        resp = requests.get(url, headers=headers, timeout=timeout, allow_redirects=True)
-        if resp.status_code == 200:
-            homepage_html = resp.text
-    except Exception:
-        pass
+    # Try HTTPS first; on SSL errors fall back to HTTP so self-signed/misconfigured
+    # certificates do not hang the entire pipeline.
+    for url in (f"https://{domain}", f"http://{domain}"):
+        try:
+            resp = requests.get(url, headers=headers, timeout=timeout, allow_redirects=True)
+            if resp.status_code == 200:
+                homepage_html = resp.text
+                break
+        except requests.exceptions.SSLError:
+            continue
+        except Exception:
+            break
 
     # --- Playwright fallback if page looks blocked or too short (SPA/CF) ---
     if len(homepage_html) < 800 or "challenge-platform" in homepage_html or "cf-browser-verification" in homepage_html:
@@ -3121,32 +3142,79 @@ class LeadFinder:
         domain_relevance: Dict[str, int] = {}
         domain_linkedin_links: Dict[str, List[str]] = {}
         total_domains = len(domains)
-        completed_domains = 0
-        with concurrent.futures.ThreadPoolExecutor(max_workers=6) as executor:
-            future_to_domain = {executor.submit(fetch_domain_meta, d): d for d in domains}
-            for future in concurrent.futures.as_completed(future_to_domain):
-                domain = future_to_domain[future]
-                completed_domains += 1
-                try:
-                    meta = future.result()
-                    desc = meta["about_text"] or meta["description"] or ""
-                    domain_descriptions[domain] = desc
-                    domain_relevance[domain] = calculate_content_relevance(meta, keyword)
-                    domain_linkedin_links[domain] = meta.get("linkedin_links", [])
-                except Exception:
-                    domain_descriptions[domain] = ""
-                    domain_relevance[domain] = 0
-                    domain_linkedin_links[domain] = []
-                if completed_domains % max(1, total_domains // 5) == 0 or completed_domains == total_domains:
-                    pct = 30 + int((completed_domains / total_domains) * 15)
-                    print(f"PROGRESS: {min(pct, 45)}")
-        fetched = sum(1 for d in domain_descriptions.values() if d)
-        rel_high = sum(1 for r in domain_relevance.values() if r >= 20)
-        rel_low = sum(1 for r in domain_relevance.values() if r < 0)
-        linkedin_found = sum(1 for links in domain_linkedin_links.values() if links)
-        print(f"      Fetched descriptions for {fetched}/{len(domains)} domains")
-        print(f"      Relevance: {rel_high} high, {rel_low} low")
-        print(f"      LinkedIn profiles found on websites: {linkedin_found}")
+
+        if engine == "google_maps":
+            # Google Maps already provides rich business metadata; skip the slow
+            # website crawl and derive description/relevance directly from it.
+            keyword_parts = set(re.findall(r"[a-zA-Z0-9]+", keyword.lower()))
+            for domain in domains:
+                meta = domain_maps_meta.get(domain, {})
+                parts = []
+                primary_type = meta.get("primary_type", "")
+                address = meta.get("address", "")
+                types = meta.get("types", [])
+                if primary_type:
+                    parts.append(primary_type)
+                if address:
+                    parts.append(address)
+                if types:
+                    parts.append(", ".join(types[:3]))
+                domain_descriptions[domain] = " — ".join(parts)
+                domain_linkedin_links[domain] = []
+
+                score = 25
+                b2b_types = {
+                    "wholesale", "store", "supplier", "manufacturer", "factory",
+                    "distributor", "importer", "equipment_supplier", "export_company",
+                    "import_company", "trading_company", "exporter", "importer",
+                    "buying_office", "procurement", "sourcing", "oem", "odm",
+                    "private_label", "brand", "retail", "ecommerce", "online_store",
+                    "marketplace_seller", "wholesaler", "dealer", "reseller",
+                    "stockist", "agent", "sales", "supply_store", "sporting_goods_store",
+                }
+                if any(t in b2b_types for t in types):
+                    score += 15
+                if meta.get("rating", 0) >= 4.5:
+                    score += 10
+                elif meta.get("rating", 0) >= 4.0:
+                    score += 5
+                if meta.get("reviews_count", 0) >= 20:
+                    score += 5
+                # Keyword overlap with Maps business type/address gives extra relevance.
+                text = " ".join(parts).lower()
+                matched = sum(1 for part in keyword_parts if part in text and len(part) > 2)
+                score += matched * 5
+                domain_relevance[domain] = score
+            fetched = sum(1 for d in domain_descriptions.values() if d)
+            print(f"      Used Google Maps metadata for {fetched}/{len(domains)} domains")
+            print(f"      Relevance: {sum(1 for r in domain_relevance.values() if r >= 20)} high")
+        else:
+            completed_domains = 0
+            with concurrent.futures.ThreadPoolExecutor(max_workers=6) as executor:
+                future_to_domain = {executor.submit(fetch_domain_meta, d): d for d in domains}
+                for future in concurrent.futures.as_completed(future_to_domain):
+                    domain = future_to_domain[future]
+                    completed_domains += 1
+                    try:
+                        meta = future.result()
+                        desc = meta["about_text"] or meta["description"] or ""
+                        domain_descriptions[domain] = desc
+                        domain_relevance[domain] = calculate_content_relevance(meta, keyword)
+                        domain_linkedin_links[domain] = meta.get("linkedin_links", [])
+                    except Exception:
+                        domain_descriptions[domain] = ""
+                        domain_relevance[domain] = 0
+                        domain_linkedin_links[domain] = []
+                    if completed_domains % max(1, total_domains // 5) == 0 or completed_domains == total_domains:
+                        pct = 30 + int((completed_domains / total_domains) * 15)
+                        print(f"PROGRESS: {min(pct, 45)}")
+            fetched = sum(1 for d in domain_descriptions.values() if d)
+            rel_high = sum(1 for r in domain_relevance.values() if r >= 20)
+            rel_low = sum(1 for r in domain_relevance.values() if r < 0)
+            linkedin_found = sum(1 for links in domain_linkedin_links.values() if links)
+            print(f"      Fetched descriptions for {fetched}/{len(domains)} domains")
+            print(f"      Relevance: {rel_high} high, {rel_low} low")
+            print(f"      LinkedIn profiles found on websites: {linkedin_found}")
 
         # 3b. Filter out low-relevance domains
         before_filter = len(domains)
