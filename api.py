@@ -1306,8 +1306,6 @@ async def verify_file(
     ]
     if verify_domain:
         cmd.append("--verify-domain")
-    if verify_email:
-        cmd.append("--verify-email")
     if verify_company:
         cmd.append("--verify-company")
 
@@ -1666,8 +1664,6 @@ async def stream_verify_leads(
     ]
     if verify_domain:
         cmd.append("--verify-domain")
-    if verify_email:
-        cmd.append("--verify-email")
     if verify_company:
         cmd.append("--verify-company")
 

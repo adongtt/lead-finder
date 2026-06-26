@@ -1325,7 +1325,6 @@
       const params = new URLSearchParams();
       params.append('job_id', jobId);
       params.append('verify_domain', 'true');
-      params.append('verify_email', 'true');
       params.append('verify_company', 'true');
       const streamUrl = `/api/leads/verify/stream?${params.toString()}`;
 
