@@ -345,6 +345,41 @@
     .timeline-action { font-weight: 600; font-size: 14px; }
     .timeline-notes { font-size: 13px; color: var(--muted); margin-top: 4px; }
     .modal-footer button { width: 100%; padding: 12px; margin-top: 10px; }
+    .email-modal {
+      max-width: 680px;
+    }
+    .email-modal .sig-input,
+    .email-modal textarea {
+      font-family: inherit;
+    }
+    .email-modal textarea {
+      min-height: 220px;
+      resize: vertical;
+      line-height: 1.6;
+    }
+    .email-modal .field-label {
+      font-size: 12px;
+      color: var(--muted);
+      margin-bottom: 4px;
+      display: block;
+    }
+    .email-modal .template-select {
+      margin-bottom: 14px;
+    }
+    .email-modal .variable-hint {
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 8px;
+      line-height: 1.5;
+    }
+    .email-modal .modal-footer {
+      display: flex;
+      gap: 10px;
+    }
+    .email-modal .modal-footer button {
+      flex: 1;
+      margin-top: 0;
+    }
     .verify-badge {
       display: inline-block;
       padding: 3px 8px;
@@ -467,6 +502,48 @@
     </div>
   </div>
 
+  <!-- Email Template Modal -->
+  <div class="modal-overlay" id="emailTemplateModal">
+    <div class="modal email-modal">
+      <div class="modal-header">
+        <h3>发送邮件</h3>
+        <button class="close-btn" onclick="closeEmailTemplateModal()">×</button>
+      </div>
+      <div>
+        <label class="field-label">收件人</label>
+        <input type="text" id="emailTo" class="sig-input" readonly>
+
+        <label class="field-label">发件人信息（自动填入模板）</label>
+        <div style="display:flex;gap:10px;">
+          <input type="text" id="emailMyName" class="sig-input" placeholder="你的名字" style="flex:1;">
+          <input type="text" id="emailMyCompany" class="sig-input" placeholder="你的公司" style="flex:1;">
+        </div>
+
+        <label class="field-label">选择模板</label>
+        <select id="emailTemplateSelect" class="sig-input template-select" onchange="onEmailTemplateChange()">
+          <option value="intro">初次合作开发信</option>
+          <option value="product">产品推荐</option>
+          <option value="followup">跟进邮件</option>
+        </select>
+
+        <label class="field-label">主题</label>
+        <input type="text" id="emailSubject" class="sig-input">
+
+        <label class="field-label">正文</label>
+        <textarea id="emailBody" class="sig-input"></textarea>
+
+        <p class="variable-hint">
+          可用变量：{company} 公司名、{domain} 域名、{first_name} 名、{last_name} 姓、{position} 职位、{product} 产品词、{my_name} 你的名字、{my_company} 你的公司
+        </p>
+
+        <div class="modal-footer" style="margin-top:16px;">
+          <button class="btn-sm btn-outline" style="padding:12px;border-radius:8px;border:1px solid var(--border);background:var(--card);cursor:pointer;" onclick="closeEmailTemplateModal()">取消</button>
+          <button class="btn-sm btn-success" style="padding:12px;border-radius:8px;border:none;background:var(--success);color:#fff;cursor:pointer;font-weight:600;" onclick="confirmSendEmail()">打开邮件客户端</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script>
     const PAGE_SIZE = 20;
     let allLeads = [];
@@ -489,6 +566,60 @@
     const params = new URLSearchParams(location.search);
     const jobId = params.get('job_id');
 
+    // Email templates for the lightweight mailto flow.
+    const EMAIL_TEMPLATES = {
+      intro: {
+        name: '初次合作开发信',
+        subject: 'Inquiry about {product} cooperation with {company}',
+        body: `Hi {first_name},
+
+I hope this email finds you well.
+
+My name is {my_name} from {my_company}. We came across {company} while researching {product} suppliers/distributors and were impressed by your focus on this market.
+
+We specialize in manufacturing high-quality {product} and are currently looking for reliable partners like {company} to expand our distribution network.
+
+Would you be open to a quick call to discuss potential cooperation?
+
+Best regards,
+{my_name}
+{my_company}`
+      },
+      product: {
+        name: '产品推荐',
+        subject: '{product} catalog for {company}',
+        body: `Hi {first_name},
+
+I hope you are doing well.
+
+I am {my_name} from {my_company}. We are a professional manufacturer of {product} and would love to introduce our latest collection to {company}.
+
+Could you please let me know if you are interested in receiving our catalog and price list?
+
+Looking forward to hearing from you.
+
+Best regards,
+{my_name}
+{my_company}`
+      },
+      followup: {
+        name: '跟进邮件',
+        subject: 'Follow-up: {product} inquiry for {company}',
+        body: `Hi {first_name},
+
+I hope all is well at {company}.
+
+I wanted to follow up on my previous email regarding our {product}. I understand you are busy, but I would greatly appreciate any feedback or questions you may have.
+
+Please let me know if there is a good time for a brief call.
+
+Best regards,
+{my_name}
+{my_company}`
+      }
+    };
+    let emailTemplateCurrentLead = null;
+
     function escapeHtml(text) {
       const div = document.createElement('div');
       div.textContent = text;
@@ -497,6 +628,82 @@
 
     function attrEscape(str) {
       return str.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    // Extract a product keyword from the search keyword (first 1-2 meaningful words).
+    function extractProductKeyword(keyword) {
+      if (!keyword) return 'our products';
+      const cleaned = keyword.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+      const stopWords = new Set(['manufacturer', 'supplier', 'distributor', 'wholesaler', 'importer', 'exporter', 'dealer', 'reseller', 'buyer', 'retailer', 'oem', 'odm', 'company', 'factory', 'in', 'usa', 'us', 'uk', 'eu', 'europe', 'germany', 'japan', 'china']);
+      const words = cleaned.split(' ').filter(w => w && !stopWords.has(w));
+      if (!words.length) return cleaned || 'our products';
+      // Prefer the first two meaningful words (e.g. "football gloves").
+      return words.slice(0, 2).join(' ');
+    }
+
+    function fillEmailTemplate(template, lead, meta) {
+      const myName = document.getElementById('emailMyName').value.trim();
+      const myCompany = document.getElementById('emailMyCompany').value.trim();
+      const product = extractProductKeyword(meta.keyword || lead.search_keyword || '');
+      const firstName = lead.first_name || 'there';
+      const lastName = lead.last_name || '';
+
+      return template
+        .replace(/\{company\}/g, lead.company || lead.domain || '')
+        .replace(/\{domain\}/g, lead.domain || '')
+        .replace(/\{first_name\}/g, firstName)
+        .replace(/\{last_name\}/g, lastName)
+        .replace(/\{position\}/g, lead.position || '')
+        .replace(/\{product\}/g, product)
+        .replace(/\{my_name\}/g, myName)
+        .replace(/\{my_company\}/g, myCompany);
+    }
+
+    function openEmailTemplateModal(email) {
+      const lead = allLeads.find(l => l.email === email);
+      if (!lead || !lead.email) return;
+      emailTemplateCurrentLead = lead;
+
+      document.getElementById('emailTo').value = lead.email;
+      document.getElementById('emailMyName').value = localStorage.getItem('email_my_name') || '';
+      document.getElementById('emailMyCompany').value = localStorage.getItem('email_my_company') || '';
+      document.getElementById('emailTemplateSelect').value = 'intro';
+      onEmailTemplateChange();
+
+      document.getElementById('emailTemplateModal').classList.add('active');
+    }
+
+    function closeEmailTemplateModal() {
+      document.getElementById('emailTemplateModal').classList.remove('active');
+      emailTemplateCurrentLead = null;
+    }
+
+    function onEmailTemplateChange() {
+      if (!emailTemplateCurrentLead) return;
+      const tplKey = document.getElementById('emailTemplateSelect').value;
+      const tpl = EMAIL_TEMPLATES[tplKey];
+      if (!tpl) return;
+      document.getElementById('emailSubject').value = fillEmailTemplate(tpl.subject, emailTemplateCurrentLead, searchMeta);
+      document.getElementById('emailBody').value = fillEmailTemplate(tpl.body, emailTemplateCurrentLead, searchMeta);
+    }
+
+    function confirmSendEmail() {
+      if (!emailTemplateCurrentLead) return;
+      const email = emailTemplateCurrentLead.email;
+      const subject = document.getElementById('emailSubject').value;
+      const body = document.getElementById('emailBody').value;
+      const myName = document.getElementById('emailMyName').value.trim();
+      const myCompany = document.getElementById('emailMyCompany').value.trim();
+
+      // Persist sender info for next time.
+      if (myName) localStorage.setItem('email_my_name', myName);
+      if (myCompany) localStorage.setItem('email_my_company', myCompany);
+
+      // Build mailto with proper newline encoding.
+      const params = 'subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body);
+      window.location.href = 'mailto:' + encodeURIComponent(email) + '?' + params;
+
+      closeEmailTemplateModal();
     }
 
     function renderDescCell(row) {
@@ -747,7 +954,7 @@
           `<td>${badge}</td>` +
           `<td>` +
             (row.email
-              ? `<a class="btn-sm btn-outline" href="mailto:${escapeHtml(row.email)}">发邮件</a>`
+              ? `<button class="btn-sm btn-outline" onclick="openEmailTemplateModal('${attrEscape(row.email)}')" style="cursor:pointer;">发邮件</button>`
               : `<span style="font-size:12px;color:var(--muted);">无邮箱</span>`) +
             (row.email
               ? (contacted
