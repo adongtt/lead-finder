@@ -2237,7 +2237,10 @@ def check_domain_alive(domain: str, timeout: int = 10) -> Tuple[bool, str]:
             # 5xx: server is reachable but misbehaving; still counts as alive.
             return True, f"server error {resp.status_code}"
         except requests.exceptions.SSLError as e:
-            return False, f"SSL error: {e}"
+            # HTTPS certificate issue: server may still respond over HTTP.
+            if url == urls[-1]:
+                return False, f"SSL error: {e}"
+            continue
         except requests.exceptions.ConnectionError as e:
             # Only keep the first URL's error if both fail.
             if url == urls[-1]:
@@ -4171,14 +4174,7 @@ class LeadFinder:
             alive_count = sum(1 for a, _ in domain_results.values() if a)
             print(f"  Domain alive: {alive_count}/{len(unique_domains)}")
 
-        # 2. Email validation
-        if check_email:
-            print("\n[Verify] Validating emails...")
-            validate_emails_concurrently(self.zerobounce, leads, max_workers=max_workers)
-            valid_count = sum(1 for l in leads if l.email_valid)
-            print(f"  Email valid: {valid_count}/{with_email}")
-
-        # 3. Company status heuristic
+        # 2. Company status heuristic
         if check_company:
             print("\n[Verify] Checking company status...")
             check_companies_status_concurrently(leads, max_workers=max_workers)
@@ -4201,10 +4197,6 @@ class LeadFinder:
             alive = sum(1 for l in leads if l.domain_alive)
             dead = len(leads) - alive
             print(f"  Domains alive   : {alive}  |  dead: {dead}")
-        if check_email:
-            valid = sum(1 for l in leads if l.email_valid)
-            invalid = with_email - valid
-            print(f"  Emails valid    : {valid}  |  invalid: {invalid}")
         if check_company:
             active = sum(1 for l in leads if l.company_active)
             inactive = len(leads) - active
