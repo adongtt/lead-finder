@@ -223,23 +223,6 @@
       word-break: break-word;
     }
     .hint { font-size: 12px; color: var(--muted); margin-top: 4px; }
-    .keyword-tags { }
-    .tag-group { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 8px; }
-    .tag-label { font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin-right: 4px; }
-    .tag-btn {
-      width: auto;
-      display: inline-block;
-      padding: 4px 10px;
-      font-size: 12px;
-      font-weight: 500;
-      background: var(--bg);
-      color: var(--text);
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      cursor: pointer;
-      transition: all 0.15s;
-    }
-    .tag-btn:hover { background: var(--primary); color: #fff; border-color: var(--primary); }
     .apollo-tip { line-height: 1.6; }
     .desc-tooltip {
       display: inline-block;
@@ -496,51 +479,6 @@
                 <label for="apolloKeywords">公司关键词（建议「产品 + 渠道角色」）</label>
                 <input type="text" id="apolloKeywords" name="apollo_keywords" placeholder='例如 "football gloves distributor" 或 "team sports supplier"' required>
                 <p class="hint">用「产品 + 渠道角色」的英文组合更精准，如 football gloves distributor、baseball equipment importer；多个关键词用逗号分隔</p>
-                <div class="keyword-tags" style="margin-top:10px;">
-                  <div style="font-size:12px;color:var(--muted);margin-bottom:6px;">点击快速填入推荐关键词（已按产品和渠道组合）：</div>
-                  <div class="tag-group">
-                    <span class="tag-label">通用体育</span>
-                    <button type="button" class="tag-btn" onclick="setApolloKeyword('sporting goods distributor')">sporting goods distributor</button>
-                    <button type="button" class="tag-btn" onclick="setApolloKeyword('sports equipment wholesale')">sports equipment wholesale</button>
-                    <button type="button" class="tag-btn" onclick="setApolloKeyword('team sports supplier')">team sports supplier</button>
-                    <button type="button" class="tag-btn" onclick="setApolloKeyword('athletic apparel buyer')">athletic apparel buyer</button>
-                  </div>
-                  <div class="tag-group">
-                    <span class="tag-label">足球手套</span>
-                    <button type="button" class="tag-btn" onclick="setApolloKeyword('football gloves distributor')">football gloves distributor</button>
-                    <button type="button" class="tag-btn" onclick="setApolloKeyword('football equipment importer')">football equipment importer</button>
-                    <button type="button" class="tag-btn" onclick="setApolloKeyword('receiver gloves supplier')">receiver gloves supplier</button>
-                    <button type="button" class="tag-btn" onclick="setApolloKeyword('football gear wholesale')">football gear wholesale</button>
-                  </div>
-                  <div class="tag-group">
-                    <span class="tag-label">棒球手套</span>
-                    <button type="button" class="tag-btn" onclick="setApolloKeyword('baseball gloves distributor')">baseball gloves distributor</button>
-                    <button type="button" class="tag-btn" onclick="setApolloKeyword('baseball equipment importer')">baseball equipment importer</button>
-                    <button type="button" class="tag-btn" onclick="setApolloKeyword('batting gloves supplier')">batting gloves supplier</button>
-                    <button type="button" class="tag-btn" onclick="setApolloKeyword('baseball gear wholesale')">baseball gear wholesale</button>
-                  </div>
-                  <div class="tag-group">
-                    <span class="tag-label">骑行/滑雪/户外</span>
-                    <button type="button" class="tag-btn" onclick="setApolloKeyword('cycling gloves distributor')">cycling gloves distributor</button>
-                    <button type="button" class="tag-btn" onclick="setApolloKeyword('ski gloves supplier')">ski gloves supplier</button>
-                    <button type="button" class="tag-btn" onclick="setApolloKeyword('outdoor gear buyer')">outdoor gear buyer</button>
-                    <button type="button" class="tag-btn" onclick="setApolloKeyword('bike accessories wholesale')">bike accessories wholesale</button>
-                  </div>
-                  <div class="tag-group">
-                    <span class="tag-label">健身/劳保</span>
-                    <button type="button" class="tag-btn" onclick="setApolloKeyword('gym gloves supplier')">gym gloves supplier</button>
-                    <button type="button" class="tag-btn" onclick="setApolloKeyword('fitness accessories distributor')">fitness accessories distributor</button>
-                    <button type="button" class="tag-btn" onclick="setApolloKeyword('work gloves distributor')">work gloves distributor</button>
-                    <button type="button" class="tag-btn" onclick="setApolloKeyword('safety gloves supplier')">safety gloves supplier</button>
-                  </div>
-                  <div class="tag-group">
-                    <span class="tag-label">高精准组合</span>
-                    <button type="button" class="tag-btn" onclick="setApolloKeyword('football gloves distributor,football equipment importer')">football gloves 组合</button>
-                    <button type="button" class="tag-btn" onclick="setApolloKeyword('baseball gloves distributor,baseball equipment importer')">baseball gloves 组合</button>
-                    <button type="button" class="tag-btn" onclick="setApolloKeyword('team sports supplier,sports equipment wholesale')">team sports 组合</button>
-                    <button type="button" class="tag-btn" onclick="setApolloKeyword('work gloves distributor,safety gloves supplier')">work gloves 组合</button>
-                  </div>
-                </div>
                 <div style="margin-top:16px;padding:12px;background:#f0fdf4;border:1px solid #86efac;border-radius:8px;">
                   <label for="apolloDomains" style="color:#166534;margin-bottom:6px;">📥 已有客户域名扩量（可选）</label>
                   <textarea id="apolloDomains" name="apollo_domains" rows="3" placeholder="每行一个域名，例如：\nsportsunlimitedinc.com\nrawlings.com" style="width:100%;padding:10px 12px;background:#fff;border:1px solid #bbf7d0;border-radius:8px;font-size:14px;resize:vertical;"></textarea>
@@ -917,13 +855,6 @@
     const progressStep = document.getElementById('progressStep');
     let currentMode = 'apollo';
 
-    function setApolloKeyword(keyword) {
-      const input = document.getElementById('apolloKeywords');
-      input.value = keyword;
-      input.focus();
-    }
-
-    function setMode(mode) {
       currentMode = mode;
       const btnApollo = document.getElementById('modeApollo');
       const btnKeyword = document.getElementById('modeKeyword');
