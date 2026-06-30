@@ -1,0 +1,66 @@
+
+============================================================
+  Apollo.io People Search - Keyword Search
+  Input          : ['baseball equipment distributor']
+  Titles         : ['Buyer', 'Purchasing Manager', 'Procurement Manager', 'Sourcing Manager']
+  Locations      : []
+  Employee Range : Any
+  Min Relevance  : 0
+  Max Results    : 100
+  Max Enrich     : 10
+  Output         : apollo_debug_test3.csv
+============================================================
+
+PROGRESS: 5
+[Apollo] Fetching page 1...
+  Page 1: got 100 contacts (total 100)
+
+[Apollo] Total contacts fetched: 100
+PROGRESS: 15
+
+[Apollo] Coarse pre-filter: 10 to enrich (max 10), 90 skipped
+  [Apollo] Starting bulk /people/bulk_match enrichment...
+    [Apollo DEBUG] _bulk_enrich_people called with 10 people
+  [Apollo] Bulk enriched 0/10 contacts
+PROGRESS: 25
+
+[Stage 2/4] Resolving domains for 100 contacts (parallel)...
+PROGRESS: 30
+    [Website resolve] DDGS failed for 'Johnny Mac's Sporting Goods': ('error sending request for url (https://html.duckduckgo.com/html/)', 'https://html.duckduckgo.com/html/')
+    [Website resolve] DDGS failed for 'Gandalf Distribution, part of ELKO Group': ('error sending request for url (https://html.duckduckgo.com/html/)', 'https://html.duckduckgo.com/html/')
+    [Website resolve] DDGS failed for 'Titan Interconnect LTD': ('error sending request for url (https://html.duckduckgo.com/html/)', 'https://html.duckduckgo.com/html/')
+Traceback (most recent call last):
+  File "D:\football gloves\lead-finder\lead_finder.py", line 2628, in _resolve_company_website
+    for r in ddgs.text(query, max_results=5):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\24073\AppData\Local\Programs\Python\Python311\Lib\site-packages\ddgs\ddgs.py", line 449, in text
+    return self._search_sync("text", query, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\24073\AppData\Local\Programs\Python\Python311\Lib\site-packages\ddgs\ddgs.py", line 445, in _search_sync
+    raise DDGSException(err or "No results found.")
+ddgs.exceptions.DDGSException: No results found.
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "D:\football gloves\lead-finder\lead_finder.py", line 4575, in <module>
+    main()
+  File "D:\football gloves\lead-finder\lead_finder.py", line 4526, in main
+    finder.run_apollo_search(
+  File "D:\football gloves\lead-finder\lead_finder.py", line 3814, in run_apollo_search
+    result = future.result()
+             ^^^^^^^^^^^^^^^
+  File "C:\Users\24073\AppData\Local\Programs\Python\Python311\Lib\concurrent\futures\_base.py", line 449, in result
+    return self.__get_result()
+           ^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\24073\AppData\Local\Programs\Python\Python311\Lib\concurrent\futures\_base.py", line 401, in __get_result
+    raise self._exception
+  File "C:\Users\24073\AppData\Local\Programs\Python\Python311\Lib\concurrent\futures\thread.py", line 58, in run
+    result = self.fn(*self.args, **self.kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\football gloves\lead-finder\lead_finder.py", line 3798, in _resolve_domain_for_person
+    domain = _resolve_company_website(org_name)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\football gloves\lead-finder\lead_finder.py", line 2636, in _resolve_company_website
+    print(f"    [Website resolve] DDGS failed for '{clean_name}': {e}")
+UnicodeEncodeError: 'gbk' codec can't encode character '\xae' in position 52: illegal multibyte sequence

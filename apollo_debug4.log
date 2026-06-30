@@ -1,0 +1,80 @@
+
+============================================================
+  Apollo.io People Search - Keyword Search
+  Input          : ['baseball equipment distributor']
+  Titles         : ['Buyer', 'Purchasing Manager', 'Procurement Manager', 'Sourcing Manager']
+  Locations      : []
+  Employee Range : Any
+  Min Relevance  : 0
+  Max Results    : 100
+  Max Enrich     : 10
+  Output         : apollo_debug_test4.csv
+============================================================
+
+PROGRESS: 5
+[Apollo] Fetching page 1...
+  Page 1: got 100 contacts (total 100)
+
+[Apollo] Total contacts fetched: 100
+PROGRESS: 15
+
+[Apollo] Coarse pre-filter: 10 to enrich (max 10), 90 skipped
+  [Apollo] Starting bulk /people/bulk_match enrichment...
+    [Apollo DEBUG] _bulk_enrich_people called with 10 people
+    [Apollo DEBUG] indexed 0 people with ids
+  [Apollo] Bulk enriched 0/10 contacts
+PROGRESS: 25
+
+[Stage 2/4] Resolving domains for 100 contacts (parallel)...
+    [Website resolve] DDGS failed for 'Team Express': ('error sending request for url (https://html.duckduckgo.com/html/)', 'https://html.duckduckgo.com/html/')
+PROGRESS: 30
+PROGRESS: 35
+    [Website resolve] DDGS failed for 'VINILON GROUP': ('error sending request for url (https://html.duckduckgo.com/html/)', 'https://html.duckduckgo.com/html/')
+    [Website resolve] DDGS failed for 'Clarges Trading Ltd - International Distributor of British and European food & drink brands': ('error sending request for url (https://html.duckduckgo.com/html/)', 'https://html.duckduckgo.com/html/')
+PROGRESS: 40
+PROGRESS: 45
+    [Website resolve] DDGS failed for 'Vilore Foods Company Inc': ('error sending request for url (https://html.duckduckgo.com/html/)', 'https://html.duckduckgo.com/html/')
+PROGRESS: 50
+  Resolved: 76 domains, skipped: 24
+PROGRESS: 40
+
+[Stage 2.5/4] Scoring relevance for 76 contacts (min=0)...
+    [Filter] -'LKQ Europe' (score -25)
+    [Filter] -'Capitol Distributing' (score -25)
+    [Filter] -'George Courey Inc.' (score -25)
+    [Filter] -'MacStation - Apple Premium Reseller' (score -25)
+    [Filter] -'Solo' (score -25)
+  Kept: 24, Filtered out: 52
+PROGRESS: 42
+
+[Stage 3/4] Hunter enrichment for missing emails (parallel)...
+PROGRESS: 47
+PROGRESS: 55
+PROGRESS: 62
+PROGRESS: 70
+  Hunter email-finder enriched: 0/0
+  Hunter domain-search fallback: 14/20 domains (16 contacts)
+PROGRESS: 75
+
+[Stage 4/4] Building leads...
+  [Apollo] 8 contacts had has_email=True but no exposed email address
+  Built 22 leads
+PROGRESS: 85
+
+[Apollo] Total unique leads: 18
+PROGRESS: 95
+
+[OK] Exported 18 leads to: apollo_debug_test4.csv
+PROGRESS: 100
+
+============================================================
+  SUMMARY
+============================================================
+  Keyword          : Apollo People Search
+  Domains searched : 18
+  Unique leads     : 18
+  No-email leads   : 6 (kept without email)
+  Personal emails  : 12
+  High confidence  : 12
+============================================================
+

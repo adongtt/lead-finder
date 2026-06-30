@@ -1,0 +1,84 @@
+
+============================================================
+  Apollo.io People Search - Keyword Search
+  Input          : ['baseball equipment distributor']
+  Titles         : ['Buyer', 'Purchasing Manager', 'Procurement Manager', 'Sourcing Manager']
+  Locations      : []
+  Employee Range : Any
+  Min Relevance  : 0
+  Max Results    : 100
+  Max Enrich     : 10
+  Output         : apollo_debug_test5.csv
+============================================================
+
+PROGRESS: 5
+[Apollo] Fetching page 1...
+    [Apollo DEBUG] people_search first person keys=['id', 'first_name', 'last_name_obfuscated', 'title', 'last_refreshed_at', 'has_email', 'has_city', 'has_state', 'has_country', 'has_direct_phone', 'organization']
+    [Apollo DEBUG] people_search first person has id=True, has email=False
+  Page 1: got 100 contacts (total 100)
+
+[Apollo] Total contacts fetched: 100
+PROGRESS: 15
+
+[Apollo] Coarse pre-filter: 10 to enrich (max 10), 90 skipped
+  [Apollo] Starting bulk /people/bulk_match enrichment...
+    [Apollo DEBUG] _bulk_enrich_people called with 10 people
+    [Apollo DEBUG] indexed 10 people with ids
+    [Apollo DEBUG] _enrich_chunk called with 10 people
+    [Apollo DEBUG] bulk_match chunk size=10 status=422
+    [Apollo DEBUG] bulk_match non-200 body: {"error":"You have insufficient credits! \u003ca href='https://app.apollo.io/#/settings/plans/upgrade' aria-onclick='close_alert'\u003eUpgrade your plan\u003c/a\u003e to increase your number of lead credits."}
+    [Apollo] Bulk match returned 422, falling back to single /people/match
+  [Apollo] Bulk enriched 0/10 contacts
+PROGRESS: 25
+
+[Stage 2/4] Resolving domains for 100 contacts (parallel)...
+PROGRESS: 30
+PROGRESS: 35
+PROGRESS: 40
+PROGRESS: 45
+PROGRESS: 50
+  Resolved: 80 domains, skipped: 20
+PROGRESS: 40
+
+[Stage 2.5/4] Scoring relevance for 80 contacts (min=0)...
+    [Filter] -'Capitol Distributing' (score -25)
+    [Filter] -'LKQ Europe' (score -25)
+    [Filter] -'MacStation - Apple Premium Reseller' (score -25)
+    [Filter] -'George Courey Inc.' (score -25)
+    [Filter] -'TEK Seating Ltd' (score -25)
+  Kept: 22, Filtered out: 58
+PROGRESS: 42
+
+[Stage 3/4] Hunter enrichment for missing emails (parallel)...
+PROGRESS: 46
+PROGRESS: 53
+PROGRESS: 60
+PROGRESS: 66
+PROGRESS: 70
+  Hunter email-finder enriched: 0/0
+  Hunter domain-search fallback: 13/18 domains (15 contacts)
+PROGRESS: 75
+
+[Stage 4/4] Building leads...
+  [Apollo] 5 contacts had has_email=True but no exposed email address
+  [Apollo] Skipped 1 contacts with no real email/phone (keep_no_email=False)
+  Built 20 leads
+PROGRESS: 85
+
+[Apollo] Total unique leads: 16
+PROGRESS: 95
+
+[OK] Exported 16 leads to: apollo_debug_test5.csv
+PROGRESS: 100
+
+============================================================
+  SUMMARY
+============================================================
+  Keyword          : Apollo People Search
+  Domains searched : 16
+  Unique leads     : 16
+  No-email leads   : 4 (kept without email)
+  Personal emails  : 12
+  High confidence  : 12
+============================================================
+

@@ -255,6 +255,45 @@ async def apollo_search(
 
 
 @mcp.tool()
+async def apollo_organization_search(
+    org_keywords: str,
+    titles: str = "Buyer,Purchasing Manager,Procurement Manager,Sourcing Manager",
+    locations: str = "",
+    max_orgs: int = 20,
+    max_people_per_org: int = 5,
+    output: str | None = None,
+) -> str:
+    """Search Apollo.io for organizations by keyword, then find purchasing contacts within each.
+
+    Args:
+        org_keywords: Organization keywords, comma-separated, e.g. "ski gloves distributor".
+        titles: Person titles to search within each organization, comma-separated.
+        locations: Organization locations, comma-separated, e.g. "United States".
+        max_orgs: Maximum organizations to fetch (default 20).
+        max_people_per_org: Maximum people per organization (default 5).
+        output: Output CSV path. Defaults to mcp_apollo_org_*.csv.
+    """
+    config = _config_safe()
+    if not config.get("apollo_key"):
+        return "[ERROR] apollo_key is required for Apollo Organization Search."
+
+    csv_path = output or _default_output("mcp_apollo_org")
+    args = [
+        "apollo-org-search",
+        "--apollo-org-keywords", org_keywords,
+        "--apollo-titles", titles,
+        "--apollo-org-max-orgs", str(max_orgs),
+        "--apollo-org-max-people-per-org", str(max_people_per_org),
+        "--output", csv_path,
+    ]
+    if locations:
+        args.extend(["--apollo-org-locations", locations])
+
+    code, out, err = await _run_cli(args)
+    return _format_result("apollo_organization_search", csv_path, code, out, err)
+
+
+@mcp.tool()
 async def google_maps_search(
     keyword: str,
     region: str = "",

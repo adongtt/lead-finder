@@ -1,0 +1,78 @@
+
+============================================================
+  Apollo.io People Search - Keyword Search
+  Input          : ['baseball equipment distributor']
+  Titles         : ['Buyer', 'Purchasing Manager', 'Procurement Manager', 'Sourcing Manager']
+  Locations      : []
+  Employee Range : Any
+  Min Relevance  : 0
+  Max Results    : 100
+  Max Enrich     : 20
+  Output         : apollo_debug_test2.csv
+============================================================
+
+PROGRESS: 5
+[Apollo] Fetching page 1...
+  Page 1: got 100 contacts (total 100)
+
+[Apollo] Total contacts fetched: 100
+PROGRESS: 15
+
+[Apollo] Coarse pre-filter: 20 to enrich (max 20), 80 skipped
+  [Apollo] Starting bulk /people/bulk_match enrichment...
+  [Apollo] Bulk enriched 0/20 contacts
+PROGRESS: 25
+
+[Stage 2/4] Resolving domains for 100 contacts (parallel)...
+PROGRESS: 30
+    [Website resolve] DDGS failed for 'Solo': ('error sending request for url (https://yandex.com/search/site/?text=%22Solo%22+official+website&web=1&searchid=3812529)', 'https://yandex.com/search/site/?text=%22Solo%22+official+website&web=1&searchid=3812529')
+    [Website resolve] DDGS failed for 'Crane Supply - Canada's Premier PVF Distributor | Premier distributeur de PVF au Canada': ('error sending request for url (https://yandex.com/search/site/?text=%22Crane+Supply+-+Canada%27s+Premier+PVF+Distributor+%7C+Premier+distributeur+de+PVF+au+Canada%22+official+website&web=1&searchid=8821372)', 'https://yandex.com/search/site/?text=%22Crane+Supply+-+Canada%27s+Premier+PVF+Distributor+%7C+Premier+distributeur+de+PVF+au+Canada%22+official+website&web=1&searchid=8821372')
+PROGRESS: 35
+PROGRESS: 40
+PROGRESS: 45
+PROGRESS: 50
+  Resolved: 82 domains, skipped: 18
+PROGRESS: 40
+
+[Stage 2.5/4] Scoring relevance for 82 contacts (min=0)...
+    [Filter] -'LKQ Europe' (score -25)
+    [Filter] -'George Courey Inc.' (score -25)
+    [Filter] -'Capitol Distributing' (score -25)
+    [Filter] -'MacStation - Apple Premium Reseller' (score -25)
+    [Filter] -'Pedroso & Os¨®rio' (score -25)
+  Kept: 25, Filtered out: 57
+PROGRESS: 42
+
+[Stage 3/4] Hunter enrichment for missing emails (parallel)...
+PROGRESS: 46
+PROGRESS: 53
+PROGRESS: 60
+PROGRESS: 66
+PROGRESS: 70
+  Hunter email-finder enriched: 0/0
+  Hunter domain-search fallback: 14/18 domains (19 contacts)
+PROGRESS: 75
+
+[Stage 4/4] Building leads...
+  [Apollo] 5 contacts had has_email=True but no exposed email address
+  [Apollo] Skipped 1 contacts with no real email/phone (keep_no_email=False)
+  Built 20 leads
+PROGRESS: 85
+
+[Apollo] Total unique leads: 16
+PROGRESS: 95
+
+[OK] Exported 16 leads to: apollo_debug_test2.csv
+PROGRESS: 100
+
+============================================================
+  SUMMARY
+============================================================
+  Keyword          : Apollo People Search
+  Domains searched : 15
+  Unique leads     : 16
+  No-email leads   : 3 (kept without email)
+  Personal emails  : 13
+  High confidence  : 12
+============================================================
+

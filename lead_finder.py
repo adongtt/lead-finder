@@ -131,10 +131,34 @@ APOLLO_POSITIVE_KEYWORDS = {
     "retail", "merchant", "trading", "trade",
 }
 
+APOLLO_CHANNEL_ROLES = {
+    "distributor", "distributors", "distributing", "distribution",
+    "importer", "importers", "importing", "import", "imports",
+    "exporter", "exporters", "exporting", "export", "exports",
+    "supplier", "suppliers", "supplying", "supply", "supplies",
+    "wholesaler", "wholesalers", "wholesale", "wholesaling",
+    "dealer", "dealers", "dealing", "deal",
+    "reseller", "resellers", "reselling",
+    "buyer", "buyers", "buying",
+    "retailer", "retailers", "retailing",
+    "exporter", "exporters",
+    "manufacturer", "manufacturers", "manufacturing", "manufacture",
+    "oem", "odm",
+    "vendor", "vendors",
+    "merchant", "merchants",
+    "trading", "trade", "trader", "traders",
+}
+
+APOLLO_PRODUCT_KEYWORDS = APOLLO_POSITIVE_KEYWORDS - APOLLO_CHANNEL_ROLES - {"retail", "merchant", "trading", "trade"} | {"sporting", "goods", "teams", "athletic"}
+
 APOLLO_NEGATIVE_KEYWORDS = {
     "health", "medical", "dental", "hospital", "clinic", "patient",
     "software", "saas", "tech", "technology", "cloud", "ai", "data",
-    "resort", "spa", "hotel", "hospitality", "restaurant", "cafe",
+    "resort", "spa", "hotel", "hotels", "lodge", "lodges",
+    "hospitality", "restaurant", "cafe", "bar", "pub",
+    "food", "foods", "foodservice", "beverage", "beverages", "drink",
+    "wine", "wines", "liquor", "alcohol", "floral", "flower", "flowers",
+    "seafood", "fish", "meat", "dairy", "grocery", "groceries",
     "aviation", "aircraft", "airline", "plane", "maintenance",
     "government", "municipal", "county", "federal", "state",
     "nonprofit", "charity", "foundation", "ngo",
@@ -144,10 +168,29 @@ APOLLO_NEGATIVE_KEYWORDS = {
     "legal", "law firm", "attorney", "lawyer",
     "construction", "contractor", "builder", "engineering",
     "oil", "gas", "energy", "petroleum", "mining",
-    "real estate", "property", "rental",
-    "automotive", "car", "vehicle", "truck", "motor",
+    "real estate", "property", "rental", "rentals",
+    "automotive", "car", "vehicle", "truck", "motor", "parts",
     "electronics", "semiconductor", "appliance", "appliances",
     "furniture", "plumbing", "hvac", "maintenance",
+    "chemical", "chemicals", "solar", "tile", "tiles", "stone",
+    "lighting", "pool", "fastener", "fasteners", "bearing", "bearings",
+    # Ski/snow sports ecosystem that is NOT a B2B buyer: resorts, rental shops,
+    # used-gear stores, schools/instructors, tour operators, hospitality.
+    "ski resort", "ski resorts", "ski area", "ski areas",
+    "ski mountain", "ski mountains", "snow resort", "snow resorts",
+    "mountain resort", "mountain resorts", "ski lodge", "ski lodges",
+    "ski valley", "ski basin", "ski basins", "ski and golf",
+    "ski country",
+    "ski school", "ski schools", "ski instructor", "ski instructors",
+    "ski coach", "ski coaching", "ski lesson", "ski lessons",
+    "ski rental", "ski rentals", "ski hire", "ski tour", "ski tours",
+    "ski travel", "ski vacation", "ski trips",
+    "snowboard school", "snowboard instructor", "snowboard rental",
+    "pro shop", "proshop",
+    "used ski", "used snowboard", "second hand", "second-hand",
+    "pre-owned", "preowned", "thrift", "consignment",
+    "outfitter", "outfitters",
+    "tour operator", "tour operators", "travel agency", "vacation",
 }
 
 # ---------------------------------------------------------------------------
@@ -352,23 +395,249 @@ def _extract_org_structure_from_text(text: str) -> dict:
 
     return result
 
+def _apollo_extract_product_terms(user_keywords: List[str]) -> Set[str]:
+    """Extract product terms from user-supplied Apollo keywords.
+
+    Strips away channel-role words (distributor, wholesaler, etc.) and common
+    stop words so that relevance scoring focuses on the actual product/category.
+    Example: 'baseball equipment distributor' -> {'baseball', 'equipment'}.
+    """
+    stop_words = {
+        "and", "or", "the", "of", "for", "in", "with", "by", "to", "a", "an",
+        "company", "companies", "inc", "llc", "ltd", "co", "corp", "corporation",
+        "usa", "us", "uk", "america", "american", "international", "global",
+    }
+    terms: Set[str] = set()
+    for kw in user_keywords:
+        for part in kw.lower().split():
+            part = part.strip(".,;:!?()[]{}\"'")
+            if not part or part in stop_words or part in APOLLO_CHANNEL_ROLES:
+                continue
+            terms.add(part)
+    return terms
+
+
+def _apollo_org_text(person: dict) -> str:
+    """Extract searchable text from a person's organization data.
+
+    Prefers enriched org data from /people/match, falls back to the free
+    organization block returned by people_search, and finally to the raw
+    organization_name string.
+    """
+    org = person.get("_enriched_org", {}) or {}
+    if org:
+        parts = [
+            org.get("name", ""),
+            org.get("industry", ""),
+            " ".join(org.get("industries", [])),
+            " ".join(org.get("keywords", [])),
+            org.get("short_description", ""),
+        ]
+        return " ".join(parts).lower()
+
+    free_org = person.get("_apollo_org", {}) or {}
+    if free_org:
+        return str(free_org.get("name", "")).lower()
+
+    return str(person.get("organization_name", "")).lower()
+
+
 def _score_apollo_contact_relevance(person: dict) -> int:
-    """Score Apollo contact relevance based on org industry, keywords, description.
-    Returns integer score. Negative = likely irrelevant.
+    """Score Apollo contact relevance based on org industry, keywords, description,
+    and company name. Returns integer score. Negative = likely irrelevant.
     """
     score = 0
-    org = person.get("_enriched_org", {}) or {}
-    if not org:
-        return 0
-
-    org_name = (org.get("name") or "").lower()
-    industry = (org.get("industry") or "").lower()
-    industries = [i.lower() for i in org.get("industries", [])]
-    keywords = [k.lower() for k in org.get("keywords", [])]
-    description = (org.get("short_description") or "").lower()
+    org_text = _apollo_org_text(person)
     person_title = (person.get("position") or "").lower()
 
-    # Industry scoring (soft penalties to avoid over-filtering)
+    # ------------------------------------------------------------------
+    # Helper classifiers for B2B intent and low-value retail/rental forms.
+    # ------------------------------------------------------------------
+    b2b_roles = {
+        "distributor", "distributors", "distributing", "distribution",
+        "importer", "importers", "importing", "import", "imports",
+        "exporter", "exporters", "exporting", "export", "exports",
+        "wholesaler", "wholesalers", "wholesale", "wholesaling",
+        "supplier", "suppliers", "supplying", "supply", "supplies",
+        "dealer", "dealers", "dealing",
+        "reseller", "resellers", "reselling",
+        "vendor", "vendors",
+        "manufacturer", "manufacturers", "manufacturing", "manufacture",
+        "oem", "odm",
+        "trading", "trade", "trader", "traders",
+        "merchant", "merchants",
+    }
+
+    def _has_b2b_role(text: str) -> bool:
+        return any(role in text for role in b2b_roles)
+
+    def _is_large_sporting_retailer(text: str) -> bool:
+        # Multi-location sporting goods chains: high-value accounts even if not
+        # labeled as distributors.
+        return any(sig in text for sig in {
+            "sporting goods", "sports goods", "sports authority", "dick's",
+            "dicks sporting", "academy sports", "big 5", "modell's", "modells",
+            "olympia sport", "sports direct", "decathlon", "rei ", "mec ",
+            "mountain equipment co-op",
+        })
+
+    def _has_weak_retail_signal(text: str) -> bool:
+        # Single-location / rental / used-gear / consignment forms are poor B2B targets.
+        return any(sig in text for sig in {
+            "pro shop", "proshop", "rental", "rentals", "rent ", "hire ",
+            "used ", "second hand", "second-hand", "pre-owned", "preowned",
+            "thrift", "consignment", "outfitter", "outfitters",
+        })
+
+    def _has_resort_signal(text: str) -> bool:
+        return any(sig in text for sig in {
+            "resort", "resorts", "hotel", "hotels", "lodge", "lodges", "spa",
+            "ski area", "ski mountain", "snow resort", "mountain resort",
+            "ski resort", "ski lodge",
+        })
+
+    # Strong negative forms first.
+    if _has_resort_signal(org_text):
+        score -= 35
+    if _has_weak_retail_signal(org_text):
+        score -= 25
+
+    org = person.get("_enriched_org", {}) or {}
+    if org:
+        industry = (org.get("industry") or "").lower()
+        industries = [i.lower() for i in org.get("industries", [])]
+        keywords = [k.lower() for k in org.get("keywords", [])]
+        description = (org.get("short_description") or "").lower()
+
+        # Industry scoring (soft penalties to avoid over-filtering)
+        if industry:
+            for pos in APOLLO_POSITIVE_INDUSTRIES:
+                if pos in industry:
+                    score += 20
+            for neg in APOLLO_NEGATIVE_INDUSTRIES:
+                if neg in industry:
+                    score -= 15
+        for ind in industries:
+            for pos in APOLLO_POSITIVE_INDUSTRIES:
+                if pos in ind:
+                    score += 12
+            for neg in APOLLO_NEGATIVE_INDUSTRIES:
+                if neg in ind:
+                    score -= 10
+
+        # Keywords scoring
+        all_text = " ".join(keywords)
+        for pos in APOLLO_POSITIVE_KEYWORDS:
+            if pos in all_text:
+                score += 10
+        for neg in APOLLO_NEGATIVE_KEYWORDS:
+            if neg in all_text:
+                score -= 8
+
+        # Description scoring
+        if description:
+            for pos in APOLLO_POSITIVE_KEYWORDS:
+                if pos in description:
+                    score += 8
+            for neg in APOLLO_NEGATIVE_KEYWORDS:
+                if neg in description:
+                    score -= 6
+
+    # Company name scoring (works with or without enriched org data)
+    if org_text:
+        # Product/category signals are only meaningful when paired with a B2B
+        # channel signal or a known large retailer. Otherwise 'Ski Resort' would
+        # score too highly just because it contains 'ski'.
+        product_match = any(pos in org_text for pos in APOLLO_PRODUCT_KEYWORDS)
+        if product_match:
+            if _has_b2b_role(org_text) or _is_large_sporting_retailer(org_text):
+                score += 15
+            else:
+                score += 3  # tiny token bonus, not enough to survive on its own
+
+        # High-value B2B channel roles
+        if _has_b2b_role(org_text):
+            score += 12
+
+        # Large sporting goods chains are worth keeping even without a B2B label
+        if _is_large_sporting_retailer(org_text):
+            score += 8
+
+        for neg in APOLLO_NEGATIVE_KEYWORDS:
+            if neg in org_text:
+                score -= 20
+
+    # Title scoring (bonus for purchasing roles)
+    if any(t in person_title for t in ["buyer", "purchasing", "procurement", "sourcing", "merchandising"]):
+        score += 12
+    elif any(t in person_title for t in ["manager", "director", "vp", "vice president", "head of"]):
+        score += 3
+
+    return score
+
+
+def _score_apollo_organization_relevance(org: dict) -> int:
+    """Score an Apollo organization for B2B relevance.
+
+    Similar to _score_apollo_contact_relevance but works on organization-level
+    data before any contacts are fetched. Returns integer score; negative means
+    likely irrelevant.
+    """
+    score = 0
+    org_name = (org.get("name") or "").lower()
+    description = (org.get("short_description") or "").lower()
+    keywords = " ".join(k.lower() for k in (org.get("keywords") or []))
+    industry = (org.get("industry") or "").lower()
+    industries = " ".join(i.lower() for i in (org.get("industries") or []))
+    all_text = f"{org_name} {description} {keywords} {industry} {industries}".strip()
+
+    b2b_roles = {
+        "distributor", "distributors", "distributing", "distribution",
+        "importer", "importers", "importing", "import", "imports",
+        "exporter", "exporters", "exporting", "export", "exports",
+        "wholesaler", "wholesalers", "wholesale", "wholesaling",
+        "supplier", "suppliers", "supplying", "supply", "supplies",
+        "dealer", "dealers", "dealing",
+        "reseller", "resellers", "reselling",
+        "vendor", "vendors",
+        "manufacturer", "manufacturers", "manufacturing", "manufacture",
+        "oem", "odm",
+        "trading", "trade", "trader", "traders",
+        "merchant", "merchants",
+    }
+
+    def _has_b2b_role(text: str) -> bool:
+        return any(role in text for role in b2b_roles)
+
+    def _is_large_sporting_retailer(text: str) -> bool:
+        return any(sig in text for sig in {
+            "sporting goods", "sports goods", "sports authority", "dick's",
+            "dicks sporting", "academy sports", "big 5", "modell's", "modells",
+            "olympia sport", "sports direct", "decathlon", "rei ", "mec ",
+            "mountain equipment co-op",
+        })
+
+    def _has_weak_retail_signal(text: str) -> bool:
+        return any(sig in text for sig in {
+            "pro shop", "proshop", "rental", "rentals", "rent ", "hire ",
+            "used ", "second hand", "second-hand", "pre-owned", "preowned",
+            "thrift", "consignment", "outfitter", "outfitters",
+        })
+
+    def _has_resort_signal(text: str) -> bool:
+        return any(sig in text for sig in {
+            "resort", "resorts", "hotel", "hotels", "lodge", "lodges", "spa",
+            "ski area", "ski mountain", "snow resort", "mountain resort",
+            "ski resort", "ski lodge",
+        })
+
+    # Strong negative forms first.
+    if _has_resort_signal(all_text):
+        score -= 35
+    if _has_weak_retail_signal(all_text):
+        score -= 25
+
+    # Industry scoring
     if industry:
         for pos in APOLLO_POSITIVE_INDUSTRIES:
             if pos in industry:
@@ -376,7 +645,8 @@ def _score_apollo_contact_relevance(person: dict) -> int:
         for neg in APOLLO_NEGATIVE_INDUSTRIES:
             if neg in industry:
                 score -= 15
-    for ind in industries:
+
+    for ind in industries.split():
         for pos in APOLLO_POSITIVE_INDUSTRIES:
             if pos in ind:
                 score += 12
@@ -385,67 +655,143 @@ def _score_apollo_contact_relevance(person: dict) -> int:
                 score -= 10
 
     # Keywords scoring
-    all_text = " ".join(keywords)
     for pos in APOLLO_POSITIVE_KEYWORDS:
-        if pos in all_text:
+        if pos in keywords:
             score += 10
     for neg in APOLLO_NEGATIVE_KEYWORDS:
-        if neg in all_text:
+        if neg in keywords:
             score -= 8
 
-    # Description scoring
-    if description:
-        for pos in APOLLO_POSITIVE_KEYWORDS:
-            if pos in description:
-                score += 8
-        for neg in APOLLO_NEGATIVE_KEYWORDS:
-            if neg in description:
-                score -= 6
-
     # Company name scoring
-    if org_name:
-        for pos in APOLLO_POSITIVE_KEYWORDS:
-            if pos in org_name:
-                score += 10
-        for neg in APOLLO_NEGATIVE_KEYWORDS:
-            if neg in org_name:
-                score -= 10
+    product_match = any(pos in org_name for pos in APOLLO_PRODUCT_KEYWORDS)
+    if product_match:
+        if _has_b2b_role(org_name) or _is_large_sporting_retailer(org_name):
+            score += 15
+        else:
+            score += 3
 
-    # Title scoring (bonus for purchasing roles)
-    if any(t in person_title for t in ["buyer", "purchasing", "procurement", "sourcing"]):
-        score += 5
+    if _has_b2b_role(org_name):
+        score += 12
+
+    if _is_large_sporting_retailer(org_name):
+        score += 8
+
+    for neg in APOLLO_NEGATIVE_KEYWORDS:
+        if neg in org_name:
+            score -= 20
 
     return score
 
 
 def _apollo_has_positive_signal(person: dict, user_keywords: List[str]) -> bool:
-    """Return True if the contact's organization shows at least one positive signal:
-    user keyword match, B2B positive keyword match, or B2B positive industry.
-    Falls back to the raw organization_name when enriched org data is missing.
+    """Return True if the contact is a plausible B2B lead.
+
+    For product-keyword searches we now require BOTH product relevance AND
+    B2B intent. A generic product word like 'ski' or 'glove' alone is not
+    enough, because it matches ski resorts, rental shops, used-gear stores,
+    schools, tour operators, etc.
     """
-    org = person.get("_enriched_org", {}) or {}
-    org_name = (org.get("name") or person.get("organization_name") or "").lower()
-    industry = (org.get("industry") or "").lower()
-    industries = [i.lower() for i in org.get("industries", [])]
-    keywords = [k.lower() for k in org.get("keywords", [])]
-    description = (org.get("short_description") or "").lower()
+    org_text = _apollo_org_text(person)
+    if not org_text:
+        return False
 
     user_keywords_lower = [k.lower() for k in user_keywords if k.strip()]
-    all_text = f"{org_name} {industry} {' '.join(industries)} {' '.join(keywords)} {description}"
+    product_terms = _apollo_extract_product_terms(user_keywords)
 
-    # User keyword match
-    if user_keywords_lower and any(kw in all_text for kw in user_keywords_lower):
-        return True
+    # Strong negative signal in company name is enough to reject immediately.
+    for neg in APOLLO_NEGATIVE_KEYWORDS:
+        if neg in org_text:
+            return False
 
-    # B2B positive keyword match
-    if any(pos in all_text for pos in APOLLO_POSITIVE_KEYWORDS):
-        return True
+    b2b_roles = {
+        "distributor", "distributors", "distributing", "distribution",
+        "importer", "importers", "importing", "import", "imports",
+        "exporter", "exporters", "exporting", "export", "exports",
+        "wholesaler", "wholesalers", "wholesale", "wholesaling",
+        "supplier", "suppliers", "supplying", "supply", "supplies",
+        "dealer", "dealers", "dealing",
+        "reseller", "resellers", "reselling",
+        "vendor", "vendors",
+        "manufacturer", "manufacturers", "manufacturing", "manufacture",
+        "oem", "odm",
+        "trading", "trade", "trader", "traders",
+        "merchant", "merchants",
+        "buying", "buyer", "buyers",
+        "procurement", "purchasing", "sourcing",
+    }
 
-    # B2B positive industry match
-    if any(pos in industry for pos in APOLLO_POSITIVE_INDUSTRIES):
-        return True
-    if any(pos in ind for ind in industries for pos in APOLLO_POSITIVE_INDUSTRIES):
-        return True
+    def _has_b2b_role(text: str) -> bool:
+        return any(role in text for role in b2b_roles)
+
+    def _is_large_sporting_retailer(text: str) -> bool:
+        return any(sig in text for sig in {
+            "sporting goods", "sports goods", "sports authority", "dick's",
+            "dicks sporting", "academy sports", "big 5", "modell's", "modells",
+            "olympia sport", "sports direct", "decathlon", "rei ", "mec ",
+            "mountain equipment co-op",
+        })
+
+    title = (person.get("position") or person.get("title") or "").lower()
+    purchasing_title = any(t in title for t in [
+        "buyer", "purchasing", "procurement", "sourcing", "merchandising", "merchandise"
+    ])
+
+    # Early guard: retail operations roles at generic ski/outdoor entities that
+    # lack a B2B channel signal or known multi-location chain identity are
+    # usually resort/single-shop staff (e.g. "Retail Buyer/artist" at Ski Santa Fe),
+    # not the offline chain retailers we want. Reject before case-by-case logic
+    # can accept them via the broad "buyer" keyword.
+    if "retail" in title and any(pos in org_text for pos in APOLLO_PRODUCT_KEYWORDS):
+        if not _has_b2b_role(org_text) and not _is_large_sporting_retailer(org_text):
+            retailer_indicators = {"shop", "shops", "sports", "sport", "outdoor", "outdoors", "store", "stores"}
+            if not any(ind in org_text for ind in retailer_indicators):
+                return False
+
+    # Case 1: exact user keyword match in org text
+    if user_keywords_lower and any(kw in org_text for kw in user_keywords_lower):
+        # If keyword already includes a channel role, accept.
+        if any(_has_b2b_role(kw) for kw in user_keywords_lower):
+            return True
+        # Otherwise require B2B signal, purchasing title, or large retailer.
+        if purchasing_title or _has_b2b_role(org_text) or _is_large_sporting_retailer(org_text):
+            return True
+        # fall through to stricter checks below
+
+    # Case 2: product terms extracted from user keywords require B2B pairing
+    if product_terms and any(term in org_text for term in product_terms):
+        if purchasing_title or _has_b2b_role(org_text) or _is_large_sporting_retailer(org_text):
+            return True
+
+    # Case 3: generic product keyword match requires B2B channel signal
+    if any(pos in org_text for pos in APOLLO_PRODUCT_KEYWORDS):
+        if purchasing_title and _has_b2b_role(org_text):
+            return True
+        if _has_b2b_role(org_text):
+            return True
+        if _is_large_sporting_retailer(org_text):
+            return True
+
+    # Case 4: enriched-org positive industry only counts with B2B or purchasing signal
+    org = person.get("_enriched_org", {}) or {}
+    if org:
+        industry = (org.get("industry") or "").lower()
+        industries = [i.lower() for i in org.get("industries", [])]
+        all_industries = " ".join([industry] + industries)
+        if any(pos in all_industries for pos in APOLLO_POSITIVE_INDUSTRIES):
+            if purchasing_title or _has_b2b_role(org_text) or _is_large_sporting_retailer(org_text):
+                return True
+
+    # Case 5: fallback for channel-role searches. The org must show product/industry
+    # relevance; purchasing title alone is not enough because Apollo matches the
+    # channel role broadly and returns distributors from unrelated industries.
+    if user_keywords_lower:
+        for kw in user_keywords_lower:
+            if any(role in kw for role in APOLLO_CHANNEL_ROLES):
+                if _has_b2b_role(org_text):
+                    product_terms = _apollo_extract_product_terms(user_keywords)
+                    product_indicators = set(product_terms) | APOLLO_PRODUCT_KEYWORDS
+                    if any(term in org_text for term in product_indicators):
+                        return True
 
     return False
 
@@ -1670,6 +2016,8 @@ class ApolloClient:
         keyword tags in its database. Long-tail phrases like 'football gloves distributor'
         rarely exist as a single tag, causing empty results. We preserve the original
         phrase and additionally emit shorter product/role tags to improve recall.
+        The list is treated as OR by Apollo, so unrelated distributors may match
+        the bare role tag; downstream relevance scoring removes them.
         """
         channel_roles = {
             "distributor", "distributors", "importer", "importers",
@@ -1698,6 +2046,11 @@ class ApolloClient:
                 if product_phrase and product_phrase not in seen:
                     seen.add(product_phrase)
                     tags.append(product_phrase)
+                # Emit the bare channel role as well for recall. Apollo treats
+                # q_organization_keyword_tags as OR, so a lone "distributor" tag
+                # can return distributors of unrelated products. We keep the tag
+                # for recall and rely on downstream relevance scoring to drop
+                # irrelevant distributors.
                 for i in role_indices:
                     if parts[i] not in seen:
                         seen.add(parts[i])
@@ -1797,8 +2150,12 @@ class ApolloClient:
             "Content-Type": "application/json",
             "x-api-key": self.api_key,
         }
+        credits_exhausted = False
 
         def _enrich_chunk(chunk: List[tuple]) -> None:
+            nonlocal credits_exhausted
+            if credits_exhausted:
+                return
             payload = {
                 "details": [{"id": p.get("id")} for _, p in chunk],
                 "reveal_personal_emails": True,
@@ -1814,6 +2171,12 @@ class ApolloClient:
                     print("    [Apollo] Bulk match rate limited. Sleeping 5s...")
                     time.sleep(5)
                     return
+                if resp.status_code == 422:
+                    err_text = resp.text or ""
+                    if "insufficient credits" in err_text.lower():
+                        credits_exhausted = True
+                        print("    [Apollo WARNING] Bulk match failed: account has insufficient Apollo credits. Enrichment skipped for remaining contacts.")
+                        return
                 if resp.status_code != 200:
                     print(f"    [Apollo] Bulk match returned {resp.status_code}, falling back to single /people/match")
                     for idx, orig in chunk:
@@ -2050,6 +2413,7 @@ class ApolloClient:
                 else:
                     source_strs = [str(s) for s in raw_sources] if raw_sources else ["apollo.io"]
                 result_item = {
+                    "id": p.get("id", ""),
                     "value": email,
                     "type": "personal",
                     "confidence": 70,
@@ -2067,6 +2431,8 @@ class ApolloClient:
                 # Pass enriched org data (including parent company) for downstream use
                 if p.get("_enriched_org"):
                     result_item["_enriched_org"] = p["_enriched_org"]
+                if p.get("organization"):
+                    result_item["_apollo_org"] = p["organization"]
                 if p.get("_parent_org_name"):
                     result_item["_parent_org_name"] = p["_parent_org_name"]
                 if p.get("_hq_country"):
@@ -2080,6 +2446,111 @@ class ApolloClient:
             return []
         except Exception as e:
             print(f"    [Apollo ERROR] people search: {e}")
+            return []
+
+    def search_organizations(
+        self,
+        keyword_tags: Optional[List[str]] = None,
+        locations: Optional[List[str]] = None,
+        organization_num_employees: Optional[List[str]] = None,
+        country: Optional[str] = None,
+        state: Optional[str] = None,
+        city: Optional[str] = None,
+        zip_code: Optional[str] = None,
+        per_page: int = 100,
+        page: int = 1,
+    ) -> List[dict]:
+        """Search organizations via Apollo.io Company Search API.
+
+        Uses POST /mixed_companies/search. Returns normalized organization dicts.
+        """
+        url = f"{self.base_url}/mixed_companies/search"
+        headers = {
+            "Content-Type": "application/json",
+            "x-api-key": self.api_key,
+        }
+        payload: dict = {
+            "per_page": min(per_page, 100),
+            "page": page,
+        }
+        if keyword_tags:
+            payload["q_keyword_tags"] = self._expand_keyword_tags(keyword_tags)
+        if locations:
+            payload["organization_locations"] = locations
+        if country:
+            payload["country"] = country
+        if state:
+            payload["state"] = state
+        if city:
+            payload["city"] = city
+        if zip_code:
+            payload["zip_codes"] = [zip_code]
+        if organization_num_employees:
+            if isinstance(organization_num_employees, list) and len(organization_num_employees) == 2:
+                payload["organization_num_employees"] = {
+                    "min": int(organization_num_employees[0]),
+                    "max": int(organization_num_employees[1]),
+                }
+            else:
+                payload["organization_num_employees"] = organization_num_employees
+
+        try:
+            last_error = ""
+            for attempt in range(2):
+                try:
+                    resp = requests.post(url, headers=headers, json=payload, timeout=15)
+                    break
+                except requests.exceptions.Timeout as e:
+                    last_error = str(e)
+                    print(f"    [Apollo] organization search timeout (attempt {attempt + 1}/2)")
+                    if attempt == 1:
+                        raise
+                    time.sleep(1)
+            if resp.status_code == 429:
+                print(f"    [Apollo] Rate limited on organization search. Sleeping 5s...")
+                time.sleep(5)
+                return []
+            if resp.status_code == 403:
+                data = resp.json() if resp.text else {}
+                err = data.get("error", "")
+                if "free plan" in err.lower():
+                    print("    [Apollo] Free plan key cannot use Organization Search. Skipping.")
+                else:
+                    print(f"    [Apollo] Forbidden (403): {err}")
+                return []
+            resp.raise_for_status()
+            data = resp.json()
+            organizations = data.get("organizations", []) if isinstance(data, dict) else []
+
+            results = []
+            for org in organizations:
+                website_url = org.get("website_url", "")
+                domain = org.get("domain", "")
+                if not domain and website_url:
+                    domain = extract_domain(website_url)
+                result_item = {
+                    "id": org.get("id", ""),
+                    "name": org.get("name", ""),
+                    "website_url": website_url,
+                    "domain": domain,
+                    "industry": org.get("industry", ""),
+                    "industries": org.get("industries", []) or [],
+                    "keywords": org.get("keywords", []) or [],
+                    "short_description": org.get("short_description", ""),
+                    "num_employees": org.get("num_employees", 0),
+                    "country": org.get("country", ""),
+                    "state": org.get("state", ""),
+                    "city": org.get("city", ""),
+                    "phone": org.get("phone", ""),
+                    "linkedin_url": org.get("linkedin_url", ""),
+                }
+                results.append(result_item)
+            return results
+        except requests.exceptions.HTTPError as e:
+            print(f"    [Apollo ERROR] organization search: {e}")
+            return []
+        except Exception as e:
+            print(f"    [Apollo ERROR] organization search: {e}")
             return []
 
 
@@ -2627,7 +3098,11 @@ def _resolve_company_website(company_name: str) -> Optional[str]:
                         return domain
     except Exception as e:
         # DDGS can hang/fail behind certain networks; fail fast.
-        print(f"    [Website resolve] DDGS failed for '{clean_name}': {e}")
+        try:
+            print(f"    [Website resolve] DDGS failed for '{clean_name}': {e}")
+        except UnicodeEncodeError:
+            safe_name = clean_name.encode("ascii", "replace").decode("ascii")
+            print(f"    [Website resolve] DDGS failed for '{safe_name}': {e}")
 
     # Fallback: simple heuristic guesses with very short probes
     simple = re.sub(r'[^\w\-]', '', clean_name.lower().replace(' ', '').replace('&', 'and'))
@@ -3636,6 +4111,8 @@ class LeadFinder:
         strict_mode: bool = False,
         max_enrich: int = 50,
         no_enrich: bool = False,
+        source_type: str = "apollo",
+        prefetched_people: Optional[List[dict]] = None,
     ) -> List[Lead]:
         """Run an Apollo.io People Search and export leads.
 
@@ -3678,33 +4155,39 @@ class LeadFinder:
 
         # -----------------------------------------------------------------------
         # Stage 1: Fetch all people from Apollo (may span multiple pages)
+        # If prefetched_people is provided (e.g. from Organization Search), skip
+        # the API call and use those contacts directly.
         # -----------------------------------------------------------------------
         all_people: List[dict] = []
-        while len(all_people) < max_results:
-            print(f"[Apollo] Fetching page {page}...")
-            people = self.apollo.people_search(
-                organization_keywords=organization_keywords,
-                person_titles=person_titles or None,
-                person_locations=person_locations or None,
-                organization_num_employees=employee_range or None,
-                organization_domains=organization_domains or None,
-                country=country or None,
-                state=state or None,
-                city=city or None,
-                zip_code=zip_code or None,
-                per_page=per_page,
-                page=page,
-                enrich=False,
-            )
-            if not people:
-                print("  No more results.")
-                break
-            all_people.extend(people)
-            print(f"  Page {page}: got {len(people)} contacts (total {len(all_people)})")
-            if len(people) < per_page:
-                break
-            page += 1
-            time.sleep(0.2)
+        if prefetched_people is not None:
+            all_people = prefetched_people
+            print(f"[Apollo] Using {len(all_people)} prefetched contacts from organization search")
+        else:
+            while len(all_people) < max_results:
+                print(f"[Apollo] Fetching page {page}...")
+                people = self.apollo.people_search(
+                    organization_keywords=organization_keywords,
+                    person_titles=person_titles or None,
+                    person_locations=person_locations or None,
+                    organization_num_employees=employee_range or None,
+                    organization_domains=organization_domains or None,
+                    country=country or None,
+                    state=state or None,
+                    city=city or None,
+                    zip_code=zip_code or None,
+                    per_page=per_page,
+                    page=page,
+                    enrich=False,
+                )
+                if not people:
+                    print("  No more results.")
+                    break
+                all_people.extend(people)
+                print(f"  Page {page}: got {len(people)} contacts (total {len(all_people)})")
+                if len(people) < per_page:
+                    break
+                page += 1
+                time.sleep(0.2)
 
         print(f"\n[Apollo] Total contacts fetched: {len(all_people)}")
         if not all_people:
@@ -3722,17 +4205,48 @@ class LeadFinder:
             org_name = (org.get("name") or person.get("organization_name") or "").lower()
             org_website = org.get("website_url") or person.get("organization_website") or ""
             title = (person.get("title") or person.get("position") or "").lower()
-            if org_website:
+
+            # Purchasing titles are strong B2B signals regardless of org name.
+            if any(t in title for t in ["buyer", "purchasing", "procurement", "sourcing", "merchandising"]):
                 return True
+
+            # Exact user keyword match keeps the contact for enrichment.
             if organization_keywords:
                 for kw in organization_keywords:
                     if kw.lower() in org_name:
                         return True
-            for pos in APOLLO_POSITIVE_KEYWORDS:
-                if pos in org_name:
-                    return True
-            if any(t in title for t in ["buyer", "purchasing", "procurement", "sourcing"]):
+
+            # Without a user keyword match, only keep orgs that look like B2B channels
+            # or large sporting goods chains. Do NOT keep a contact just because its
+            # name contains a generic product word like 'ski' (ski resorts, rental shops).
+            b2b_roles = {
+                "distributor", "distributors", "distributing", "distribution",
+                "importer", "importers", "importing", "import", "imports",
+                "exporter", "exporters", "exporting", "export", "exports",
+                "wholesaler", "wholesalers", "wholesale", "wholesaling",
+                "supplier", "suppliers", "supplying", "supply", "supplies",
+                "dealer", "dealers", "dealing",
+                "reseller", "resellers", "reselling",
+                "vendor", "vendors",
+                "manufacturer", "manufacturers", "manufacturing", "manufacture",
+                "oem", "odm",
+                "trading", "trade", "trader", "traders",
+                "merchant", "merchants",
+            }
+            if any(role in org_name for role in b2b_roles):
                 return True
+
+            # Keep well-known multi-location sporting goods chains.
+            if any(sig in org_name for sig in {
+                "sporting goods", "sports goods", "sports authority", "dick's",
+                "dicks sporting", "academy sports", "big 5", "modell's", "modells",
+                "olympia sport", "sports direct", "decathlon", "rei ", "mec ",
+                "mountain equipment co-op",
+            }):
+                return True
+
+            # Having a website alone is not enough for coarse keep; otherwise
+            # irrelevant resorts and rental shops consume enrichment credits.
             return False
 
         if no_enrich:
@@ -3842,22 +4356,35 @@ class LeadFinder:
                 # are not discarded just because enrichment failed.
                 if organization_keywords and _apollo_has_positive_signal(person, organization_keywords):
                     score = max(score, 0)
-                elif any(pos in org_name for pos in APOLLO_POSITIVE_KEYWORDS):
+                elif any(pos in org_name for pos in APOLLO_PRODUCT_KEYWORDS):
                     score = max(score, 0)
                 else:
                     score = min(score, -20)
             # For keyword discovery, require at least one positive signal
             # (user keyword, B2B keyword, or B2B industry) unless the user
             # explicitly lowered the relevance threshold below 0.
+            # Channel-role-only matches are kept with a low score instead of
+            # being hard-filtered, so relevant distributors/wholesalers whose
+            # company name doesn't include the exact product term still appear.
             if organization_keywords and min_relevance >= 0 and not _apollo_has_positive_signal(person, organization_keywords):
                 score = -25
+            elif organization_keywords and min_relevance >= 0:
+                # Positive signal present but may only be a weak channel role.
+                # Clamp weak/negative scores up to 0 so they survive the default
+                # threshold without pushing irrelevant results to the top.
+                if score < 0:
+                    score = 0
             if score >= min_relevance:
                 scored_people.append((person, domain, score))
             else:
                 filtered_out += 1
                 if filtered_out <= 5:
                     filtered_org_name = person.get("organization_name", "")
-                    print(f"    [Filter] -'{filtered_org_name}' (score {score})")
+                    try:
+                        print(f"    [Filter] -'{filtered_org_name}' (score {score})")
+                    except UnicodeEncodeError:
+                        safe_name = filtered_org_name.encode("ascii", "replace").decode("ascii")
+                        print(f"    [Filter] -'{safe_name}' (score {score})")
         # Sort by relevance score descending and attach score to person dict
         scored_people.sort(key=lambda x: x[2], reverse=True)
         people_with_domains = []
@@ -4079,7 +4606,7 @@ class LeadFinder:
                 website_description=website_description,
                 relevance_score=person.get("_relevance_score", 0),
                 linkedin_url=person.get("linkedin_url", ""),
-                source_type="apollo",
+                source_type=source_type,
                 has_direct_phone=has_direct_phone,
                 # Parent company / purchasing authority from Apollo
                 org_structure_type=org_structure,
@@ -4119,6 +4646,190 @@ class LeadFinder:
         print("PROGRESS: 100")
         self._print_summary(unique_leads, "Apollo People Search", len(set(l.domain for l in unique_leads)))
         return unique_leads
+
+    def run_apollo_organization_search(
+        self,
+        org_keywords: Optional[List[str]] = None,
+        org_locations: Optional[List[str]] = None,
+        employee_range: Optional[List[str]] = None,
+        country: Optional[str] = None,
+        state: Optional[str] = None,
+        city: Optional[str] = None,
+        zip_code: Optional[str] = None,
+        person_titles: Optional[List[str]] = None,
+        max_orgs: int = 50,
+        max_people_per_org: int = 5,
+        output: str = "leads.csv",
+        keep_no_email: bool = False,
+        min_relevance: int = 0,
+        strict_mode: bool = False,
+        max_enrich: int = 50,
+        no_enrich: bool = False,
+        scan_supplier_pages: bool = False,
+    ) -> List[Lead]:
+        """Run Apollo Organization Search: find companies, filter them, then drill into each for purchasing contacts."""
+        if not self.apollo:
+            print("[ERROR] Apollo client not initialized. Please set APOLLO_KEY in config.")
+            return []
+
+        if strict_mode:
+            min_relevance = max(min_relevance, 10)
+            purchasing_titles = {"Buyer", "Purchasing Manager", "Procurement Manager", "Sourcing Manager"}
+            if person_titles:
+                person_titles = [t for t in person_titles if t in purchasing_titles] or list(purchasing_titles)
+            else:
+                person_titles = list(purchasing_titles)
+
+        timestamp = datetime.now().isoformat()
+        location_summary = ", ".join(filter(None, [country, state, city, zip_code])) or (org_locations or [])
+
+        print(f"\n{'='*60}")
+        print(f"  Apollo.io Organization Search")
+        print(f"  Input          : {org_keywords or []}")
+        print(f"  Locations      : {location_summary}")
+        print(f"  Employee Range : {employee_range or 'Any'}")
+        print(f"  Min Relevance  : {min_relevance}{' (strict)' if strict_mode else ''}")
+        print(f"  Max Orgs       : {max_orgs}")
+        print(f"  People/Org     : {max_people_per_org}")
+        print(f"  Max Enrich     : {max_enrich}{' (skipped)' if no_enrich else ''}")
+        print(f"  Output         : {output}")
+        print(f"{'='*60}\n")
+        print("PROGRESS: 5")
+
+        # -----------------------------------------------------------------------
+        # Stage 1: Fetch organizations
+        # -----------------------------------------------------------------------
+        all_orgs: List[dict] = []
+        per_page = min(max_orgs, 100)
+        page = 1
+        while len(all_orgs) < max_orgs:
+            print(f"[Apollo] Fetching organization page {page}...")
+            orgs = self.apollo.search_organizations(
+                keyword_tags=org_keywords,
+                locations=org_locations or None,
+                organization_num_employees=employee_range or None,
+                country=country or None,
+                state=state or None,
+                city=city or None,
+                zip_code=zip_code or None,
+                per_page=per_page,
+                page=page,
+            )
+            if not orgs:
+                print("  No more results.")
+                break
+            all_orgs.extend(orgs)
+            print(f"  Page {page}: got {len(orgs)} organizations (total {len(all_orgs)})")
+            if len(orgs) < per_page:
+                break
+            page += 1
+            time.sleep(0.2)
+
+        print(f"\n[Apollo] Total organizations fetched: {len(all_orgs)}")
+        if not all_orgs:
+            print("[WARNING] No organizations returned by Apollo.")
+            return []
+        print("PROGRESS: 15")
+
+        # -----------------------------------------------------------------------
+        # Stage 2: Filter/score organizations
+        # -----------------------------------------------------------------------
+        kept_orgs: List[dict] = []
+        filtered_out = 0
+        for org in all_orgs:
+            score = _score_apollo_organization_relevance(org)
+            org["_relevance_score"] = score
+            if score >= min_relevance:
+                kept_orgs.append(org)
+            else:
+                filtered_out += 1
+                if filtered_out <= 5:
+                    filtered_org_name = org.get("name", "")
+                    try:
+                        print(f"    [Filter] -'{filtered_org_name}' (score {score})")
+                    except UnicodeEncodeError:
+                        safe_name = filtered_org_name.encode("ascii", "replace").decode("ascii")
+                        print(f"    [Filter] -'{safe_name}' (score {score})")
+
+        print(f"\n[Apollo] Organizations kept after filtering: {len(kept_orgs)} (filtered {filtered_out})")
+        if not kept_orgs:
+            print("[WARNING] All organizations filtered out as irrelevant.")
+            return []
+        print("PROGRESS: 25")
+
+        # -----------------------------------------------------------------------
+        # Stage 3: Search people within each kept organization
+        # -----------------------------------------------------------------------
+        prefetched_people: List[dict] = []
+        total_people_quota = max_orgs * max_people_per_org
+        for idx, org in enumerate(kept_orgs, 1):
+            if len(prefetched_people) >= total_people_quota:
+                break
+            domain = org.get("domain", "")
+            if not domain and org.get("website_url"):
+                domain = extract_domain(org["website_url"])
+            if not domain:
+                print(f"    [Apollo] Skipping org '{org.get('name', '')}' - no domain")
+                continue
+
+            print(f"    [Apollo] [{idx}/{len(kept_orgs)}] Searching people in '{org.get('name', '')}'...")
+            people = self.apollo.people_search(
+                organization_domains=[domain],
+                person_titles=person_titles or None,
+                person_locations=org_locations or None,
+                organization_num_employees=employee_range or None,
+                country=country or None,
+                state=state or None,
+                city=city or None,
+                zip_code=zip_code or None,
+                per_page=max_people_per_org,
+                page=1,
+                enrich=False,
+            )
+            if people:
+                for p in people:
+                    p["_apollo_org"] = org
+                    p["_organization_name"] = org.get("name", "")
+                    p["_organization_website"] = org.get("website_url", "")
+                    # Patch organization_name/website for downstream consumers if missing
+                    if not p.get("organization_name"):
+                        p["organization_name"] = org.get("name", "")
+                    if not p.get("organization_website"):
+                        p["organization_website"] = org.get("website_url", "")
+                prefetched_people.extend(people)
+                print(f"      Found {len(people)} contacts")
+            time.sleep(0.2)
+
+        print(f"\n[Apollo] Total contacts fetched from organizations: {len(prefetched_people)}")
+        if not prefetched_people:
+            print("[WARNING] No contacts found in kept organizations.")
+            return []
+        print("PROGRESS: 40")
+
+        # -----------------------------------------------------------------------
+        # Stage 4: Hand off to the shared Apollo people pipeline
+        # -----------------------------------------------------------------------
+        return self.run_apollo_search(
+            organization_keywords=org_keywords,
+            person_titles=person_titles,
+            person_locations=org_locations,
+            max_results=total_people_quota,
+            output=output,
+            keep_no_email=keep_no_email,
+            employee_range=employee_range,
+            organization_domains=[org.get("domain", "") for org in kept_orgs if org.get("domain")],
+            country=country,
+            state=state,
+            city=city,
+            zip_code=zip_code,
+            scan_supplier_pages=scan_supplier_pages,
+            min_relevance=min_relevance,
+            strict_mode=strict_mode,
+            max_enrich=max_enrich,
+            no_enrich=no_enrich,
+            source_type="apollo_org",
+            prefetched_people=prefetched_people,
+        )
 
     def run_supplier_portal_scan(
         self,
@@ -4436,6 +5147,60 @@ def main():
         help="Skip Apollo /people/match enrichment; only use emails already present in search results",
     )
     parser.add_argument(
+        "--apollo-org-keywords",
+        type=str,
+        default="",
+        help="Apollo.io organization search keywords, comma-separated (enables Apollo Organization Search mode)",
+    )
+    parser.add_argument(
+        "--apollo-org-locations",
+        type=str,
+        default="",
+        help="Apollo.io organization search locations, comma-separated, e.g. 'United States,Germany'",
+    )
+    parser.add_argument(
+        "--apollo-org-employee-range",
+        type=str,
+        default="",
+        help="Apollo.io organization search company size range, e.g. '2,50' or '51,200'",
+    )
+    parser.add_argument(
+        "--apollo-org-country",
+        type=str,
+        default="",
+        help="Apollo.io organization search country filter, e.g. 'United States'",
+    )
+    parser.add_argument(
+        "--apollo-org-state",
+        type=str,
+        default="",
+        help="Apollo.io organization search state/province filter, e.g. 'California'",
+    )
+    parser.add_argument(
+        "--apollo-org-city",
+        type=str,
+        default="",
+        help="Apollo.io organization search city filter, e.g. 'Los Angeles'",
+    )
+    parser.add_argument(
+        "--apollo-org-zip",
+        type=str,
+        default="",
+        help="Apollo.io organization search zip/postal code filter, e.g. '90210'",
+    )
+    parser.add_argument(
+        "--apollo-org-max-orgs",
+        type=int,
+        default=50,
+        help="Maximum organizations to fetch from Apollo Organization Search (default: 50)",
+    )
+    parser.add_argument(
+        "--apollo-org-max-people-per-org",
+        type=int,
+        default=5,
+        help="Maximum people to fetch per organization in Apollo Organization Search (default: 5)",
+    )
+    parser.add_argument(
         "--supplier-portal-domains",
         type=str,
         default="",
@@ -4503,6 +5268,37 @@ def main():
             check_company=args.verify_company,
             output=args.verify_output,
             max_workers=args.verify_workers,
+        )
+        return
+
+    # Apollo Organization Search mode
+    if args.apollo_org_keywords:
+        org_keywords = [k.strip() for k in args.apollo_org_keywords.split(",") if k.strip()]
+        org_locations = [l.strip() for l in args.apollo_org_locations.split(",") if l.strip()]
+        titles = [t.strip() for t in args.apollo_titles.split(",") if t.strip()]
+        employee_range = None
+        if args.apollo_org_employee_range:
+            parts = [p.strip() for p in args.apollo_org_employee_range.split(",") if p.strip()]
+            if len(parts) == 2:
+                employee_range = parts
+        finder.run_apollo_organization_search(
+            org_keywords=org_keywords or None,
+            org_locations=org_locations or None,
+            employee_range=employee_range,
+            country=args.apollo_org_country or None,
+            state=args.apollo_org_state or None,
+            city=args.apollo_org_city or None,
+            zip_code=args.apollo_org_zip or None,
+            person_titles=titles,
+            max_orgs=args.apollo_org_max_orgs,
+            max_people_per_org=args.apollo_org_max_people_per_org,
+            output=args.output,
+            keep_no_email=getattr(args, "keep_no_email", False),
+            min_relevance=args.apollo_min_relevance,
+            strict_mode=args.apollo_strict_mode,
+            max_enrich=args.apollo_max_enrich,
+            no_enrich=args.apollo_no_enrich,
+            scan_supplier_pages=args.scan_supplier_pages,
         )
         return
 

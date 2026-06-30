@@ -1570,6 +1570,110 @@ async def stream_apollo_leads(
     )
 
 
+@app.get("/api/leads/apollo/organization/stream")
+async def stream_apollo_organization_leads(
+    request: Request,
+    apollo_org_keywords: str = "",
+    apollo_org_locations: str = "",
+    apollo_org_employee_range: str = "",
+    apollo_org_country: str = "",
+    apollo_org_state: str = "",
+    apollo_org_city: str = "",
+    apollo_org_zip: str = "",
+    apollo_titles: str = "Buyer,Purchasing Manager,Procurement Manager,Sourcing Manager",
+    apollo_org_max_orgs: int = 50,
+    apollo_org_max_people_per_org: int = 5,
+    max_results: int = 100,
+    keep_no_email: bool = False,
+    scan_supplier_pages: bool = False,
+    min_relevance: int = 0,
+    strict_mode: bool = False,
+    apollo_max_enrich: int = 50,
+    apollo_no_enrich: bool = False,
+    user: dict = Depends(require_user),
+):
+    """Stream Apollo.io Organization Search progress via Server-Sent Events."""
+    if not apollo_org_keywords:
+        raise HTTPException(status_code=400, detail="apollo_org_keywords is required.")
+
+    job_id = str(uuid.uuid4())[:8]
+    output_file = DATA_DIR / f"{job_id}.csv"
+
+    cmd = [
+        sys.executable or "python", "lead_finder.py", "apollo-org-search",
+        "--apollo-org-keywords", apollo_org_keywords,
+        "--apollo-titles", apollo_titles,
+        "--apollo-org-max-orgs", str(apollo_org_max_orgs),
+        "--apollo-org-max-people-per-org", str(apollo_org_max_people_per_org),
+        "--output", str(output_file),
+    ]
+    if apollo_org_locations:
+        cmd.extend(["--apollo-org-locations", apollo_org_locations])
+    if apollo_org_employee_range:
+        cmd.extend(["--apollo-org-employee-range", apollo_org_employee_range])
+    if apollo_org_country:
+        cmd.extend(["--apollo-org-country", apollo_org_country])
+    if apollo_org_state:
+        cmd.extend(["--apollo-org-state", apollo_org_state])
+    if apollo_org_city:
+        cmd.extend(["--apollo-org-city", apollo_org_city])
+    if apollo_org_zip:
+        cmd.extend(["--apollo-org-zip", apollo_org_zip])
+    if max_results:
+        cmd.extend(["--max-domains", str(max_results)])
+    if keep_no_email:
+        cmd.append("--keep-no-email")
+    if scan_supplier_pages:
+        cmd.append("--scan-supplier-pages")
+    if min_relevance is not None:
+        cmd.extend(["--apollo-min-relevance", str(min_relevance)])
+    if strict_mode:
+        cmd.append("--apollo-strict-mode")
+    if apollo_max_enrich is not None:
+        cmd.extend(["--apollo-max-enrich", str(apollo_max_enrich)])
+    if apollo_no_enrich:
+        cmd.append("--apollo-no-enrich")
+
+    async def event_generator():
+        async def on_success():
+            csv_content = output_file.read_text(encoding="utf-8")
+            leads = []
+            lines = csv_content.splitlines()
+            if lines:
+                lines[0] = lines[0].lstrip('﻿')
+            reader = csv.DictReader(lines)
+            for row in reader:
+                leads.append({k: v for k, v in row.items()})
+            leads = db_enrich_leads(leads)
+            leads = _sort_leads_by_position(leads)
+            search_label = f"Apollo Org: {apollo_org_keywords}"
+            db_save_search(job_id, search_label, 0, len(leads), user["user_id"], user["name"], False, csv_content, source_type="apollo_org")
+            return {
+                "type": "done",
+                "status": "success",
+                "job_id": job_id,
+                "total": len(leads),
+                "download_url": f"/api/leads/download/{job_id}",
+                "preview": leads[:5] if leads else [],
+                "leads": leads,
+            }
+
+        async for event in _stream_subprocess(
+            cmd,
+            output_file,
+            job_id,
+            timeout_seconds=int(os.environ.get("STREAM_APOLLO_ORG_TIMEOUT", "300")),
+            on_success=on_success,
+        ):
+            yield event
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
+    )
+
+
 @app.get("/api/leads/supplier-portal/stream")
 async def stream_supplier_portal_scan(
     request: Request,

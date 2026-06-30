@@ -466,6 +466,7 @@
               <label>搜索模式</label>
               <div style="display:flex;gap:8px;flex-wrap:wrap;">
                 <button type="button" id="modeApollo" class="mode-btn active" onclick="setMode('apollo')" style="flex:1;padding:8px 12px;font-size:13px;background:var(--primary);color:#fff;border:none;border-radius:6px;cursor:pointer;min-width:100px;">Apollo 搜索</button>
+                <button type="button" id="modeApolloOrg" class="mode-btn" onclick="setMode('apollo_org')" style="flex:1;padding:8px 12px;font-size:13px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;cursor:pointer;min-width:100px;">Apollo 企业搜索</button>
                 <button type="button" id="modeSupplierPortal" class="mode-btn" onclick="setMode('supplier_portal')" style="flex:1;padding:8px 12px;font-size:13px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;cursor:pointer;min-width:100px;">供应商门户</button>
                 <button type="button" id="modeGoogleMaps" class="mode-btn" onclick="setMode('google_maps')" style="flex:1;padding:8px 12px;font-size:13px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;cursor:pointer;min-width:100px;">谷歌地图搜索</button>
                 <button type="button" id="modeKeyword" class="mode-btn" onclick="setMode('keyword')" style="flex:1;padding:8px 12px;font-size:13px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;cursor:pointer;min-width:100px;">关键词搜索</button>
@@ -583,6 +584,94 @@
               <div style="margin-bottom:16px;padding:10px 0;">
                 <label style="display:flex;align-items:center;gap:8px;cursor:pointer;text-transform:none;letter-spacing:0;font-weight:500;color:var(--text);">
                   <input type="checkbox" id="apolloScanSupplierPages" style="width:auto;">
+                  同时扫描采购/供应商页面（较慢）
+                </label>
+                <p class="hint">搜索完成后自动扫描 procurement / become-a-supplier / vendor-portal 等页面</p>
+              </div>
+            </div>
+
+            <!-- Apollo 企业搜索 -->
+            <div id="apolloOrgWrap" style="margin-bottom:16px;display:none;">
+              <div style="margin-bottom:16px">
+                <label for="apolloOrgKeywords">企业关键词（建议「产品 + 渠道角色」）</label>
+                <input type="text" id="apolloOrgKeywords" name="apollo_org_keywords" placeholder='例如 "football gloves distributor" 或 "ski equipment importer"'>
+                <p class="hint">先搜索企业，再在每个企业内查找采购联系人；用「产品 + 渠道角色」更精准</p>
+              </div>
+              <div style="margin-bottom:16px">
+                <label for="apolloOrgLocations">企业所在地区（可选）</label>
+                <input type="text" id="apolloOrgLocations" name="apollo_org_locations" placeholder="United States, Germany">
+                <p class="hint">逗号分隔多个地区</p>
+              </div>
+              <div style="margin-bottom:16px">
+                <label for="apolloOrgEmployeeRange">企业规模（可选）</label>
+                <select id="apolloOrgEmployeeRange" style="width:100%;padding:10px 12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;font-size:14px;outline:none;">
+                  <option value="">不限规模</option>
+                  <option value="1,10">1-10 人</option>
+                  <option value="11,50">11-50 人</option>
+                  <option value="2,50" selected>2-50 人（小经销商最佳区间）</option>
+                  <option value="51,200">51-200 人</option>
+                  <option value="201,500">201-500 人</option>
+                  <option value="501,1000">501-1000 人</option>
+                  <option value="1000,10000">1000+ 人</option>
+                </select>
+                <p class="hint">小经销商通常 2-50 人，选这个范围最精准</p>
+              </div>
+              <div class="row" style="margin-bottom:16px;">
+                <div>
+                  <label for="apolloOrgMaxOrgs">最大企业数</label>
+                  <input type="number" id="apolloOrgMaxOrgs" name="apollo_org_max_orgs" value="50" min="1" max="200">
+                  <p class="hint">从 Apollo 获取多少家企业</p>
+                </div>
+                <div>
+                  <label for="apolloOrgMaxPeoplePerOrg">每企业最大联系人</label>
+                  <input type="number" id="apolloOrgMaxPeoplePerOrg" name="apollo_org_max_people_per_org" value="5" min="1" max="20">
+                  <p class="hint">每家企业内查找多少采购联系人</p>
+                </div>
+              </div>
+              <div style="margin-bottom:16px">
+                <label for="apolloOrgTitles">目标职位</label>
+                <select id="apolloOrgTitles" multiple style="width:100%;padding:8px 12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;font-size:14px;height:auto;min-height:120px;outline:none;">
+                  <option value="Buyer" selected>Buyer / 采购员</option>
+                  <option value="Purchasing Manager" selected>Purchasing Manager / 采购经理</option>
+                  <option value="Procurement Manager" selected>Procurement Manager / 采购总监</option>
+                  <option value="Sourcing Manager" selected>Sourcing Manager / 供应链经理</option>
+                  <option value="Category Manager">Category Manager / 品类经理</option>
+                  <option value="Product Manager">Product Manager / 产品经理</option>
+                  <option value="Merchandiser">Merchandiser / 买手</option>
+                  <option value="Import Manager">Import Manager / 进口经理</option>
+                  <option value="General Manager">General Manager / 总经理</option>
+                  <option value="Managing Director">Managing Director / 董事总经理</option>
+                  <option value="CEO">CEO / 首席执行官</option>
+                  <option value="Owner">Owner / 企业主</option>
+                  <option value="Founder">Founder / 创始人</option>
+                </select>
+                <p class="hint">按住 Ctrl/Cmd 多选职位，只选采购相关可提高精准度</p>
+              </div>
+              <div style="margin-bottom:16px;padding:12px;background:#f8fafc;border:1px solid var(--border);border-radius:8px;">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+                  <label for="apolloOrgMinRelevance" style="margin-bottom:0;">最小关联度</label>
+                  <span id="apolloOrgMinRelevanceValue" style="font-size:13px;color:var(--muted);">0</span>
+                </div>
+                <input type="range" id="apolloOrgMinRelevance" name="apollo_org_min_relevance" min="-50" max="50" value="0" step="5" style="width:100%;margin-bottom:6px;">
+                <p class="hint" style="margin-bottom:0;">默认 0：过滤明显不相关行业；拖到 10+ 开启严格模式；拖到 -50 放宽结果量</p>
+              </div>
+              <div style="margin-bottom:16px;padding:10px 0;">
+                <label style="display:flex;align-items:center;gap:8px;cursor:pointer;text-transform:none;letter-spacing:0;font-weight:500;color:var(--text);">
+                  <input type="checkbox" id="apolloOrgStrictMode" style="width:auto;">
+                  严格模式（自动关联度 ≥10，仅保留采购类职位）
+                </label>
+                <p class="hint">结果更少但更精准，适合初次筛选高质量客户</p>
+              </div>
+              <div style="margin-bottom:16px;padding:10px 0;">
+                <label style="display:flex;align-items:center;gap:8px;cursor:pointer;text-transform:none;letter-spacing:0;font-weight:500;color:var(--text);">
+                  <input type="checkbox" id="apolloOrgKeepNoEmail" style="width:auto;">
+                  保留无邮箱客户
+                </label>
+                <p class="hint">默认只保留有真实邮箱或直拨电话的联系人</p>
+              </div>
+              <div style="margin-bottom:16px;padding:10px 0;">
+                <label style="display:flex;align-items:center;gap:8px;cursor:pointer;text-transform:none;letter-spacing:0;font-weight:500;color:var(--text);">
+                  <input type="checkbox" id="apolloOrgScanSupplierPages" style="width:auto;">
                   同时扫描采购/供应商页面（较慢）
                 </label>
                 <p class="hint">搜索完成后自动扫描 procurement / become-a-supplier / vendor-portal 等页面</p>
@@ -858,13 +947,14 @@
     function setMode(mode) {
       currentMode = mode;
       const btnApollo = document.getElementById('modeApollo');
+      const btnApolloOrg = document.getElementById('modeApolloOrg');
       const btnKeyword = document.getElementById('modeKeyword');
       const btnGoogleMaps = document.getElementById('modeGoogleMaps');
       const btnDomains = document.getElementById('modeDomains');
       const btnSupplierPortal = document.getElementById('modeSupplierPortal');
 
       // Reset all buttons
-      [btnApollo, btnKeyword, btnGoogleMaps, btnDomains, btnSupplierPortal].forEach(btn => {
+      [btnApollo, btnApolloOrg, btnKeyword, btnGoogleMaps, btnDomains, btnSupplierPortal].forEach(btn => {
         btn.style.background = 'var(--bg)';
         btn.style.color = 'var(--text)';
         btn.style.border = '1px solid var(--border)';
@@ -872,6 +962,7 @@
 
       // Highlight active button
       const activeBtn = mode === 'apollo' ? btnApollo :
+                        mode === 'apollo_org' ? btnApolloOrg :
                         mode === 'keyword' ? btnKeyword :
                         mode === 'google_maps' ? btnGoogleMaps :
                         mode === 'supplier_portal' ? btnSupplierPortal : btnDomains;
@@ -881,6 +972,7 @@
 
       // Field visibility by mode
       const apolloWrap = document.getElementById('apolloWrap');
+      const apolloOrgWrap = document.getElementById('apolloOrgWrap');
       const keywordWrap = document.getElementById('keywordWrap');
       const mapsRegionWrap = document.getElementById('mapsRegionWrap');
       const domainsWrap = document.getElementById('domainsWrap');
@@ -894,9 +986,11 @@
       const scanSupplierPagesWrap = document.getElementById('scanSupplierPagesWrap');
       const keywordInput = document.getElementById('keyword');
       const apolloKeywords = document.getElementById('apolloKeywords');
+      const apolloOrgKeywords = document.getElementById('apolloOrgKeywords');
 
       // Hide all first
       apolloWrap.style.display = 'none';
+      apolloOrgWrap.style.display = 'none';
       keywordWrap.style.display = 'none';
       mapsRegionWrap.style.display = 'none';
       domainsWrap.style.display = 'none';
@@ -908,10 +1002,14 @@
       scanSupplierPagesWrap.style.display = 'none';
       keywordInput.required = false;
       apolloKeywords.required = false;
+      apolloOrgKeywords.required = false;
 
       if (mode === 'apollo') {
         apolloWrap.style.display = 'block';
         apolloKeywords.required = false;
+      } else if (mode === 'apollo_org') {
+        apolloOrgWrap.style.display = 'block';
+        apolloOrgKeywords.required = true;
       } else if (mode === 'google_maps') {
         keywordWrap.style.display = 'block';
         keywordInput.required = true;
@@ -989,6 +1087,15 @@
         else progressStep.textContent = '完成';
         return;
       }
+      if (currentMode === 'apollo_org') {
+        if (pct <= 15) progressStep.textContent = 'Apollo 企业搜索中...';
+        else if (pct <= 25) progressStep.textContent = '企业筛选中...';
+        else if (pct <= 40) progressStep.textContent = '企业联系人搜索中...';
+        else if (pct <= 75) progressStep.textContent = 'Hunter 补全邮箱中...';
+        else if (pct < 100) progressStep.textContent = '构建线索与导出...';
+        else progressStep.textContent = '完成';
+        return;
+      }
       if (currentMode === 'supplier_portal') {
         if (pct < 20) progressStep.textContent = '准备域名列表...';
         else if (pct < 90) progressStep.textContent = '扫描采购/供应商页面中...';
@@ -1010,6 +1117,14 @@
     if (apolloMinRelevanceInput && apolloMinRelevanceValue) {
       apolloMinRelevanceInput.addEventListener('input', () => {
         apolloMinRelevanceValue.textContent = apolloMinRelevanceInput.value;
+      });
+    }
+
+    const apolloOrgMinRelevanceInput = document.getElementById('apolloOrgMinRelevance');
+    const apolloOrgMinRelevanceValue = document.getElementById('apolloOrgMinRelevanceValue');
+    if (apolloOrgMinRelevanceInput && apolloOrgMinRelevanceValue) {
+      apolloOrgMinRelevanceInput.addEventListener('input', () => {
+        apolloOrgMinRelevanceValue.textContent = apolloOrgMinRelevanceInput.value;
       });
     }
 
@@ -1065,6 +1180,41 @@
           params.append('min_relevance', apolloMinRelevance);
         }
         streamUrl = `/api/leads/apollo/stream?${params.toString()}`;
+      } else if (currentMode === 'apollo_org') {
+        const apolloOrgKeywords = document.getElementById('apolloOrgKeywords').value.trim();
+        const apolloOrgLocations = document.getElementById('apolloOrgLocations').value.trim();
+        const apolloOrgEmployeeRange = document.getElementById('apolloOrgEmployeeRange').value;
+        const apolloOrgMaxOrgs = document.getElementById('apolloOrgMaxOrgs').value;
+        const apolloOrgMaxPeoplePerOrg = document.getElementById('apolloOrgMaxPeoplePerOrg').value;
+        const apolloOrgTitlesSelect = document.getElementById('apolloOrgTitles');
+        const checkedTitles = Array.from(apolloOrgTitlesSelect.selectedOptions).map(opt => opt.value);
+        const apolloOrgKeepNoEmail = document.getElementById('apolloOrgKeepNoEmail').checked;
+        const apolloOrgScanSupplierPages = document.getElementById('apolloOrgScanSupplierPages').checked;
+        const apolloOrgMinRelevance = document.getElementById('apolloOrgMinRelevance').value;
+        const apolloOrgStrictMode = document.getElementById('apolloOrgStrictMode').checked;
+
+        if (!apolloOrgKeywords) {
+          resultDiv.innerHTML = '<div class="badge badge-error">请输入企业关键词</div>';
+          btn.disabled = false;
+          resetSubmitButtonText();
+          return;
+        }
+
+        const params = new URLSearchParams();
+        params.append('apollo_org_keywords', apolloOrgKeywords);
+        if (apolloOrgLocations) params.append('apollo_org_locations', apolloOrgLocations);
+        if (apolloOrgEmployeeRange) params.append('apollo_org_employee_range', apolloOrgEmployeeRange);
+        if (apolloOrgMaxOrgs) params.append('apollo_org_max_orgs', apolloOrgMaxOrgs);
+        if (apolloOrgMaxPeoplePerOrg) params.append('apollo_org_max_people_per_org', apolloOrgMaxPeoplePerOrg);
+        if (checkedTitles.length > 0) params.append('apollo_titles', checkedTitles.join(','));
+        if (apolloOrgKeepNoEmail) params.append('keep_no_email', 'true');
+        if (apolloOrgScanSupplierPages) params.append('scan_supplier_pages', 'true');
+        if (apolloOrgStrictMode) {
+          params.append('strict_mode', 'true');
+        } else if (apolloOrgMinRelevance && apolloOrgMinRelevance !== '0') {
+          params.append('min_relevance', apolloOrgMinRelevance);
+        }
+        streamUrl = `/api/leads/apollo/organization/stream?${params.toString()}`;
       } else if (currentMode === 'supplier_portal') {
         const domainsInput = document.getElementById('domainsInput').value;
         if (!domainsInput.trim()) {
