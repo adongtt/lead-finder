@@ -2474,7 +2474,7 @@ class ApolloClient:
             "page": page,
         }
         if keyword_tags:
-            payload["q_keyword_tags"] = self._expand_keyword_tags(keyword_tags)
+            payload["q_organization_keyword_tags"] = self._expand_keyword_tags(keyword_tags)
         if locations:
             payload["organization_locations"] = locations
         if country:
@@ -2518,6 +2518,25 @@ class ApolloClient:
                 else:
                     print(f"    [Apollo] Forbidden (403): {err}")
                 return []
+            if resp.status_code == 422:
+                try:
+                    err_body = resp.json()
+                except Exception:
+                    err_body = {"error": resp.text}
+                err_msg = str(err_body.get("error", "")).lower()
+                if "insufficient credits" in err_msg or "credit" in err_msg:
+                    print("    [Apollo] Organization Search requires lead credits. Your account has insufficient credits.")
+                else:
+                    print(f"    [Apollo DEBUG] organization search payload: {payload}")
+                    print(f"    [Apollo DEBUG] organization search response (422): {err_body}")
+                return []
+            if resp.status_code >= 400:
+                try:
+                    err_body = resp.json()
+                except Exception:
+                    err_body = resp.text
+                print(f"    [Apollo DEBUG] organization search payload: {payload}")
+                print(f"    [Apollo DEBUG] organization search response ({resp.status_code}): {err_body}")
             resp.raise_for_status()
             data = resp.json()
             organizations = data.get("organizations", []) if isinstance(data, dict) else []
