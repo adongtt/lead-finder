@@ -437,6 +437,9 @@
     .status-negotiating { background: rgba(124,58,237,0.10); color: #6d28d9; }
     .status-won { background: rgba(5,150,105,0.15); color: #047857; }
     .status-lost { background: rgba(100,116,139,0.12); color: #475569; }
+    .tier-a { background: rgba(5,150,105,0.12); color: #047857; }
+    .tier-b { background: rgba(2,132,199,0.10); color: #0369a1; }
+    .tier-c { background: rgba(100,116,139,0.12); color: #475569; }
     @media (max-width: 768px) {
       .main-layout { grid-template-columns: 1fr; }
       .right-panel { order: -1; }
@@ -1510,7 +1513,7 @@
 
     function renderDefaultTable(rows) {
       let html = '<table><thead><tr>' +
-        '<th>邮箱</th><th>姓名</th><th>职位</th><th>国家</th><th>电话</th><th>公司</th><th>域名</th><th>LinkedIn</th><th>来源</th><th>简介</th><th>状态</th><th>操作</th>' +
+        '<th>邮箱</th><th>姓名</th><th>职位</th><th>国家</th><th>电话</th><th>公司</th><th>域名</th><th>LinkedIn</th><th>来源</th><th>简介</th><th>客户分层</th><th>状态</th><th>操作</th>' +
         '</tr></thead><tbody>';
       for (let i = 0; i < rows.length; i++) {
         const row = rows[i];
@@ -1528,6 +1531,7 @@
           `<td>${row.linkedin_url ? `<a href="${escapeHtml(row.linkedin_url)}" target="_blank" rel="noopener noreferrer" style="color:#0a66c2;font-weight:500;font-size:12px;">查看</a>` : '<span style="font-size:12px;color:var(--muted);">-</span>'}</td>` +
           `<td>${sourceTypeLabel(row.source_type || '')}</td>` +
           `<td>${renderDescCell(row.website_description)}</td>` +
+          `<td>${tierBadge(row.tier || '')}</td>` +
           `<td>${badge}</td>` +
           `<td>` +
             (row.email
@@ -1702,6 +1706,17 @@
       };
       const cls = map[status] || 'status-new';
       return `<span class="badge ${cls}">${escapeHtml(status || '未联系')}</span>`;
+    }
+
+    function tierBadge(tier) {
+      const map = {
+        'A': 'tier-a',
+        'B': 'tier-b',
+        'C': 'tier-c',
+      };
+      const cls = map[tier] || 'tier-c';
+      const label = tier || '-';
+      return `<span class="badge ${cls}">${escapeHtml(label)}</span>`;
     }
 
     async function loadStats() {

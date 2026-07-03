@@ -1256,6 +1256,9 @@ class Lead:
     purchasing_authority: str = ""         # local | headquarter | unknown
     purchasing_authority_reason: str = ""  # Human-readable explanation
     parent_org_data_source: str = ""       # apollo | website_heuristic | inferred
+    # Customer value tier (A/B/C)
+    tier: str = ""                         # A | B | C
+    tier_reason: str = ""                  # Human-readable explanation for tier
 
 
 def _classify_purchasing_authority(lead: Lead) -> Tuple[str, str]:
@@ -1325,6 +1328,95 @@ def _classify_purchasing_authority(lead: Lead) -> Tuple[str, str]:
         "unknown",
         "Insufficient data to determine purchasing authority. Recommend researching parent company structure.",
     )
+
+
+# ---------------------------------------------------------------------------
+# Customer value tier classification (A / B / C)
+# ---------------------------------------------------------------------------
+
+# Strong signals that a lead is a core/large customer (A tier)
+TIER_A_SIGNALS = [
+    "brand", "manufacturer", "oem", "odm", "original equipment",
+    "wholesale", "wholesaler", "distributor", "importer", "exporter",
+    "international", "global", "worldwide", "chain", "retail chain",
+    "group", "corporate", "headquarter", "buying office", "holding",
+    "enterprise", "public company", "listed company",
+]
+
+# Signals for medium-value potential customers (B tier)
+TIER_B_SIGNALS = [
+    "retailer", "retail store", "sport store", "sports shop", "dealer",
+    "reseller", "regional", "local distributor", "authorized dealer",
+    "multi-store", "outlet", "specialty store", "pro shop",
+]
+
+# Signals that demote a lead to low-value (C tier)
+TIER_C_SIGNALS = [
+    "resort", "ski resort", "ski area", "rental", "rentals", "ski rental",
+    "ski school", "lesson", "lessons", "tour", "tours", "guide", "guides",
+    "repair", "repairs", "used", "second-hand", "second hand", "pre-owned",
+    "small", "single store", "single location", "local shop", "hobby",
+    "club", "association", "charity", "non-profit", "community",
+    "blog", "review", "news", "magazine", "forum",
+]
+
+
+def _classify_tier(lead: Lead) -> Tuple[str, str]:
+    """Classify lead into A/B/C tier based on customer value signals.
+
+    A = core large customers (brands, manufacturers, international distributors)
+    B = potential customers (regional dealers, medium stores, local distributors)
+    C = low-value leads (resorts, rentals, small shops, lessons/tours)
+
+    Returns a tuple of (tier, reason).
+    """
+    text_parts = [
+        (lead.company or "").lower(),
+        (lead.website_description or "").lower(),
+        (lead.position or "").lower(),
+        (lead.domain or "").lower(),
+    ]
+    text = " ".join(text_parts)
+
+    # Count signal hits
+    a_hits = [s for s in TIER_A_SIGNALS if s in text]
+    b_hits = [s for s in TIER_B_SIGNALS if s in text]
+    c_hits = [s for s in TIER_C_SIGNALS if s in text]
+
+    # Contact quality boosters
+    has_personal_email = lead.email_type == "personal"
+    has_direct_phone = lead.has_direct_phone
+    high_confidence = lead.confidence_score >= 70
+    hq_authority = lead.purchasing_authority == "headquarter"
+    has_parent = bool(lead.parent_company_name)
+
+    # Decide tier
+    if c_hits and not (a_hits or b_hits):
+        # Strong C-only signals -> C
+        return "C", f"Low-value signals: {', '.join(c_hits[:3])}"
+
+    if a_hits:
+        # Strong A signals + reasonable quality/relevance -> A
+        quality_ok = has_personal_email or high_confidence or has_direct_phone or hq_authority
+        relevance_ok = lead.relevance_score >= 40 or hq_authority or has_parent
+        # Brand/manufacturer + personal email is a strong A pattern regardless of relevance
+        brand_or_maker = any(s in text for s in ["brand", "manufacturer", "oem", "odm"])
+        if quality_ok and (relevance_ok or (brand_or_maker and has_personal_email)):
+            return "A", f"Core customer signals: {', '.join(a_hits[:3])}"
+        # A signals but weaker quality -> B
+        return "B", f"Potential customer (A signals but lower contact quality): {', '.join(a_hits[:3])}"
+
+    if b_hits:
+        # B signals -> B unless relevance is very low
+        if lead.relevance_score >= 30:
+            return "B", f"Potential customer signals: {', '.join(b_hits[:3])}"
+        return "C", f"Weak relevance with retail signals: {', '.join(b_hits[:3])}"
+
+    # No strong signals; use relevance and contact quality as tie-breakers
+    if lead.relevance_score >= 70 and (has_personal_email or high_confidence or has_direct_phone):
+        return "B", "High relevance but no explicit tier signals"
+
+    return "C", "No strong value signals; low priority"
 
 
 # ---------------------------------------------------------------------------
@@ -3862,6 +3954,7 @@ class LeadFinder:
                         parent_org_data_source=org_data.get("source", ""),
                     )
                     lead.purchasing_authority, lead.purchasing_authority_reason = _classify_purchasing_authority(lead)
+                    lead.tier, lead.tier_reason = _classify_tier(lead)
                     all_leads.append(lead)
                     print("0 email, kept domain")
                 else:
@@ -3926,6 +4019,7 @@ class LeadFinder:
                     parent_org_data_source=org_data.get("source", ""),
                 )
                 lead.purchasing_authority, lead.purchasing_authority_reason = _classify_purchasing_authority(lead)
+                lead.tier, lead.tier_reason = _classify_tier(lead)
                 all_leads.append(lead)
                 kept += 1
 
@@ -4009,6 +4103,8 @@ class LeadFinder:
             "org_structure_type", "parent_company_name", "parent_company_country",
             "hq_country", "purchasing_authority", "purchasing_authority_reason",
             "parent_org_data_source",
+            # Customer value tier
+            "tier", "tier_reason",
         ]
         with open(path, "w", newline="", encoding="utf-8-sig") as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -4046,6 +4142,11 @@ class LeadFinder:
             print(f"  With parent/HQ   : {with_parent}")
         if hq_auth or local_auth:
             print(f"  Purchasing auth  : {hq_auth} HQ, {local_auth} local, {unknown_auth} unknown")
+        tier_a = sum(1 for l in leads if l.tier == "A")
+        tier_b = sum(1 for l in leads if l.tier == "B")
+        tier_c = sum(1 for l in leads if l.tier == "C")
+        if tier_a or tier_b or tier_c:
+            print(f"  Customer tiers   : A={tier_a}, B={tier_b}, C={tier_c}")
         print(f"{'='*60}\n")
 
     def _enrich_leads_with_supplier_portal(
@@ -4635,6 +4736,7 @@ class LeadFinder:
                 parent_org_data_source=parent_source,
             )
             lead.purchasing_authority, lead.purchasing_authority_reason = _classify_purchasing_authority(lead)
+            lead.tier, lead.tier_reason = _classify_tier(lead)
             all_leads.append(lead)
 
         if apollo_has_email_but_empty:
@@ -4883,7 +4985,7 @@ class LeadFinder:
                 notes = _extract_supplier_notes(resp.text)
             except Exception:
                 pass
-            return Lead(
+            lead = Lead(
                 domain=domain,
                 company=domain,
                 search_keyword="supplier-portal-scan",
@@ -4895,6 +4997,8 @@ class LeadFinder:
                 supplier_form_link=portal["form_link"],
                 supplier_notes=notes,
             )
+            lead.tier, lead.tier_reason = _classify_tier(lead)
+            return lead
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_to_domain = {executor.submit(_scan_one, d): d for d in domains}

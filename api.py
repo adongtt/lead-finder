@@ -751,8 +751,24 @@ def _position_priority(position: str) -> int:
     return 9999
 
 
-def _sort_leads_by_position(leads: list) -> list:
-    return sorted(leads, key=lambda lead: (_position_priority(lead.get("position", "")), lead.get("email", "")))
+def _sort_leads(leads: list) -> list:
+    """Sort leads by tier, position priority, relevance, and email."""
+    def _tier_priority(tier: str) -> int:
+        return {"A": 0, "B": 1, "C": 2}.get(tier or "", 3)
+
+    return sorted(
+        leads,
+        key=lambda lead: (
+            _tier_priority(lead.get("tier", "")),
+            _position_priority(lead.get("position", "")),
+            -(lead.get("relevance_score", 0) or 0),
+            lead.get("email", "") or "",
+        ),
+    )
+
+
+# Keep backward-compatible alias for any external callers
+_sort_leads_by_position = _sort_leads
 
 
 def db_increment_keyword(term: str) -> None:
@@ -2274,6 +2290,8 @@ async def download_search_excel(job_id: str, position: str = "", user: dict = De
         "website_description": "网站简介",
         "relevance_score": "关联度",
         "linkedin_url": "LinkedIn",
+        "tier": "客户分层",
+        "tier_reason": "分层原因",
         "status": "跟进状态",
         "contacted_by": "跟进人",
         "contacted_at": "跟进时间",

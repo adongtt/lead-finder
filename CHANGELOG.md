@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## 2026-07-03
+
+### Added
+- **A/B/C Customer Tier Classification**
+  - New `tier` and `tier_reason` fields on the `Lead` dataclass in `lead_finder.py`.
+  - New `_classify_tier()` helper with generic signal-based rules (A = core/large customers, B = potential customers, C = low-value leads).
+  - Tier is computed for every lead produced by keyword search, Apollo People Search, Apollo Organization Search, Google Maps, and supplier-portal scan pipelines.
+  - Tier columns exported to CSV and loaded back by `_leads_from_csv()`.
+  - API/frontend sorting now prioritizes tier (A → B → C), then position priority, then relevance.
+  - `result.html` shows a "客户分层" column with color-coded badges (A green, B blue, C gray) and a tier filter dropdown.
+  - `index.html` preview table also shows tier badges.
+  - MCP tool output now includes tier distribution counts.
+  - Excel export maps `tier` to "客户分层" and `tier_reason` to "分层原因".
+
 ## 2026-06-30
 
 ### Added

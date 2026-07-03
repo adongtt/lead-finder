@@ -247,6 +247,9 @@
     .status-negotiating { background: rgba(234,88,12,0.10); color: #c2410c; }
     .status-won { background: rgba(5,150,105,0.15); color: #047857; }
     .status-lost { background: rgba(100,116,139,0.12); color: #475569; }
+    .tier-a { background: rgba(5,150,105,0.12); color: #047857; }
+    .tier-b { background: rgba(2,132,199,0.10); color: #0369a1; }
+    .tier-c { background: rgba(100,116,139,0.12); color: #475569; }
     .btn-sm {
       padding: 5px 10px;
       border: none;
@@ -437,6 +440,15 @@
           <option value="unknown">未知</option>
         </select>
       </label>
+      <label style="display:flex;align-items:center;gap:6px;font-size:14px;color:var(--text);white-space:nowrap;">
+        客户分层
+        <select id="tierFilter" onchange="applyFilter()" style="padding:6px 8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;font-size:14px;outline:none;">
+          <option value="">全部</option>
+          <option value="A">A 核心大客户</option>
+          <option value="B">B 潜力客户</option>
+          <option value="C">C 低价值线索</option>
+        </select>
+      </label>
       <button class="primary" onclick="applyFilter()">筛选</button>
       <button onclick="clearFilter()">重置</button>
     </div>
@@ -458,6 +470,7 @@
             <th>域名</th>
             <th>来源</th>
             <th>网站简介</th>
+            <th class="sortable" onclick="sortBy('tier')">客户分层<span id="sortTier" class="sort-arrow"></span></th>
             <th>关联度</th>
             <th>LinkedIn</th>
             <th>置信度</th>
@@ -771,6 +784,17 @@ Best regards,
       return `<span class="badge ${cls}">${escapeHtml(status || '未联系')}</span>`;
     }
 
+    function tierBadge(tier) {
+      const map = {
+        'A': 'tier-a',
+        'B': 'tier-b',
+        'C': 'tier-c',
+      };
+      const cls = map[tier] || 'tier-c';
+      const label = tier || '-';
+      return `<span class="badge ${cls}">${escapeHtml(label)}</span>`;
+    }
+
     async function loadData() {
       if (!jobId) {
         showError('缺少 job_id 参数');
@@ -899,6 +923,10 @@ Best regards,
       if (authorityEl) {
         authorityEl.textContent = sortState.column === 'purchasing_authority' ? (sortState.direction === 'asc' ? ' ↑' : ' ↓') : '';
       }
+      const tierEl = document.getElementById('sortTier');
+      if (tierEl) {
+        tierEl.textContent = sortState.column === 'tier' ? (sortState.direction === 'asc' ? ' ↑' : ' ↓') : '';
+      }
     }
 
     function isVerifyTrue(value) {
@@ -946,6 +974,7 @@ Best regards,
           `<td>${escapeHtml(row.domain || '')}</td>` +
           `<td>${sourceTypeLabel(row.source_type || '')}</td>` +
           `<td>${renderDescCell(row)}</td>` +
+          `<td title="${escapeHtml(row.tier_reason || '')}">${tierBadge(row.tier || '')}</td>` +
           `<td>${escapeHtml(row.relevance_score !== undefined ? row.relevance_score : '')}</td>` +
           `<td>${row.linkedin_url ? `<a href="${escapeHtml(row.linkedin_url)}" target="_blank" rel="noopener noreferrer" style="color:#0a66c2;font-weight:500;">查看</a>` : ''}</td>` +
           `<td>${escapeHtml(row.confidence_score || '')}</td>` +
@@ -1149,6 +1178,7 @@ Best regards,
       const domainAliveOnly = document.getElementById('filterDomainAlive').checked;
       const companyActiveOnly = document.getElementById('filterCompanyActive').checked;
       const authorityFilter = document.getElementById('authorityFilter').value;
+      const tierFilter = document.getElementById('tierFilter').value;
 
       filteredLeads = allLeads.slice();
       if (posFilter) {
@@ -1166,7 +1196,10 @@ Best regards,
       if (authorityFilter) {
         filteredLeads = filteredLeads.filter(l => (l.purchasing_authority || '').toLowerCase() === authorityFilter);
       }
-      if (!posFilter && relMin === null && !domainAliveOnly && !companyActiveOnly && !authorityFilter) {
+      if (tierFilter) {
+        filteredLeads = filteredLeads.filter(l => (l.tier || '') === tierFilter);
+      }
+      if (!posFilter && relMin === null && !domainAliveOnly && !companyActiveOnly && !authorityFilter && !tierFilter) {
         clearFilter();
         return;
       }
@@ -1179,6 +1212,10 @@ Best regards,
       if (authorityFilter) {
         const labelMap = { local: '本地决策', headquarter: '总部决策', unknown: '未知' };
         parts.push(`采购决策：${labelMap[authorityFilter] || authorityFilter}`);
+      }
+      if (tierFilter) {
+        const tierLabelMap = { A: 'A 核心大客户', B: 'B 潜力客户', C: 'C 低价值线索' };
+        parts.push(`客户分层：${tierLabelMap[tierFilter] || tierFilter}`);
       }
       document.getElementById('filterInfo').textContent = parts.join(' · ') + ` · 共 ${filteredLeads.length} 条结果`;
       document.getElementById('filterInfo').style.display = 'block';
@@ -1193,6 +1230,7 @@ Best regards,
       document.getElementById('filterEmailValid').checked = false;
       document.getElementById('filterCompanyActive').checked = false;
       document.getElementById('authorityFilter').value = '';
+      document.getElementById('tierFilter').value = '';
       filteredLeads = allLeads.slice();
       currentPage = 1;
       document.getElementById('filterInfo').style.display = 'none';

@@ -83,6 +83,14 @@ Session-based auth via `SessionMiddleware` + `users.json` (plain JSON with bcryp
 ### Position priority sorting
 Leads are sorted by position importance before returning to the frontend. The priority list (higher = earlier) includes: Buyer, Purchasing Manager, Procurement Manager, Sourcing Manager, Merchandiser, Product Manager, Brand Manager, Marketing Manager, General Manager, Managing Director. Unknown positions sort to the end.
 
+### Customer tier classification (A/B/C)
+Every exported lead is assigned a `tier` (A/B/C) plus a human-readable `tier_reason` that estimates customer value independent of keyword relevance:
+- **A** = core large customers: professional sports brands, manufacturers, international distributors/wholesalers, large retail chains, HQ-level procurement.
+- **B** = potential customers: regional distributors, medium offline stores, multi-store chains, independent dealers.
+- **C** = low-value leads: ski resorts, rental shops, lesson/tour providers, small single-store retailers, blogs/news sites.
+
+Classification is done by `_classify_tier()` in [lead_finder.py](lead_finder.py) using signal lists (`TIER_A_SIGNALS`, `TIER_B_SIGNALS`, `TIER_C_SIGNALS`) and factors such as `relevance_score`, `purchasing_authority`, `org_structure_type`, `parent_company_name`, `email_type`, `has_direct_phone`, and `confidence_score`. The tier flows through to the CSV, API JSON, frontend badge/filter, Excel export, and MCP summary.
+
 ### Lead enrichment
 `db_enrich_leads()` cross-references search results against the `contacts` table to mark which leads have already been contacted, by whom, and their current status. This lets the frontend show contacted badges without re-querying.
 
@@ -91,4 +99,4 @@ Each search mode has a Server-Sent Events variant that yields subprocess log lin
 
 ## Key Data Model
 
-`Lead` dataclass fields include: `email`, `first_name`, `last_name`, `position`, `department`, `company`, `domain`, `country`, `confidence_score`, `email_type` (`personal` | `generic`), `validation_status`, `sources`, `search_keyword`, `found_at`, `website_description`, `relevance_score`, `linkedin_url`, `phone`, `address`, Google Maps fields (`google_rating`, `google_reviews_count`, `google_maps_url`, `place_id`), `source_type`, `has_direct_phone`, supplier-scan fields (`supplier_page_url`, `supplier_email`, `supplier_form_link`, …), and verification fields (`domain_alive`, `domain_check_error`, `email_valid`, `company_active`, `company_status_notes`, `last_verified_at`). The authoritative field list and CSV column order is `_export_csv()` in [lead_finder.py](lead_finder.py).
+`Lead` dataclass fields include: `email`, `first_name`, `last_name`, `position`, `department`, `company`, `domain`, `country`, `confidence_score`, `email_type` (`personal` | `generic`), `validation_status`, `sources`, `search_keyword`, `found_at`, `website_description`, `relevance_score`, `linkedin_url`, `phone`, `address`, Google Maps fields (`google_rating`, `google_reviews_count`, `google_maps_url`, `place_id`), `source_type`, `has_direct_phone`, supplier-scan fields (`supplier_page_url`, `supplier_email`, `supplier_form_link`, …), verification fields (`domain_alive`, `domain_check_error`, `email_valid`, `company_active`, `company_status_notes`, `last_verified_at`), and tier fields (`tier` and `tier_reason`). The authoritative field list and CSV column order is `_export_csv()` in [lead_finder.py](lead_finder.py).
