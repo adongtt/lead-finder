@@ -756,12 +756,18 @@ def _sort_leads(leads: list) -> list:
     def _tier_priority(tier: str) -> int:
         return {"A": 0, "B": 1, "C": 2}.get(tier or "", 3)
 
+    def _rel_score(lead: dict) -> int:
+        try:
+            return int(lead.get("relevance_score") or 0)
+        except (ValueError, TypeError):
+            return 0
+
     return sorted(
         leads,
         key=lambda lead: (
             _tier_priority(lead.get("tier", "")),
             _position_priority(lead.get("position", "")),
-            -(lead.get("relevance_score", 0) or 0),
+            -_rel_score(lead),
             lead.get("email", "") or "",
         ),
     )
