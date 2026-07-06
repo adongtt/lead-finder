@@ -2333,6 +2333,58 @@ class ApolloClient:
                             tags.append(sub)
         return tags
 
+    APOLLO_EMPLOYEE_RANGE_BUCKETS = [
+        (1, 10, "1,10"),
+        (11, 50, "11,50"),
+        (51, 200, "51,200"),
+        (201, 500, "201,500"),
+        (501, 1000, "501,1000"),
+        (1001, 5000, "1001,5000"),
+        (5001, 10000, "5001,10000"),
+        (10001, 10 ** 9, "10001,100000000"),
+    ]
+
+    @staticmethod
+    def _normalize_employee_ranges(ranges: Optional[List[str]]) -> List[str]:
+        """Map arbitrary employee ranges to Apollo's standard bucket strings.
+
+        Apollo only accepts a fixed set of range buckets (e.g. "1,10",
+        "11,50"). If the user passes a non-standard range like "2,50" or a
+        single value like "2,50" split into ["2", "50"], we expand it to the
+        overlapping buckets. Duplicate buckets are removed.
+        """
+        if not ranges:
+            return []
+        # Flatten the common CLI/UI case where the range arrives as ["2", "50"]
+        if (
+            isinstance(ranges, list)
+            and len(ranges) == 2
+            and all(r.strip().isdigit() for r in ranges)
+        ):
+            ranges = [f"{ranges[0].strip()},{ranges[1].strip()}"]
+
+        normalized: Set[str] = set()
+        for r in ranges:
+            r = r.strip()
+            if not r:
+                continue
+            if "," in r:
+                parts = r.split(",", 1)
+                try:
+                    lo, hi = int(parts[0]), int(parts[1])
+                except (ValueError, IndexError):
+                    continue
+                for b_min, b_max, bucket in ApolloClient.APOLLO_EMPLOYEE_RANGE_BUCKETS:
+                    if min(b_max, hi) >= max(b_min, lo):
+                        normalized.add(bucket)
+            else:
+                # Already a bucket string like "11,50"
+                normalized.add(r)
+        return sorted(
+            normalized,
+            key=lambda x: int(x.split(",", 1)[0]),
+        )
+
     def _merge_enriched_fields(self, person: dict, enriched: dict) -> dict:
         """Copy email/org fields from an Apollo enrichment response into person."""
         if enriched.get("email"):
@@ -2600,14 +2652,13 @@ class ApolloClient:
                 f"person_locations={person_locations}, country={country}, state={state}, city={city}, zip_codes={[zip_code] if zip_code else None}"
             )
         if organization_num_employees:
-            # Apollo expects a list of range strings, e.g. ["2,50"].
-            if isinstance(organization_num_employees, list) and len(organization_num_employees) == 2:
-                payload["organization_num_employees"] = [
-                    f"{organization_num_employees[0]},{organization_num_employees[1]}"
-                ]
+            payload["organization_num_employees"] = self._normalize_employee_ranges(
+                organization_num_employees
+            )
+            if payload["organization_num_employees"]:
+                print(f"    [Apollo] Employee range filter: {payload['organization_num_employees']}")
             else:
-                payload["organization_num_employees"] = organization_num_employees
-            print(f"    [Apollo] Employee range filter: {payload['organization_num_employees']}")
+                payload.pop("organization_num_employees", None)
         # Doc-recommended filter: avoid re-prospecting contacts already contacted by the team.
         payload["prospected_by_current_team"] = ["no"]
         # Note: person_departments and contact_email_status are intentionally omitted
@@ -2813,14 +2864,13 @@ class ApolloClient:
                 f"country={country}, state={state}, city={city}, zip_codes={[zip_code] if zip_code else None}"
             )
         if organization_num_employees_ranges:
-            # Apollo expects a list of range strings, e.g. ["2,50"].
-            if isinstance(organization_num_employees_ranges, list) and len(organization_num_employees_ranges) == 2:
-                params["organization_num_employees_ranges[]"] = [
-                    f"{organization_num_employees_ranges[0]},{organization_num_employees_ranges[1]}"
-                ]
+            params["organization_num_employees_ranges[]"] = self._normalize_employee_ranges(
+                organization_num_employees_ranges
+            )
+            if params["organization_num_employees_ranges[]"]:
+                print(f"    [Apollo] Employee range filter: {params['organization_num_employees_ranges[]']}")
             else:
-                params["organization_num_employees_ranges[]"] = organization_num_employees_ranges
-            print(f"    [Apollo] Employee range filter: {params['organization_num_employees_ranges[]']}")
+                params.pop("organization_num_employees_ranges[]", None)
         if revenue_min is not None:
             params["revenue_range[min]"] = revenue_min
         if revenue_max is not None:
@@ -5235,53 +5285,85 @@ class LeadFinder:
         # -----------------------------------------------------------------------
         # Stage 1: Fetch organizations
         # -----------------------------------------------------------------------
-        all_orgs: List[dict] = []
         # Fetch more organizations than we need so we can re-rank locally and
         # keep only the most relevant ones. This costs at most one extra page.
         fetch_target = max(max_orgs, 100)
         per_page = min(fetch_target, 100)
-        page = 1
-        while len(all_orgs) < fetch_target:
-            print(f"[Apollo] Fetching organization page {page} (target {fetch_target})...")
-            orgs = self.apollo.search_organizations(
-                keyword_tags=org_keywords,
-                locations=org_locations or None,
-                not_locations=org_not_locations or None,
-                organization_num_employees_ranges=employee_range or None,
-                organization_domains=organization_domains or None,
-                organization_name=organization_name or None,
-                revenue_min=revenue_min,
-                revenue_max=revenue_max,
-                technologies=technologies or None,
-                organization_ids=organization_ids or None,
-                latest_funding_amount_min=latest_funding_amount_min,
-                latest_funding_amount_max=latest_funding_amount_max,
-                total_funding_min=total_funding_min,
-                total_funding_max=total_funding_max,
-                latest_funding_date_min=latest_funding_date_min or None,
-                latest_funding_date_max=latest_funding_date_max or None,
-                job_titles=job_titles or None,
-                job_locations=job_locations or None,
-                num_jobs_min=num_jobs_min,
-                num_jobs_max=num_jobs_max,
-                job_posted_date_min=job_posted_date_min or None,
-                job_posted_date_max=job_posted_date_max or None,
-                country=country or None,
-                state=state or None,
-                city=city or None,
-                zip_code=zip_code or None,
-                per_page=per_page,
-                page=page,
-            )
-            if not orgs:
-                print("  No more results.")
+
+        def _fetch_orgs_for_strategy(
+            keyword_tags: Optional[List[str]],
+            emp_range: Optional[List[str]],
+            strategy_name: str,
+        ) -> List[dict]:
+            fetched: List[dict] = []
+            page = 1
+            while len(fetched) < fetch_target:
+                print(f"[Apollo] Fetching organization page {page} (strategy: {strategy_name}, target {fetch_target})...")
+                batch = self.apollo.search_organizations(
+                    keyword_tags=keyword_tags,
+                    locations=org_locations or None,
+                    not_locations=org_not_locations or None,
+                    organization_num_employees_ranges=emp_range,
+                    organization_domains=organization_domains or None,
+                    organization_name=organization_name or None,
+                    revenue_min=revenue_min,
+                    revenue_max=revenue_max,
+                    technologies=technologies or None,
+                    organization_ids=organization_ids or None,
+                    latest_funding_amount_min=latest_funding_amount_min,
+                    latest_funding_amount_max=latest_funding_amount_max,
+                    total_funding_min=total_funding_min,
+                    total_funding_max=total_funding_max,
+                    latest_funding_date_min=latest_funding_date_min or None,
+                    latest_funding_date_max=latest_funding_date_max or None,
+                    job_titles=job_titles or None,
+                    job_locations=job_locations or None,
+                    num_jobs_min=num_jobs_min,
+                    num_jobs_max=num_jobs_max,
+                    job_posted_date_min=job_posted_date_min or None,
+                    job_posted_date_max=job_posted_date_max or None,
+                    country=country or None,
+                    state=state or None,
+                    city=city or None,
+                    zip_code=zip_code or None,
+                    per_page=per_page,
+                    page=page,
+                )
+                if not batch:
+                    print("  No more results.")
+                    break
+                fetched.extend(batch)
+                print(f"  Page {page}: got {len(batch)} organizations (total {len(fetched)})")
+                if len(batch) < per_page:
+                    break
+                page += 1
+                time.sleep(0.2)
+            return fetched
+
+        # Apollo's q_organization_keyword_tags matches against pre-existing tags,
+        # so an exact long-tail phrase often returns nothing. We try increasingly
+        # broad tag strategies until we get results, while keeping the strictest
+        # successful result set for downstream relevance scoring.
+        strategies: List[tuple] = []
+        exact_tags = self.apollo._expand_keyword_tags(org_keywords, expand_product_phrase=False) if org_keywords else []
+        expanded_tags = self.apollo._expand_keyword_tags(org_keywords, expand_product_phrase=True) if org_keywords else []
+        if exact_tags:
+            strategies.append(("exact phrase tags", exact_tags, employee_range))
+            if expanded_tags != exact_tags:
+                strategies.append(("expanded tags", expanded_tags, employee_range))
+                if employee_range:
+                    strategies.append(("expanded tags (no employee filter)", expanded_tags, None))
+        else:
+            # No keywords: domain/name/ID-driven search
+            strategies.append(("filter-driven", None, employee_range))
+
+        all_orgs: List[dict] = []
+        for strategy_name, tags, emp in strategies:
+            if all_orgs:
                 break
-            all_orgs.extend(orgs)
-            print(f"  Page {page}: got {len(orgs)} organizations (total {len(all_orgs)})")
-            if len(orgs) < per_page:
-                break
-            page += 1
-            time.sleep(0.2)
+            all_orgs = _fetch_orgs_for_strategy(tags, emp, strategy_name)
+            if all_orgs:
+                print(f"\n[Apollo] Strategy '{strategy_name}' returned {len(all_orgs)} organizations; using it.")
 
         print(f"\n[Apollo] Total organizations fetched: {len(all_orgs)}")
         # Deduplicate by Apollo organization id to avoid re-processing the same
