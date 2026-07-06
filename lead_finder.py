@@ -4367,6 +4367,11 @@ class LeadFinder:
         page = 1
         print("PROGRESS: 5")
 
+        # Shared Hunter enrichment results, populated as early as possible to
+        # avoid spending Apollo reveal credits when Hunter can find the email.
+        hunter_results: dict = {}
+        domain_search_results: dict = {}
+
         # -----------------------------------------------------------------------
         # Stage 1: Fetch all people from Apollo (may span multiple pages)
         # If prefetched_people is provided (e.g. from Organization Search), skip
@@ -4467,12 +4472,134 @@ class LeadFinder:
             people_to_enrich = []
             print("\n[Apollo] Skipping /people/match enrichment (--apollo-no-enrich)")
         else:
-            people_to_enrich = [p for p in all_people if _coarse_keep(p) and not p.get("email")][:max_enrich]
-            skipped_coarse = len(all_people) - len(people_to_enrich)
-            already_with_email = sum(1 for p in all_people if _coarse_keep(p) and p.get("email"))
+            # Do not waste reveal credits on contacts Apollo explicitly says have no email.
+            people_to_enrich = [
+                p for p in all_people
+                if _coarse_keep(p)
+                and not p.get("value")
+                and p.get("has_email") is not False
+            ][:max_enrich]
+            skipped_no_email_flag = sum(
+                1 for p in all_people
+                if _coarse_keep(p) and not p.get("value") and p.get("has_email") is False
+            )
+            skipped_coarse = len(all_people) - len(people_to_enrich) - skipped_no_email_flag
+            already_with_email = sum(1 for p in all_people if _coarse_keep(p) and p.get("value"))
             print(f"\n[Apollo] Coarse pre-filter: {len(people_to_enrich)} to enrich (max {max_enrich}), {skipped_coarse} skipped")
+            if skipped_no_email_flag:
+                print(f"    [Apollo] {skipped_no_email_flag} contacts skipped (has_email=False, no reveal credit spent)")
             if already_with_email:
                 print(f"    [Apollo] {already_with_email} contacts already have a free email and will not be enriched")
+
+            # Try Hunter.io before spending Apollo reveal credits.
+            hunter_found_early = 0
+            if self.hunter and people_to_enrich:
+                print(f"    [Apollo] Trying Hunter.io for {len(people_to_enrich)} candidates before Apollo reveal...")
+
+                def _resolve_domain_early(person: dict) -> Optional[tuple]:
+                    org_name = person.get("organization_name", "")
+                    org_website = person.get("organization_website", "")
+                    domain = extract_domain(org_website) if org_website else ""
+                    if not domain and org_name:
+                        domain = _resolve_company_website(org_name)
+                    if not domain:
+                        return None
+                    if _is_excluded_domain(domain, self.excluded_domains):
+                        return None
+                    return (person, domain)
+
+                candidate_domains: List[tuple] = []
+                with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+                    future_to_person = {executor.submit(_resolve_domain_early, p): p for p in people_to_enrich}
+                    for future in concurrent.futures.as_completed(future_to_person):
+                        result = future.result()
+                        if result:
+                            candidate_domains.append(result)
+
+                email_finder_targets_local = [(p, d) for p, d in candidate_domains if p.get("first_name") and p.get("last_name")]
+                domain_search_domains_local: List[str] = []
+                seen_domains_local: Set[str] = set()
+                for p, d in candidate_domains:
+                    if p.get("first_name") and p.get("last_name"):
+                        continue
+                    if d and d not in seen_domains_local:
+                        seen_domains_local.add(d)
+                        domain_search_domains_local.append(d)
+
+                def _pick_best_hunter_email_local(emails: List[dict], first_name: str = "") -> Optional[dict]:
+                    if not emails:
+                        return None
+                    candidates = [e for e in emails if not is_generic_email(e.get("value", ""))]
+                    if not candidates:
+                        candidates = list(emails)
+                    personal = [e for e in candidates if e.get("type") == "personal"]
+                    if personal:
+                        candidates = personal
+                    if first_name:
+                        fn_lower = first_name.lower().strip()
+                        matching = [
+                            e for e in candidates
+                            if fn_lower in e.get("value", "").split("@")[0].lower()
+                        ]
+                        if matching:
+                            candidates = matching
+                    candidates.sort(key=lambda e: e.get("confidence", 0), reverse=True)
+                    return candidates[0]
+
+                def _enrich_one_local(args: tuple) -> tuple:
+                    person, domain = args
+                    fn = person.get("first_name", "")
+                    ln = person.get("last_name", "")
+                    try:
+                        res = self.hunter._email_finder_cached(domain, fn, ln)
+                        if res and res.get("email"):
+                            return (id(person), res.get("email"), res.get("score", 0) or res.get("confidence", 0) or 50)
+                    except Exception:
+                        pass
+                    return (id(person), None, 0)
+
+                def _domain_search_one_local(domain: str) -> tuple:
+                    try:
+                        emails = self.hunter.domain_search(domain, limit=10)
+                        return (domain, emails)
+                    except Exception:
+                        return (domain, [])
+
+                if email_finder_targets_local or domain_search_domains_local:
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+                        futures = []
+                        for item in email_finder_targets_local:
+                            futures.append((executor.submit(_enrich_one_local, item), "email_finder", item))
+                        for domain in domain_search_domains_local:
+                            futures.append((executor.submit(_domain_search_one_local, domain), "domain_search", domain))
+                        for future, task_type, item in futures:
+                            if task_type == "email_finder":
+                                pid, email, score = future.result()
+                                if email:
+                                    hunter_results[pid] = (email, score)
+                            else:
+                                domain, emails = future.result()
+                                domain_search_results[domain] = emails
+
+                    for person, domain in candidate_domains:
+                        if id(person) in hunter_results:
+                            continue
+                        emails = domain_search_results.get(domain, [])
+                        best = _pick_best_hunter_email_local(emails, person.get("first_name", ""))
+                        if best and best.get("value"):
+                            hunter_results[id(person)] = (best["value"], best.get("confidence", 50))
+
+                    for person, _ in candidate_domains:
+                        if id(person) in hunter_results:
+                            email, conf = hunter_results[id(person)]
+                            person["value"] = email
+                            person["confidence"] = conf
+                            hunter_found_early += 1
+
+                    people_to_enrich = [p for p in people_to_enrich if id(p) not in hunter_results]
+                    print(f"    [Apollo] Hunter found {hunter_found_early}/{len(candidate_domains)} emails; Apollo will reveal {len(people_to_enrich)} remaining")
+                else:
+                    print("    [Apollo] No Hunter candidates resolvable (missing domains)")
 
         if people_to_enrich:
             enriched_count = 0
@@ -4484,7 +4611,7 @@ class LeadFinder:
                 if not ep:
                     continue
                 if ep.get("email"):
-                    original["email"] = ep["email"]
+                    original["value"] = ep["email"]
                     enriched_count += 1
                 if ep.get("last_name") and not original.get("last_name"):
                     original["last_name"] = ep["last_name"]
@@ -4633,9 +4760,6 @@ class LeadFinder:
             if domain and domain not in domain_search_seen:
                 domain_search_seen.add(domain)
                 domain_search_domains.append(domain)
-
-        hunter_results: dict = {}          # id(person) -> (email, score)
-        domain_search_results: dict = {}   # domain -> list of email dicts
 
         def _pick_best_hunter_email(emails: List[dict], first_name: str = "") -> Optional[dict]:
             """Pick the best email from Hunter domain_search results."""
@@ -5353,8 +5477,8 @@ def main():
     parser.add_argument(
         "--apollo-max-enrich",
         type=int,
-        default=50,
-        help="Maximum Apollo contacts to enrich via /people/match per search (default: 50)",
+        default=20,
+        help="Maximum Apollo contacts to enrich via /people/match per search (default: 20)",
     )
     parser.add_argument(
         "--apollo-no-enrich",
@@ -5406,14 +5530,14 @@ def main():
     parser.add_argument(
         "--apollo-org-max-orgs",
         type=int,
-        default=50,
-        help="Maximum organizations to fetch from Apollo Organization Search (default: 50)",
+        default=20,
+        help="Maximum organizations to fetch from Apollo Organization Search (default: 20)",
     )
     parser.add_argument(
         "--apollo-org-max-people-per-org",
         type=int,
-        default=5,
-        help="Maximum people to fetch per organization in Apollo Organization Search (default: 5)",
+        default=3,
+        help="Maximum people to fetch per organization in Apollo Organization Search (default: 3)",
     )
     parser.add_argument(
         "--supplier-portal-domains",
