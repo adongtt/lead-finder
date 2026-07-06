@@ -694,7 +694,13 @@ def _score_apollo_organization_relevance(org: dict, user_keywords: Optional[List
                 # Keep the penalty moderate so general sporting-goods distributors
                 # (which match the expanded tag but not the exact product word)
                 # still have a chance to survive downstream scoring.
-                score -= 20
+                if industry or keywords or description:
+                    score -= 20
+                else:
+                    # Apollo returned sparse organization data (no industry,
+                    # keywords, or description). We cannot confidently penalize
+                    # based on missing product terms, so keep the score neutral.
+                    pass
 
         if not phrase_matched and not product_terms:
             # Channel-role-only query (e.g. "distributor") with no product term.
@@ -744,14 +750,6 @@ def _score_apollo_organization_relevance(org: dict, user_keywords: Optional[List
     for neg in APOLLO_NEGATIVE_KEYWORDS:
         if neg in org_name:
             score -= 20
-
-    if score < 0 and user_kw_lower:
-        print(
-            f"    [DEBUG score] {org.get('name', '')}: "
-            f"score={score}, phrase={phrase_matched}, terms={product_terms}, "
-            f"has_term={has_product_term}, industry={org.get('industry', '')}, "
-            f"keywords={org.get('keywords', [])[:8]}"
-        )
 
     return score
 
@@ -5372,13 +5370,15 @@ class LeadFinder:
 
         all_orgs: List[dict] = []
         for strategy_name, tags, emp in strategies:
-            if all_orgs:
+            if len(all_orgs) >= fetch_target:
                 break
-            all_orgs = _fetch_orgs_for_strategy(tags, emp, strategy_name)
-            if all_orgs:
-                print(f"\n[Apollo] Strategy '{strategy_name}' returned {len(all_orgs)} organizations; using it.")
+            fetched = _fetch_orgs_for_strategy(tags, emp, strategy_name)
+            if fetched:
+                print(f"[Apollo] Strategy '{strategy_name}' returned {len(fetched)} organizations")
+                all_orgs.extend(fetched)
 
-        print(f"\n[Apollo] Total organizations fetched: {len(all_orgs)}")
+        if all_orgs:
+            print(f"\n[Apollo] Combined {len(all_orgs)} raw organizations from fallback strategies.")
         # Deduplicate by Apollo organization id to avoid re-processing the same
         # company across pagination or duplicate API responses.
         unique_orgs_by_id: dict = {}
