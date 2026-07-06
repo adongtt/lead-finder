@@ -210,6 +210,14 @@ def _get_pool():
         disable_ssl = os.environ.get("DISABLE_DB_SSL", "").lower() in ("1", "true", "yes")
         if "sslmode" not in DATABASE_URL and not disable_ssl:
             kwargs["sslmode"] = "require"
+        # Keep idle connections alive so cloud DBs (Render, Railway, Neon) don't
+        # drop pooled connections after ~10 min of inactivity and cause
+        # "SSL SYSCALL error: EOF detected" on the next query.
+        kwargs["keepalives"] = 1
+        kwargs["keepalives_idle"] = 30
+        kwargs["keepalives_interval"] = 10
+        kwargs["keepalives_count"] = 5
+        kwargs["connect_timeout"] = 10
         _db_pool = psycopg2_pool.ThreadedConnectionPool(
             minconn=1, maxconn=10, dsn=DATABASE_URL, **kwargs
         )
