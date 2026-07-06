@@ -2190,9 +2190,13 @@ class ApolloClient:
         Apollo's q_organization_keyword_tags parameter matches against pre-existing
         keyword tags in its database. Long-tail phrases like 'football gloves distributor'
         rarely exist as a single tag, causing empty results. We preserve the original
-        phrase and additionally emit shorter product/role tags to improve recall.
-        The list is treated as OR by Apollo, so unrelated distributors may match
-        the bare role tag; downstream relevance scoring removes them.
+        phrase and additionally emit the product phrase (everything before the first
+        channel role) to improve recall.
+
+        Bare channel roles such as "distributor" are intentionally NOT emitted:
+        Apollo treats the tag list as OR, so a lone role tag would return distributors
+        of unrelated products. Downstream scoring can filter some of those, but the
+        noise is high and hurts perceived relevance.
         """
         channel_roles = {
             "distributor", "distributors", "importer", "importers",
@@ -2221,15 +2225,6 @@ class ApolloClient:
                 if product_phrase and product_phrase not in seen:
                     seen.add(product_phrase)
                     tags.append(product_phrase)
-                # Emit the bare channel role as well for recall. Apollo treats
-                # q_organization_keyword_tags as OR, so a lone "distributor" tag
-                # can return distributors of unrelated products. We keep the tag
-                # for recall and rely on downstream relevance scoring to drop
-                # irrelevant distributors.
-                for i in role_indices:
-                    if parts[i] not in seen:
-                        seen.add(parts[i])
-                        tags.append(parts[i])
             else:
                 # No recognized channel role: emit sliding-window sub-phrases.
                 for length in range(len(parts) - 1, 0, -1):
@@ -2477,6 +2472,7 @@ class ApolloClient:
             payload["organization_domains"] = organization_domains
         elif organization_keywords:
             payload["q_organization_keyword_tags"] = self._expand_keyword_tags(organization_keywords)
+            print(f"    [Apollo] People keyword tags: {payload['q_organization_keyword_tags']}")
         if person_titles:
             payload["person_titles"] = person_titles
         if person_locations:
@@ -2678,6 +2674,7 @@ class ApolloClient:
         }
         if keyword_tags:
             params["q_organization_keyword_tags[]"] = self._expand_keyword_tags(keyword_tags)
+            print(f"    [Apollo] Organization keyword tags: {params['q_organization_keyword_tags[]']}")
         if locations:
             params["organization_locations[]"] = locations
         if not_locations:
@@ -5163,6 +5160,16 @@ class LeadFinder:
             time.sleep(0.2)
 
         print(f"\n[Apollo] Total organizations fetched: {len(all_orgs)}")
+        # Deduplicate by Apollo organization id to avoid re-processing the same
+        # company across pagination or duplicate API responses.
+        unique_orgs_by_id: dict = {}
+        for org in all_orgs:
+            org_id = org.get("id")
+            if org_id and org_id in unique_orgs_by_id:
+                continue
+            unique_orgs_by_id[org_id or id(org)] = org
+        all_orgs = list(unique_orgs_by_id.values())
+        print(f"[Apollo] Unique organizations after dedup: {len(all_orgs)}")
         if not all_orgs:
             print("[WARNING] No organizations returned by Apollo.")
             return []
