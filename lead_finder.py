@@ -2478,14 +2478,14 @@ class ApolloClient:
         if zip_code:
             payload["zip_codes"] = [zip_code]
         if organization_num_employees:
-            # Apollo expects {"min": 2, "max": 50} format
+            # Apollo expects a list of range strings, e.g. ["2,50"].
             if isinstance(organization_num_employees, list) and len(organization_num_employees) == 2:
-                payload["organization_num_employees"] = {
-                    "min": int(organization_num_employees[0]),
-                    "max": int(organization_num_employees[1]),
-                }
+                payload["organization_num_employees"] = [
+                    f"{organization_num_employees[0]},{organization_num_employees[1]}"
+                ]
             else:
                 payload["organization_num_employees"] = organization_num_employees
+            print(f"    [Apollo] Employee range filter: {payload['organization_num_employees']}")
         # Doc-recommended filter: avoid re-prospecting contacts already contacted by the team.
         payload["prospected_by_current_team"] = ["no"]
         # Note: person_departments and contact_email_status are intentionally omitted
@@ -2649,13 +2649,14 @@ class ApolloClient:
         if zip_code:
             payload["zip_codes"] = [zip_code]
         if organization_num_employees:
+            # Apollo expects a list of range strings, e.g. ["2,50"].
             if isinstance(organization_num_employees, list) and len(organization_num_employees) == 2:
-                payload["organization_num_employees"] = {
-                    "min": int(organization_num_employees[0]),
-                    "max": int(organization_num_employees[1]),
-                }
+                payload["organization_num_employees"] = [
+                    f"{organization_num_employees[0]},{organization_num_employees[1]}"
+                ]
             else:
                 payload["organization_num_employees"] = organization_num_employees
+            print(f"    [Apollo] Employee range filter: {payload['organization_num_employees']}")
 
         try:
             last_error = ""
