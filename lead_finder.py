@@ -32,6 +32,22 @@ from urllib.parse import quote_plus, urlparse
 import requests
 import yaml
 
+# Thread-local sessions avoid sharing urllib3 connection pools across threads.
+# Sharing the global Session under ThreadPoolExecutor can trigger
+# "SSL error: decryption failed or bad record mac" on concurrent HTTPS reuse.
+_thread_local_sessions = threading.local()
+
+
+def _get_session() -> requests.Session:
+    """Return a thread-local requests Session with keep-alive disabled."""
+    session = getattr(_thread_local_sessions, "session", None)
+    if session is None:
+        session = requests.Session()
+        session.headers.update({"Connection": "close"})
+        _thread_local_sessions.session = session
+    return session
+
+
 # Optional: DuckDuckGo search (no API key needed)
 try:
     from ddgs import DDGS
@@ -226,7 +242,7 @@ def _scan_supplier_pages(domain: str, timeout: int = 6) -> dict:
         for scheme in ("https://", "http://"):
             url = f"{scheme}{domain}/{path}"
             try:
-                resp = requests.get(url, headers=HEADERS, timeout=timeout, allow_redirects=True)
+                resp = _get_session().get(url, headers=HEADERS, timeout=timeout, allow_redirects=True)
                 if resp.status_code == 200:
                     content_type = resp.headers.get("Content-Type", "")
                     if "text/html" not in content_type and "application/xhtml" not in content_type:
@@ -1510,7 +1526,7 @@ def _fetch_about_page(domain: str, headers: dict, timeout: int) -> tuple:
         for scheme in ("https", "http"):
             url = f"{scheme}://{domain}{path}"
             try:
-                resp = requests.get(url, headers=headers, timeout=timeout, allow_redirects=True)
+                resp = _get_session().get(url, headers=headers, timeout=timeout, allow_redirects=True)
                 if resp.status_code != 200:
                     break
                 html = resp.text
@@ -1659,7 +1675,7 @@ def fetch_domain_meta(domain: str, timeout: int = 10) -> dict:
     # certificates do not hang the entire pipeline.
     for url in (f"https://{domain}", f"http://{domain}"):
         try:
-            resp = requests.get(url, headers=headers, timeout=timeout, allow_redirects=True)
+            resp = _get_session().get(url, headers=headers, timeout=timeout, allow_redirects=True)
             if resp.status_code == 200:
                 homepage_html = resp.text
                 break
@@ -1873,7 +1889,7 @@ class SerpAPIClient:
                 "start": start,
             }
             try:
-                resp = requests.get(self.base_url, params=params, timeout=30)
+                resp = _get_session().get(self.base_url, params=params, timeout=30)
                 resp.raise_for_status()
                 data = resp.json()
                 organic = data.get("organic_results", [])
@@ -2054,7 +2070,7 @@ class HunterClient:
             key = self._current_key()
             params["api_key"] = key
             try:
-                resp = requests.get(url, params=params, timeout=15)
+                resp = _get_session().get(url, params=params, timeout=15)
                 if resp.status_code == 429:
                     print(f"    [Hunter] Key {self._idx + 1} rate limited. Rotating...")
                     self._dead_keys.add(key)
@@ -2115,7 +2131,7 @@ class SnovClient:
             "limit": limit,
         }
         try:
-            resp = requests.get(url, params=params, timeout=15)
+            resp = _get_session().get(url, params=params, timeout=15)
             resp.raise_for_status()
             data = resp.json()
             if not data.get("success"):
@@ -2253,7 +2269,7 @@ class ApolloClient:
             "x-api-key": self.api_key,
         }
         try:
-            match_resp = requests.post(
+            match_resp = _get_session().post(
                 f"{self.base_url}/people/match",
                 headers=headers,
                 json={
@@ -2308,7 +2324,7 @@ class ApolloClient:
                 "reveal_personal_emails": True,
             }
             try:
-                resp = requests.post(
+                resp = _get_session().post(
                     f"{self.base_url}/people/bulk_match",
                     headers=headers,
                     json=payload,
@@ -2369,7 +2385,7 @@ class ApolloClient:
             "per_page": min(limit, 100),
         }
         try:
-            resp = requests.post(url, headers=headers, json=payload, timeout=20)
+            resp = _get_session().post(url, headers=headers, json=payload, timeout=20)
             if resp.status_code == 429:
                 print(f"    [Apollo] Rate limited on {domain}. Sleeping 5s...")
                 time.sleep(5)
@@ -2480,7 +2496,7 @@ class ApolloClient:
             last_error = ""
             for attempt in range(2):
                 try:
-                    resp = requests.post(url, headers=headers, json=payload, timeout=15)
+                    resp = _get_session().post(url, headers=headers, json=payload, timeout=15)
                     break
                 except requests.exceptions.Timeout as e:
                     last_error = str(e)
@@ -2645,7 +2661,7 @@ class ApolloClient:
             last_error = ""
             for attempt in range(2):
                 try:
-                    resp = requests.post(url, headers=headers, json=payload, timeout=15)
+                    resp = _get_session().post(url, headers=headers, json=payload, timeout=15)
                     break
                 except requests.exceptions.Timeout as e:
                     last_error = str(e)
@@ -2733,7 +2749,7 @@ class NorbertClient:
         headers = {"Authorization": f"Token {self.api_key}"}
         params = {"domain": domain}
         try:
-            resp = requests.get(url, headers=headers, params=params, timeout=20)
+            resp = _get_session().get(url, headers=headers, params=params, timeout=20)
             if resp.status_code == 429:
                 print(f"    [Norbert] Rate limited on {domain}. Sleeping 3s...")
                 time.sleep(3)
@@ -2782,7 +2798,7 @@ class ZeroBounceClient:
             "email": email,
         }
         try:
-            resp = requests.get(url, params=params, timeout=15)
+            resp = _get_session().get(url, params=params, timeout=15)
             resp.raise_for_status()
             return resp.json()
         except Exception as e:
@@ -2871,7 +2887,7 @@ def check_domain_alive(domain: str, timeout: int = 10) -> Tuple[bool, str]:
 
     for url in urls:
         try:
-            resp = requests.head(
+            resp = _get_session().head(
                 url,
                 headers=HEADERS,
                 timeout=timeout,
@@ -2882,7 +2898,7 @@ def check_domain_alive(domain: str, timeout: int = 10) -> Tuple[bool, str]:
             # a GET fallback before deciding.
             if resp.status_code == 405:
                 try:
-                    resp = requests.get(
+                    resp = _get_session().get(
                         url,
                         headers=HEADERS,
                         timeout=timeout,
@@ -2987,7 +3003,7 @@ def check_company_status(lead: Lead, timeout: int = 8) -> None:
     # Signal C: LinkedIn company page 404.
     if lead.linkedin_url and "/company/" in lead.linkedin_url.lower():
         try:
-            resp = requests.head(lead.linkedin_url, headers=HEADERS, timeout=timeout, allow_redirects=True)
+            resp = _get_session().head(lead.linkedin_url, headers=HEADERS, timeout=timeout, allow_redirects=True)
             if resp.status_code == 404:
                 notes.append("linkedin company page 404")
         except Exception:
@@ -3059,7 +3075,7 @@ class GoogleMapsClient:
             }
 
             try:
-                resp = requests.post(self.base_url, headers=headers, json=body, timeout=30)
+                resp = _get_session().post(self.base_url, headers=headers, json=body, timeout=30)
                 if resp.status_code != 200:
                     print(f"  [GoogleMaps ERROR] HTTP {resp.status_code}: {resp.text[:200]}")
                     break
@@ -3279,7 +3295,7 @@ def _resolve_company_website(company_name: str) -> Optional[str]:
     ]
     for domain in candidates:
         try:
-            resp = requests.head(f"https://{domain}", timeout=3, allow_redirects=True)
+            resp = _get_session().head(f"https://{domain}", timeout=3, allow_redirects=True)
             if resp.status_code < 400:
                 _company_website_cache[cache_key] = domain
                 return domain
@@ -3335,7 +3351,7 @@ class LinkedInDiscoveryClient:
                 "start": start,
             }
             try:
-                resp = requests.get(self.base_url, params=params, timeout=30)
+                resp = _get_session().get(self.base_url, params=params, timeout=30)
                 resp.raise_for_status()
                 data = resp.json()
                 organic = data.get("organic_results", [])
@@ -3392,7 +3408,7 @@ def _search_amazon_brands(keyword: str) -> Set[str]:
     brands: Set[str] = set()
     try:
         url = f"https://www.amazon.com/s?k={quote_plus(keyword)}"
-        resp = requests.get(url, headers=HEADERS, timeout=20)
+        resp = _get_session().get(url, headers=HEADERS, timeout=20)
         if resp.status_code != 200:
             return brands
         html = resp.text
@@ -3473,7 +3489,7 @@ def _find_brand_domain(brand: str) -> Optional[str]:
     candidates = [f"{simple}.com", f"{simple}.co.uk", f"{simple}.net"]
     for domain in candidates:
         try:
-            resp = requests.head(f"https://{domain}", timeout=5, allow_redirects=True)
+            resp = _get_session().head(f"https://{domain}", timeout=5, allow_redirects=True)
             if resp.status_code < 400:
                 return domain
         except Exception:
@@ -4258,7 +4274,7 @@ class LeadFinder:
             # Extract a short summary from the page content
             if not lead.supplier_notes:
                 try:
-                    resp = requests.get(portal["url"], headers=HEADERS, timeout=timeout, allow_redirects=True)
+                    resp = _get_session().get(portal["url"], headers=HEADERS, timeout=timeout, allow_redirects=True)
                     lead.supplier_notes = _extract_supplier_notes(resp.text)
                 except Exception:
                     lead.supplier_notes = ""
@@ -5036,7 +5052,7 @@ class LeadFinder:
             # Extract a short note from the page content
             notes = ""
             try:
-                resp = requests.get(portal["url"], headers=HEADERS, timeout=8)
+                resp = _get_session().get(portal["url"], headers=HEADERS, timeout=8)
                 notes = _extract_supplier_notes(resp.text)
             except Exception:
                 pass
