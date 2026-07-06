@@ -468,8 +468,8 @@
             <div style="margin-bottom:16px">
               <label>搜索模式</label>
               <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                <button type="button" id="modeApollo" class="mode-btn active" onclick="setMode('apollo')" style="flex:1;padding:8px 12px;font-size:13px;background:var(--primary);color:#fff;border:none;border-radius:6px;cursor:pointer;min-width:100px;">Apollo 搜索</button>
-                <button type="button" id="modeApolloOrg" class="mode-btn" onclick="setMode('apollo_org')" style="flex:1;padding:8px 12px;font-size:13px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;cursor:pointer;min-width:100px;">Apollo 企业搜索</button>
+                <button type="button" id="modeApollo" class="mode-btn" onclick="setMode('apollo')" style="flex:1;padding:8px 12px;font-size:13px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;cursor:pointer;min-width:100px;display:none;">Apollo 搜索</button>
+                <button type="button" id="modeApolloOrg" class="mode-btn active" onclick="setMode('apollo_org')" style="flex:1;padding:8px 12px;font-size:13px;background:var(--primary);color:#fff;border:none;border-radius:6px;cursor:pointer;min-width:100px;">Apollo 企业搜索</button>
                 <button type="button" id="modeSupplierPortal" class="mode-btn" onclick="setMode('supplier_portal')" style="flex:1;padding:8px 12px;font-size:13px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;cursor:pointer;min-width:100px;">供应商门户</button>
                 <button type="button" id="modeGoogleMaps" class="mode-btn" onclick="setMode('google_maps')" style="flex:1;padding:8px 12px;font-size:13px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;cursor:pointer;min-width:100px;">谷歌地图搜索</button>
                 <button type="button" id="modeKeyword" class="mode-btn" onclick="setMode('keyword')" style="flex:1;padding:8px 12px;font-size:13px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;cursor:pointer;min-width:100px;">关键词搜索</button>
@@ -478,7 +478,7 @@
             </div>
 
             <!-- Apollo 搜索 -->
-            <div id="apolloWrap" style="margin-bottom:16px">
+            <div id="apolloWrap" style="margin-bottom:16px;display:none;">
               <div style="margin-bottom:16px">
                 <label for="apolloKeywords">公司关键词（建议「产品 + 渠道角色」）</label>
                 <input type="text" id="apolloKeywords" name="apollo_keywords" placeholder='例如 "football gloves distributor" 或 "team sports supplier"' required>
@@ -945,7 +945,7 @@
     const progressFill = document.getElementById('progressFill');
     const progressPct = document.getElementById('progressPct');
     const progressStep = document.getElementById('progressStep');
-    let currentMode = 'apollo';
+    let currentMode = 'apollo_org';
 
     function setMode(mode) {
       currentMode = mode;
@@ -1932,7 +1932,7 @@
 
     function applyQueryParams() {
       const params = new URLSearchParams(window.location.search);
-      const mode = params.get('mode') || 'apollo';
+      const mode = params.get('mode') || 'apollo_org';
       setMode(mode);
 
       function setInput(id, val) {
