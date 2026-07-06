@@ -1605,7 +1605,26 @@ async def stream_apollo_organization_leads(
     request: Request,
     apollo_org_keywords: str = "",
     apollo_org_locations: str = "",
+    apollo_org_exclude_locations: str = "",
     apollo_org_employee_range: str = "",
+    apollo_org_name: str = "",
+    apollo_org_domains: str = "",
+    apollo_org_revenue_min: Optional[int] = None,
+    apollo_org_revenue_max: Optional[int] = None,
+    apollo_org_technologies: str = "",
+    apollo_org_organization_ids: str = "",
+    apollo_org_latest_funding_min: Optional[int] = None,
+    apollo_org_latest_funding_max: Optional[int] = None,
+    apollo_org_total_funding_min: Optional[int] = None,
+    apollo_org_total_funding_max: Optional[int] = None,
+    apollo_org_latest_funding_date_min: str = "",
+    apollo_org_latest_funding_date_max: str = "",
+    apollo_org_job_titles: str = "",
+    apollo_org_job_locations: str = "",
+    apollo_org_num_jobs_min: Optional[int] = None,
+    apollo_org_num_jobs_max: Optional[int] = None,
+    apollo_org_job_posted_date_min: str = "",
+    apollo_org_job_posted_date_max: str = "",
     apollo_org_country: str = "",
     apollo_org_state: str = "",
     apollo_org_city: str = "",
@@ -1639,8 +1658,46 @@ async def stream_apollo_organization_leads(
     ]
     if apollo_org_locations:
         cmd.extend(["--apollo-org-locations", apollo_org_locations])
+    if apollo_org_exclude_locations:
+        cmd.extend(["--apollo-org-exclude-locations", apollo_org_exclude_locations])
     if apollo_org_employee_range:
         cmd.extend(["--apollo-org-employee-range", apollo_org_employee_range])
+    if apollo_org_name:
+        cmd.extend(["--apollo-org-name", apollo_org_name])
+    if apollo_org_domains:
+        cmd.extend(["--apollo-org-domains", apollo_org_domains])
+    if apollo_org_revenue_min is not None:
+        cmd.extend(["--apollo-org-revenue-min", str(apollo_org_revenue_min)])
+    if apollo_org_revenue_max is not None:
+        cmd.extend(["--apollo-org-revenue-max", str(apollo_org_revenue_max)])
+    if apollo_org_technologies:
+        cmd.extend(["--apollo-org-technologies", apollo_org_technologies])
+    if apollo_org_organization_ids:
+        cmd.extend(["--apollo-org-organization-ids", apollo_org_organization_ids])
+    if apollo_org_latest_funding_min is not None:
+        cmd.extend(["--apollo-org-latest-funding-min", str(apollo_org_latest_funding_min)])
+    if apollo_org_latest_funding_max is not None:
+        cmd.extend(["--apollo-org-latest-funding-max", str(apollo_org_latest_funding_max)])
+    if apollo_org_total_funding_min is not None:
+        cmd.extend(["--apollo-org-total-funding-min", str(apollo_org_total_funding_min)])
+    if apollo_org_total_funding_max is not None:
+        cmd.extend(["--apollo-org-total-funding-max", str(apollo_org_total_funding_max)])
+    if apollo_org_latest_funding_date_min:
+        cmd.extend(["--apollo-org-latest-funding-date-min", apollo_org_latest_funding_date_min])
+    if apollo_org_latest_funding_date_max:
+        cmd.extend(["--apollo-org-latest-funding-date-max", apollo_org_latest_funding_date_max])
+    if apollo_org_job_titles:
+        cmd.extend(["--apollo-org-job-titles", apollo_org_job_titles])
+    if apollo_org_job_locations:
+        cmd.extend(["--apollo-org-job-locations", apollo_org_job_locations])
+    if apollo_org_num_jobs_min is not None:
+        cmd.extend(["--apollo-org-num-jobs-min", str(apollo_org_num_jobs_min)])
+    if apollo_org_num_jobs_max is not None:
+        cmd.extend(["--apollo-org-num-jobs-max", str(apollo_org_num_jobs_max)])
+    if apollo_org_job_posted_date_min:
+        cmd.extend(["--apollo-org-job-posted-date-min", apollo_org_job_posted_date_min])
+    if apollo_org_job_posted_date_max:
+        cmd.extend(["--apollo-org-job-posted-date-max", apollo_org_job_posted_date_max])
     if apollo_org_country:
         cmd.extend(["--apollo-org-country", apollo_org_country])
     if apollo_org_state:

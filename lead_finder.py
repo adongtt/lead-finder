@@ -2632,7 +2632,26 @@ class ApolloClient:
         self,
         keyword_tags: Optional[List[str]] = None,
         locations: Optional[List[str]] = None,
-        organization_num_employees: Optional[List[str]] = None,
+        not_locations: Optional[List[str]] = None,
+        organization_num_employees_ranges: Optional[List[str]] = None,
+        organization_domains: Optional[List[str]] = None,
+        organization_name: Optional[str] = None,
+        revenue_min: Optional[int] = None,
+        revenue_max: Optional[int] = None,
+        technologies: Optional[List[str]] = None,
+        organization_ids: Optional[List[str]] = None,
+        latest_funding_amount_min: Optional[int] = None,
+        latest_funding_amount_max: Optional[int] = None,
+        total_funding_min: Optional[int] = None,
+        total_funding_max: Optional[int] = None,
+        latest_funding_date_min: Optional[str] = None,
+        latest_funding_date_max: Optional[str] = None,
+        job_titles: Optional[List[str]] = None,
+        job_locations: Optional[List[str]] = None,
+        num_jobs_min: Optional[int] = None,
+        num_jobs_max: Optional[int] = None,
+        job_posted_date_min: Optional[str] = None,
+        job_posted_date_max: Optional[str] = None,
         country: Optional[str] = None,
         state: Optional[str] = None,
         city: Optional[str] = None,
@@ -2642,49 +2661,92 @@ class ApolloClient:
     ) -> List[dict]:
         """Search organizations via Apollo.io Company Search API.
 
-        Uses POST /mixed_companies/search. Returns normalized organization dicts.
+        Uses POST /mixed_companies/search with query parameters as documented in
+        https://docs.apollo.io/reference/organization-search. Returns normalized
+        organization dicts.
         """
         url = f"{self.base_url}/mixed_companies/search"
         headers = {
             "Content-Type": "application/json",
             "x-api-key": self.api_key,
         }
-        payload: dict = {
+        # Apollo expects all filters as URL query parameters. Array keys use [] and
+        # range filters use field[min]/field[max].
+        params: dict = {
             "per_page": min(per_page, 100),
             "page": page,
         }
         if keyword_tags:
-            payload["q_organization_keyword_tags"] = self._expand_keyword_tags(keyword_tags)
+            params["q_organization_keyword_tags[]"] = self._expand_keyword_tags(keyword_tags)
         if locations:
-            payload["organization_locations"] = locations
+            params["organization_locations[]"] = locations
+        if not_locations:
+            params["organization_not_locations[]"] = not_locations
+        if organization_name:
+            params["q_organization_name"] = organization_name
+        if organization_domains:
+            params["q_organization_domains_list[]"] = organization_domains
         if country:
-            payload["country"] = country
+            params["country"] = country
         if state:
-            payload["state"] = state
+            params["state"] = state
         if city:
-            payload["city"] = city
+            params["city"] = city
         if zip_code:
-            payload["zip_codes"] = [zip_code]
-        if any([locations, country, state, city, zip_code]):
+            params["zip_codes"] = [zip_code]
+        if any([locations, not_locations, country, state, city, zip_code]):
             print(
                 f"    [Apollo] Location filters: "
-                f"organization_locations={locations}, country={country}, state={state}, city={city}, zip_codes={[zip_code] if zip_code else None}"
+                f"organization_locations={locations}, not_locations={not_locations}, "
+                f"country={country}, state={state}, city={city}, zip_codes={[zip_code] if zip_code else None}"
             )
-        if organization_num_employees:
+        if organization_num_employees_ranges:
             # Apollo expects a list of range strings, e.g. ["2,50"].
-            if isinstance(organization_num_employees, list) and len(organization_num_employees) == 2:
-                payload["organization_num_employees"] = [
-                    f"{organization_num_employees[0]},{organization_num_employees[1]}"
+            if isinstance(organization_num_employees_ranges, list) and len(organization_num_employees_ranges) == 2:
+                params["organization_num_employees_ranges[]"] = [
+                    f"{organization_num_employees_ranges[0]},{organization_num_employees_ranges[1]}"
                 ]
             else:
-                payload["organization_num_employees"] = organization_num_employees
-            print(f"    [Apollo] Employee range filter: {payload['organization_num_employees']}")
+                params["organization_num_employees_ranges[]"] = organization_num_employees_ranges
+            print(f"    [Apollo] Employee range filter: {params['organization_num_employees_ranges[]']}")
+        if revenue_min is not None:
+            params["revenue_range[min]"] = revenue_min
+        if revenue_max is not None:
+            params["revenue_range[max]"] = revenue_max
+        if technologies:
+            params["currently_using_any_of_technology_uids[]"] = technologies
+        if organization_ids:
+            params["organization_ids[]"] = organization_ids
+        if latest_funding_amount_min is not None:
+            params["latest_funding_amount_range[min]"] = latest_funding_amount_min
+        if latest_funding_amount_max is not None:
+            params["latest_funding_amount_range[max]"] = latest_funding_amount_max
+        if total_funding_min is not None:
+            params["total_funding_range[min]"] = total_funding_min
+        if total_funding_max is not None:
+            params["total_funding_range[max]"] = total_funding_max
+        if latest_funding_date_min:
+            params["latest_funding_date_range[min]"] = latest_funding_date_min
+        if latest_funding_date_max:
+            params["latest_funding_date_range[max]"] = latest_funding_date_max
+        if job_titles:
+            params["q_organization_job_titles[]"] = job_titles
+        if job_locations:
+            params["organization_job_locations[]"] = job_locations
+        if num_jobs_min is not None:
+            params["organization_num_jobs_range[min]"] = num_jobs_min
+        if num_jobs_max is not None:
+            params["organization_num_jobs_range[max]"] = num_jobs_max
+        if job_posted_date_min:
+            params["organization_job_posted_at_range[min]"] = job_posted_date_min
+        if job_posted_date_max:
+            params["organization_job_posted_at_range[max]"] = job_posted_date_max
 
         try:
             last_error = ""
             for attempt in range(2):
                 try:
-                    resp = _get_session().post(url, headers=headers, json=payload, timeout=15)
+                    resp = _get_session().post(url, headers=headers, params=params, timeout=15)
                     break
                 except requests.exceptions.Timeout as e:
                     last_error = str(e)
@@ -2713,7 +2775,7 @@ class ApolloClient:
                 if "insufficient credits" in err_msg or "credit" in err_msg:
                     print("    [Apollo] Organization Search requires lead credits. Your account has insufficient credits.")
                 else:
-                    print(f"    [Apollo DEBUG] organization search payload: {payload}")
+                    print(f"    [Apollo DEBUG] organization search params: {params}")
                     print(f"    [Apollo DEBUG] organization search response (422): {err_body}")
                 return []
             if resp.status_code >= 400:
@@ -2721,7 +2783,7 @@ class ApolloClient:
                     err_body = resp.json()
                 except Exception:
                     err_body = resp.text
-                print(f"    [Apollo DEBUG] organization search payload: {payload}")
+                print(f"    [Apollo DEBUG] organization search params: {params}")
                 print(f"    [Apollo DEBUG] organization search response ({resp.status_code}): {err_body}")
             resp.raise_for_status()
             data = resp.json()
@@ -4988,7 +5050,26 @@ class LeadFinder:
         self,
         org_keywords: Optional[List[str]] = None,
         org_locations: Optional[List[str]] = None,
+        org_not_locations: Optional[List[str]] = None,
         employee_range: Optional[List[str]] = None,
+        organization_domains: Optional[List[str]] = None,
+        organization_name: Optional[str] = None,
+        revenue_min: Optional[int] = None,
+        revenue_max: Optional[int] = None,
+        technologies: Optional[List[str]] = None,
+        organization_ids: Optional[List[str]] = None,
+        latest_funding_amount_min: Optional[int] = None,
+        latest_funding_amount_max: Optional[int] = None,
+        total_funding_min: Optional[int] = None,
+        total_funding_max: Optional[int] = None,
+        latest_funding_date_min: Optional[str] = None,
+        latest_funding_date_max: Optional[str] = None,
+        job_titles: Optional[List[str]] = None,
+        job_locations: Optional[List[str]] = None,
+        num_jobs_min: Optional[int] = None,
+        num_jobs_max: Optional[int] = None,
+        job_posted_date_min: Optional[str] = None,
+        job_posted_date_max: Optional[str] = None,
         country: Optional[str] = None,
         state: Optional[str] = None,
         city: Optional[str] = None,
@@ -5044,7 +5125,26 @@ class LeadFinder:
             orgs = self.apollo.search_organizations(
                 keyword_tags=org_keywords,
                 locations=org_locations or None,
-                organization_num_employees=employee_range or None,
+                not_locations=org_not_locations or None,
+                organization_num_employees_ranges=employee_range or None,
+                organization_domains=organization_domains or None,
+                organization_name=organization_name or None,
+                revenue_min=revenue_min,
+                revenue_max=revenue_max,
+                technologies=technologies or None,
+                organization_ids=organization_ids or None,
+                latest_funding_amount_min=latest_funding_amount_min,
+                latest_funding_amount_max=latest_funding_amount_max,
+                total_funding_min=total_funding_min,
+                total_funding_max=total_funding_max,
+                latest_funding_date_min=latest_funding_date_min or None,
+                latest_funding_date_max=latest_funding_date_max or None,
+                job_titles=job_titles or None,
+                job_locations=job_locations or None,
+                num_jobs_min=num_jobs_min,
+                num_jobs_max=num_jobs_max,
+                job_posted_date_min=job_posted_date_min or None,
+                job_posted_date_max=job_posted_date_max or None,
                 country=country or None,
                 state=state or None,
                 city=city or None,
@@ -5528,6 +5628,120 @@ def main():
         help="Apollo.io organization search zip/postal code filter, e.g. '90210'",
     )
     parser.add_argument(
+        "--apollo-org-exclude-locations",
+        type=str,
+        default="",
+        help="Apollo.io organization search excluded HQ locations, comma-separated, e.g. 'China,India'",
+    )
+    parser.add_argument(
+        "--apollo-org-name",
+        type=str,
+        default="",
+        help="Apollo.io organization search company name filter (partial match), e.g. 'Apollo'",
+    )
+    parser.add_argument(
+        "--apollo-org-domains",
+        type=str,
+        default="",
+        help="Apollo.io organization search domain list, comma-separated, e.g. 'apollo.io,microsoft.com'",
+    )
+    parser.add_argument(
+        "--apollo-org-revenue-min",
+        type=int,
+        default=None,
+        help="Apollo.io organization search minimum annual revenue (integer, no commas/symbols)",
+    )
+    parser.add_argument(
+        "--apollo-org-revenue-max",
+        type=int,
+        default=None,
+        help="Apollo.io organization search maximum annual revenue (integer, no commas/symbols)",
+    )
+    parser.add_argument(
+        "--apollo-org-technologies",
+        type=str,
+        default="",
+        help="Apollo.io organization search technologies, comma-separated, e.g. 'shopify,salesforce'",
+    )
+    parser.add_argument(
+        "--apollo-org-organization-ids",
+        type=str,
+        default="",
+        help="Apollo.io organization search Apollo organization IDs, comma-separated",
+    )
+    parser.add_argument(
+        "--apollo-org-latest-funding-min",
+        type=int,
+        default=None,
+        help="Apollo.io organization search minimum latest funding amount (integer, no commas/symbols)",
+    )
+    parser.add_argument(
+        "--apollo-org-latest-funding-max",
+        type=int,
+        default=None,
+        help="Apollo.io organization search maximum latest funding amount (integer, no commas/symbols)",
+    )
+    parser.add_argument(
+        "--apollo-org-total-funding-min",
+        type=int,
+        default=None,
+        help="Apollo.io organization search minimum total funding amount (integer, no commas/symbols)",
+    )
+    parser.add_argument(
+        "--apollo-org-total-funding-max",
+        type=int,
+        default=None,
+        help="Apollo.io organization search maximum total funding amount (integer, no commas/symbols)",
+    )
+    parser.add_argument(
+        "--apollo-org-latest-funding-date-min",
+        type=str,
+        default="",
+        help="Apollo.io organization search earliest latest funding date (YYYY-MM-DD)",
+    )
+    parser.add_argument(
+        "--apollo-org-latest-funding-date-max",
+        type=str,
+        default="",
+        help="Apollo.io organization search latest latest funding date (YYYY-MM-DD)",
+    )
+    parser.add_argument(
+        "--apollo-org-job-titles",
+        type=str,
+        default="",
+        help="Apollo.io organization search active job posting titles, comma-separated, e.g. 'sales manager'",
+    )
+    parser.add_argument(
+        "--apollo-org-job-locations",
+        type=str,
+        default="",
+        help="Apollo.io organization search active job posting locations, comma-separated, e.g. 'atlanta'",
+    )
+    parser.add_argument(
+        "--apollo-org-num-jobs-min",
+        type=int,
+        default=None,
+        help="Apollo.io organization search minimum number of active job postings",
+    )
+    parser.add_argument(
+        "--apollo-org-num-jobs-max",
+        type=int,
+        default=None,
+        help="Apollo.io organization search maximum number of active job postings",
+    )
+    parser.add_argument(
+        "--apollo-org-job-posted-date-min",
+        type=str,
+        default="",
+        help="Apollo.io organization search earliest job posted date (YYYY-MM-DD)",
+    )
+    parser.add_argument(
+        "--apollo-org-job-posted-date-max",
+        type=str,
+        default="",
+        help="Apollo.io organization search latest job posted date (YYYY-MM-DD)",
+    )
+    parser.add_argument(
         "--apollo-org-max-orgs",
         type=int,
         default=20,
@@ -5613,7 +5827,8 @@ def main():
     # Apollo Organization Search mode
     if args.apollo_org_keywords:
         org_keywords = [k.strip() for k in args.apollo_org_keywords.split(",") if k.strip()]
-        org_locations = [l.strip() for l in args.apollo_org_locations.split(",") if l.strip()]
+        org_locations = [l.strip() for l in args.apollo_org_locations.split(",") if l.strip()] or None
+        org_not_locations = [l.strip() for l in args.apollo_org_exclude_locations.split(",") if l.strip()] or None
         titles = [t.strip() for t in args.apollo_titles.split(",") if t.strip()]
         employee_range = None
         if args.apollo_org_employee_range:
@@ -5622,8 +5837,27 @@ def main():
                 employee_range = parts
         finder.run_apollo_organization_search(
             org_keywords=org_keywords or None,
-            org_locations=org_locations or None,
+            org_locations=org_locations,
+            org_not_locations=org_not_locations,
             employee_range=employee_range,
+            organization_domains=[d.strip().lower() for d in args.apollo_org_domains.split(",") if d.strip()] or None,
+            organization_name=args.apollo_org_name or None,
+            revenue_min=args.apollo_org_revenue_min,
+            revenue_max=args.apollo_org_revenue_max,
+            technologies=[t.strip().lower() for t in args.apollo_org_technologies.split(",") if t.strip()] or None,
+            organization_ids=[i.strip() for i in args.apollo_org_organization_ids.split(",") if i.strip()] or None,
+            latest_funding_amount_min=args.apollo_org_latest_funding_min,
+            latest_funding_amount_max=args.apollo_org_latest_funding_max,
+            total_funding_min=args.apollo_org_total_funding_min,
+            total_funding_max=args.apollo_org_total_funding_max,
+            latest_funding_date_min=args.apollo_org_latest_funding_date_min or None,
+            latest_funding_date_max=args.apollo_org_latest_funding_date_max or None,
+            job_titles=[t.strip() for t in args.apollo_org_job_titles.split(",") if t.strip()] or None,
+            job_locations=[l.strip() for l in args.apollo_org_job_locations.split(",") if l.strip()] or None,
+            num_jobs_min=args.apollo_org_num_jobs_min,
+            num_jobs_max=args.apollo_org_num_jobs_max,
+            job_posted_date_min=args.apollo_org_job_posted_date_min or None,
+            job_posted_date_max=args.apollo_org_job_posted_date_max or None,
             country=args.apollo_org_country or None,
             state=args.apollo_org_state or None,
             city=args.apollo_org_city or None,

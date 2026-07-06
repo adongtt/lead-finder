@@ -679,6 +679,115 @@
                 </label>
                 <p class="hint">搜索完成后自动扫描 procurement / become-a-supplier / vendor-portal 等页面</p>
               </div>
+
+              <!-- Apollo 企业搜索高级筛选 -->
+              <div style="margin-bottom:16px;">
+                <button type="button" id="apolloOrgAdvancedToggle" onclick="toggleApolloOrgAdvanced()" style="width:100%;padding:10px 12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;font-size:13px;color:var(--text);cursor:pointer;text-align:left;display:flex;justify-content:space-between;align-items:center;">
+                  更多企业筛选条件 ▼
+                </button>
+                <div id="apolloOrgAdvancedContent" style="display:none;margin-top:12px;padding:12px;background:#f8fafc;border:1px solid var(--border);border-radius:8px;">
+                  <div style="margin-bottom:16px;">
+                    <label for="apolloOrgExcludeLocations">排除地区</label>
+                    <input type="text" id="apolloOrgExcludeLocations" name="apollo_org_exclude_locations" placeholder="China, India">
+                    <p class="hint">逗号分隔，排除总部在这些地区的企业</p>
+                  </div>
+                  <div style="margin-bottom:16px;">
+                    <label for="apolloOrgName">企业名称（模糊匹配）</label>
+                    <input type="text" id="apolloOrgName" name="apollo_org_name" placeholder="例如 Nike">
+                  </div>
+                  <div style="margin-bottom:16px;">
+                    <label for="apolloOrgDomains">企业域名列表</label>
+                    <input type="text" id="apolloOrgDomains" name="apollo_org_domains" placeholder="apollo.io, microsoft.com">
+                    <p class="hint">逗号分隔，按域名精确筛选企业</p>
+                  </div>
+                  <div style="margin-bottom:16px;">
+                    <label>年收入范围（美元，整数）</label>
+                    <div class="row">
+                      <div>
+                        <input type="number" id="apolloOrgRevenueMin" name="apollo_org_revenue_min" placeholder="最小" min="0">
+                      </div>
+                      <div>
+                        <input type="number" id="apolloOrgRevenueMax" name="apollo_org_revenue_max" placeholder="最大" min="0">
+                      </div>
+                    </div>
+                  </div>
+                  <div style="margin-bottom:16px;">
+                    <label for="apolloOrgTechnologies">使用技术</label>
+                    <input type="text" id="apolloOrgTechnologies" name="apollo_org_technologies" placeholder="shopify, salesforce">
+                    <p class="hint">逗号分隔，下划线代替空格/点，例如 google_analytics</p>
+                  </div>
+                  <div style="margin-bottom:16px;">
+                    <label for="apolloOrgOrganizationIds">Apollo 企业 ID 列表</label>
+                    <input type="text" id="apolloOrgOrganizationIds" name="apollo_org_organization_ids" placeholder="5e66b6381e05b4008c8331b8">
+                    <p class="hint">逗号分隔，高级用法，通常留空</p>
+                  </div>
+                  <div style="margin-bottom:16px;">
+                    <label>最近融资额范围（美元，整数）</label>
+                    <div class="row">
+                      <div>
+                        <input type="number" id="apolloOrgLatestFundingMin" name="apollo_org_latest_funding_min" placeholder="最小" min="0">
+                      </div>
+                      <div>
+                        <input type="number" id="apolloOrgLatestFundingMax" name="apollo_org_latest_funding_max" placeholder="最大" min="0">
+                      </div>
+                    </div>
+                  </div>
+                  <div style="margin-bottom:16px;">
+                    <label>总融资额范围（美元，整数）</label>
+                    <div class="row">
+                      <div>
+                        <input type="number" id="apolloOrgTotalFundingMin" name="apollo_org_total_funding_min" placeholder="最小" min="0">
+                      </div>
+                      <div>
+                        <input type="number" id="apolloOrgTotalFundingMax" name="apollo_org_total_funding_max" placeholder="最大" min="0">
+                      </div>
+                    </div>
+                  </div>
+                  <div style="margin-bottom:16px;">
+                    <label>最近融资日期范围</label>
+                    <div class="row">
+                      <div>
+                        <input type="date" id="apolloOrgLatestFundingDateMin" name="apollo_org_latest_funding_date_min">
+                      </div>
+                      <div>
+                        <input type="date" id="apolloOrgLatestFundingDateMax" name="apollo_org_latest_funding_date_max">
+                      </div>
+                    </div>
+                  </div>
+                  <div style="margin-bottom:16px;">
+                    <label for="apolloOrgJobTitles">在招职位</label>
+                    <input type="text" id="apolloOrgJobTitles" name="apollo_org_job_titles" placeholder="sales manager">
+                    <p class="hint">逗号分隔，筛选正在招聘这些职位的公司</p>
+                  </div>
+                  <div style="margin-bottom:16px;">
+                    <label for="apolloOrgJobLocations">在招职位地点</label>
+                    <input type="text" id="apolloOrgJobLocations" name="apollo_org_job_locations" placeholder="atlanta, japan">
+                    <p class="hint">逗号分隔</p>
+                  </div>
+                  <div style="margin-bottom:16px;">
+                    <label>在招职位数量范围</label>
+                    <div class="row">
+                      <div>
+                        <input type="number" id="apolloOrgNumJobsMin" name="apollo_org_num_jobs_min" placeholder="最小" min="0">
+                      </div>
+                      <div>
+                        <input type="number" id="apolloOrgNumJobsMax" name="apollo_org_num_jobs_max" placeholder="最大" min="0">
+                      </div>
+                    </div>
+                  </div>
+                  <div style="margin-bottom:0;">
+                    <label>职位发布日期范围</label>
+                    <div class="row">
+                      <div>
+                        <input type="date" id="apolloOrgJobPostedDateMin" name="apollo_org_job_posted_date_min">
+                      </div>
+                      <div>
+                        <input type="date" id="apolloOrgJobPostedDateMax" name="apollo_org_job_posted_date_max">
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
 
             <!-- 关键词（keyword / maps 模式） -->
@@ -1068,6 +1177,18 @@
       }
     }
 
+    function toggleApolloOrgAdvanced() {
+      const content = document.getElementById('apolloOrgAdvancedContent');
+      const btn = document.getElementById('apolloOrgAdvancedToggle');
+      if (content.style.display === 'none') {
+        content.style.display = 'block';
+        btn.textContent = '更多企业筛选条件 ▲';
+      } else {
+        content.style.display = 'none';
+        btn.textContent = '更多企业筛选条件 ▼';
+      }
+    }
+
     function applyTemplate() {
       const tpl = document.getElementById('keywordTemplate').value;
       if (tpl) {
@@ -1186,7 +1307,26 @@
       } else if (currentMode === 'apollo_org') {
         const apolloOrgKeywords = document.getElementById('apolloOrgKeywords').value.trim();
         const apolloOrgLocations = document.getElementById('apolloOrgLocations').value.trim();
+        const apolloOrgExcludeLocations = document.getElementById('apolloOrgExcludeLocations').value.trim();
         const apolloOrgEmployeeRange = document.getElementById('apolloOrgEmployeeRange').value;
+        const apolloOrgName = document.getElementById('apolloOrgName').value.trim();
+        const apolloOrgDomains = document.getElementById('apolloOrgDomains').value.trim();
+        const apolloOrgRevenueMin = document.getElementById('apolloOrgRevenueMin').value;
+        const apolloOrgRevenueMax = document.getElementById('apolloOrgRevenueMax').value;
+        const apolloOrgTechnologies = document.getElementById('apolloOrgTechnologies').value.trim();
+        const apolloOrgOrganizationIds = document.getElementById('apolloOrgOrganizationIds').value.trim();
+        const apolloOrgLatestFundingMin = document.getElementById('apolloOrgLatestFundingMin').value;
+        const apolloOrgLatestFundingMax = document.getElementById('apolloOrgLatestFundingMax').value;
+        const apolloOrgTotalFundingMin = document.getElementById('apolloOrgTotalFundingMin').value;
+        const apolloOrgTotalFundingMax = document.getElementById('apolloOrgTotalFundingMax').value;
+        const apolloOrgLatestFundingDateMin = document.getElementById('apolloOrgLatestFundingDateMin').value;
+        const apolloOrgLatestFundingDateMax = document.getElementById('apolloOrgLatestFundingDateMax').value;
+        const apolloOrgJobTitles = document.getElementById('apolloOrgJobTitles').value.trim();
+        const apolloOrgJobLocations = document.getElementById('apolloOrgJobLocations').value.trim();
+        const apolloOrgNumJobsMin = document.getElementById('apolloOrgNumJobsMin').value;
+        const apolloOrgNumJobsMax = document.getElementById('apolloOrgNumJobsMax').value;
+        const apolloOrgJobPostedDateMin = document.getElementById('apolloOrgJobPostedDateMin').value;
+        const apolloOrgJobPostedDateMax = document.getElementById('apolloOrgJobPostedDateMax').value;
         const apolloOrgMaxOrgs = document.getElementById('apolloOrgMaxOrgs').value;
         const apolloOrgMaxPeoplePerOrg = document.getElementById('apolloOrgMaxPeoplePerOrg').value;
         const apolloOrgTitlesSelect = document.getElementById('apolloOrgTitles');
@@ -1206,7 +1346,26 @@
         const params = new URLSearchParams();
         params.append('apollo_org_keywords', apolloOrgKeywords);
         if (apolloOrgLocations) params.append('apollo_org_locations', apolloOrgLocations);
+        if (apolloOrgExcludeLocations) params.append('apollo_org_exclude_locations', apolloOrgExcludeLocations);
         if (apolloOrgEmployeeRange) params.append('apollo_org_employee_range', apolloOrgEmployeeRange);
+        if (apolloOrgName) params.append('apollo_org_name', apolloOrgName);
+        if (apolloOrgDomains) params.append('apollo_org_domains', apolloOrgDomains);
+        if (apolloOrgRevenueMin) params.append('apollo_org_revenue_min', apolloOrgRevenueMin);
+        if (apolloOrgRevenueMax) params.append('apollo_org_revenue_max', apolloOrgRevenueMax);
+        if (apolloOrgTechnologies) params.append('apollo_org_technologies', apolloOrgTechnologies);
+        if (apolloOrgOrganizationIds) params.append('apollo_org_organization_ids', apolloOrgOrganizationIds);
+        if (apolloOrgLatestFundingMin) params.append('apollo_org_latest_funding_min', apolloOrgLatestFundingMin);
+        if (apolloOrgLatestFundingMax) params.append('apollo_org_latest_funding_max', apolloOrgLatestFundingMax);
+        if (apolloOrgTotalFundingMin) params.append('apollo_org_total_funding_min', apolloOrgTotalFundingMin);
+        if (apolloOrgTotalFundingMax) params.append('apollo_org_total_funding_max', apolloOrgTotalFundingMax);
+        if (apolloOrgLatestFundingDateMin) params.append('apollo_org_latest_funding_date_min', apolloOrgLatestFundingDateMin);
+        if (apolloOrgLatestFundingDateMax) params.append('apollo_org_latest_funding_date_max', apolloOrgLatestFundingDateMax);
+        if (apolloOrgJobTitles) params.append('apollo_org_job_titles', apolloOrgJobTitles);
+        if (apolloOrgJobLocations) params.append('apollo_org_job_locations', apolloOrgJobLocations);
+        if (apolloOrgNumJobsMin) params.append('apollo_org_num_jobs_min', apolloOrgNumJobsMin);
+        if (apolloOrgNumJobsMax) params.append('apollo_org_num_jobs_max', apolloOrgNumJobsMax);
+        if (apolloOrgJobPostedDateMin) params.append('apollo_org_job_posted_date_min', apolloOrgJobPostedDateMin);
+        if (apolloOrgJobPostedDateMax) params.append('apollo_org_job_posted_date_max', apolloOrgJobPostedDateMax);
         if (apolloOrgMaxOrgs) params.append('apollo_org_max_orgs', apolloOrgMaxOrgs);
         if (apolloOrgMaxPeoplePerOrg) params.append('apollo_org_max_people_per_org', apolloOrgMaxPeoplePerOrg);
         if (checkedTitles.length > 0) params.append('apollo_titles', checkedTitles.join(','));
