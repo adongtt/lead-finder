@@ -2477,6 +2477,11 @@ class ApolloClient:
             payload["city"] = city
         if zip_code:
             payload["zip_codes"] = [zip_code]
+        if any([person_locations, country, state, city, zip_code]):
+            print(
+                f"    [Apollo] Location filters: "
+                f"person_locations={person_locations}, country={country}, state={state}, city={city}, zip_codes={[zip_code] if zip_code else None}"
+            )
         if organization_num_employees:
             # Apollo expects a list of range strings, e.g. ["2,50"].
             if isinstance(organization_num_employees, list) and len(organization_num_employees) == 2:
@@ -2648,6 +2653,11 @@ class ApolloClient:
             payload["city"] = city
         if zip_code:
             payload["zip_codes"] = [zip_code]
+        if any([locations, country, state, city, zip_code]):
+            print(
+                f"    [Apollo] Location filters: "
+                f"organization_locations={locations}, country={country}, state={state}, city={city}, zip_codes={[zip_code] if zip_code else None}"
+            )
         if organization_num_employees:
             # Apollo expects a list of range strings, e.g. ["2,50"].
             if isinstance(organization_num_employees, list) and len(organization_num_employees) == 2:
