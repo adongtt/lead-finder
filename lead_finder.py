@@ -1095,17 +1095,34 @@ def _score_search_result_relevance(title: str, snippet: str, keyword: str) -> in
     score = 0
     kw_lower = keyword.lower().strip('"')
 
-    # Extract product core words (exclude generic B2B filler words)
+    # Extract product core words (exclude generic B2B filler words).
+    # Keep short product words like "ski" (3 chars) since they are meaningful.
     b2b_filler = {"wholesale", "supplier", "manufacturer", "distributor",
                   "importer", "dealer", "reseller", "oem", "odm", "factory"}
-    kw_parts = [p for p in kw_lower.split() if len(p) > 3 and p not in b2b_filler]
+    kw_parts = [p for p in kw_lower.split() if len(p) >= 3 and p not in b2b_filler]
+
+    # Signal lists (used both for scoring and for the strict-match override below).
+    b2b_signals = ["distributor", "wholesaler", "importer", "dealer",
+                   "reseller", "stockist", "agent", "supplier"]
+    mfg_signals = ["manufacturer", "factory", "oem", "odm", "producer",
+                   "private label", "custom", "bespoke", "bulk"]
+    specialty_retail_signals = [
+        "ski store", "ski shop", "snowboard shop", "snowboard store",
+        "outdoor store", "outdoor shop", "outdoor retailer",
+        "pro shop", "proshop", "specialty store",
+    ]
 
     # CRITICAL relevance check:
     # If the search phrase has multiple product words (e.g. "football gloves"),
-    # the title must contain the FULL phrase OR all product words.
+    # the title should contain the FULL phrase OR all product words.
     # A page titled "Basketball Training Gloves" should NOT match "football gloves".
+    # EXCEPTION: pages with clear B2B or specialty-retail intent are category
+    # matches and should not be penalized for missing one product word.
     title_lower = title.lower()
-    if kw_parts:
+    has_category_intent = (
+        any(s in text for s in b2b_signals + mfg_signals + specialty_retail_signals)
+    )
+    if kw_parts and not has_category_intent:
         has_full_phrase = kw_lower in title_lower
         matched_parts = sum(1 for p in kw_parts if p in title_lower)
         if len(kw_parts) >= 2:
@@ -1122,15 +1139,11 @@ def _score_search_result_relevance(title: str, snippet: str, keyword: str) -> in
         score += 20
 
     # Distributor / importer / wholesale signals
-    b2b_signals = ["distributor", "wholesaler", "importer", "dealer",
-                   "reseller", "stockist", "agent", "supplier"]
     for sig in b2b_signals:
         if sig in text:
             score += 15
 
     # Manufacturer / factory signals
-    mfg_signals = ["manufacturer", "factory", "oem", "odm", "producer",
-                   "private label", "custom", "bespoke", "bulk"]
     for sig in mfg_signals:
         if sig in text:
             score += 12
@@ -1138,7 +1151,7 @@ def _score_search_result_relevance(title: str, snippet: str, keyword: str) -> in
     # Negative: big platform / directory signals
     platform_signals = ["amazon", "alibaba", "ebay", "walmart", "shopify",
                         "directory", "marketplace", "list of", "top 10",
-                        "best ", "review", "buying guide", "vs ", "compare"]
+                        "review", "buying guide", "vs ", "compare"]
     for sig in platform_signals:
         if sig in text:
             score -= 25
@@ -1156,6 +1169,12 @@ def _score_search_result_relevance(title: str, snippet: str, keyword: str) -> in
     for sig in small_signals:
         if sig in text:
             score += 10
+
+    # Established specialty retailers (multi-store pro shops, ski shops, etc.)
+    # are B-tier customers even if they are not distributors.
+    for sig in specialty_retail_signals:
+        if sig in text:
+            score += 8
 
     return score
 
@@ -1195,9 +1214,26 @@ def calculate_content_relevance(meta: dict, keyword: str) -> int:
             score -= 30
 
     # Reward if the actual keyword products appear on the page
-    kw_parts = [p for p in keyword.lower().split() if len(p) > 3]
+    kw_parts = [p for p in keyword.lower().split() if len(p) >= 3]
     for part in kw_parts:
         if part in text:
+            score += 8
+
+    # Established specialty retailers are valuable B-tier leads even when they
+    # do not label themselves as distributors/wholesalers.
+    specialty_retail_signals = [
+        "ski store", "ski shop", "snowboard shop", "snowboard store",
+        "outdoor store", "outdoor shop", "outdoor retailer",
+        "pro shop", "proshop", "specialty store",
+    ]
+    for sig in specialty_retail_signals:
+        if sig in text:
+            score += 12
+
+    # Multi-store / established retailer signals (e.g. "come into one of the stores")
+    multi_store_signals = [" stores", "locations", "since 19", "since 20", "established"]
+    for sig in multi_store_signals:
+        if sig in text:
             score += 8
 
     return score
@@ -1348,6 +1384,10 @@ TIER_B_SIGNALS = [
     "retailer", "retail store", "sport store", "sports shop", "dealer",
     "reseller", "regional", "local distributor", "authorized dealer",
     "multi-store", "outlet", "specialty store", "pro shop",
+    # Ski / outdoor specialty retail
+    "ski store", "ski shop", "snowboard shop", "snowboard store",
+    "outdoor store", "outdoor shop", "outdoor retailer",
+    "ski & sports", "ski and sports",
 ]
 
 # Signals that demote a lead to low-value (C tier)
@@ -1383,6 +1423,12 @@ def _classify_tier(lead: Lead) -> Tuple[str, str]:
     b_hits = [s for s in TIER_B_SIGNALS if s in text]
     c_hits = [s for s in TIER_C_SIGNALS if s in text]
 
+    # "brand" is a strong A signal, but phrases like "best brands" / "top brands"
+    # just mean a retailer carries multiple brands. Filter that false positive.
+    if "brand" in a_hits:
+        if re.search(r"\b(best|top|leading|popular|carried|carry|carries)\s+\w*\s*brands?\b", text):
+            a_hits = [s for s in a_hits if s != "brand"]
+
     # Contact quality boosters
     has_personal_email = lead.email_type == "personal"
     has_direct_phone = lead.has_direct_phone
@@ -1407,8 +1453,17 @@ def _classify_tier(lead: Lead) -> Tuple[str, str]:
         return "B", f"Potential customer (A signals but lower contact quality): {', '.join(a_hits[:3])}"
 
     if b_hits:
-        # B signals -> B unless relevance is very low
-        if lead.relevance_score >= 30:
+        # Established specialty retailers / multi-store chains are valuable B-tier
+        # customers even with modest or missing relevance scores.
+        strong_b_signals = {
+            "ski store", "ski shop", "snowboard shop", "snowboard store",
+            "outdoor store", "outdoor shop", "outdoor retailer",
+            "pro shop", "specialty store", "retail chain", "multi-store",
+            "ski & sports", "ski and sports",
+        }
+        has_strong_b = any(s in strong_b_signals for s in b_hits)
+        threshold = 0 if has_strong_b else 30
+        if lead.relevance_score >= threshold:
             return "B", f"Potential customer signals: {', '.join(b_hits[:3])}"
         return "C", f"Weak relevance with retail signals: {', '.join(b_hits[:3])}"
 
