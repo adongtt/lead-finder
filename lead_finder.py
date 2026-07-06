@@ -4763,13 +4763,11 @@ class LeadFinder:
             if has_email_flag and not email:
                 apollo_has_email_but_empty += 1
 
-            # Skip if no real contact signal and not keeping no-email leads.
-            # Note: Apollo's has_email flag alone is NOT treated as a contact
-            # signal, because the API often returns has_email=True without
-            # exposing the actual address. A real email or a confirmed direct
-            # phone keeps the contact by default.
-            has_contact_signal = bool(email) or has_direct_phone
-            if not has_contact_signal and not keep_no_email:
+            # Skip contacts without an exposed email unless the user explicitly
+            # asked to keep no-email leads. A direct phone alone is not enough
+            # to keep a contact when keep_no_email is False; the checkbox
+            # "保留无邮箱客户" must be checked for phone-only leads to be retained.
+            if not email and not keep_no_email:
                 skipped_no_contact += 1
                 continue
 
@@ -4813,7 +4811,7 @@ class LeadFinder:
         if apollo_has_email_but_empty:
             print(f"  [Apollo] {apollo_has_email_but_empty} contacts had has_email=True but no exposed email address")
         if skipped_no_contact:
-            print(f"  [Apollo] Skipped {skipped_no_contact} contacts with no real email/phone (keep_no_email=False)")
+            print(f"  [Apollo] Skipped {skipped_no_contact} contacts with no exposed email (keep_no_email=False)")
 
         print(f"  Built {len(all_leads)} leads")
         print("PROGRESS: 85")
