@@ -837,6 +837,10 @@ def _apollo_has_positive_signal(person: dict, user_keywords: List[str]) -> bool:
     if any(pos in org_text for pos in APOLLO_PRODUCT_KEYWORDS):
         if purchasing_title and _has_b2b_role(org_text):
             return True
+        # Purchasing title at a product-relevant company (e.g. Buyer at a sports
+        # brand) is a valid lead even if the company name doesn't say "distributor".
+        if purchasing_title:
+            return True
         if _has_b2b_role(org_text):
             return True
         if _is_large_sporting_retailer(org_text):
