@@ -617,6 +617,8 @@ def _score_apollo_organization_relevance(org: dict, user_keywords: Optional[List
 
     user_kw_lower = [k.lower().strip() for k in user_keywords if k.strip()] if user_keywords else []
     product_terms = _apollo_extract_product_terms(user_kw_lower) if user_kw_lower else set()
+    phrase_matched = False
+    has_product_term = False
 
     b2b_roles = {
         "distributor", "distributors", "distributing", "distribution",
@@ -742,6 +744,14 @@ def _score_apollo_organization_relevance(org: dict, user_keywords: Optional[List
     for neg in APOLLO_NEGATIVE_KEYWORDS:
         if neg in org_name:
             score -= 20
+
+    if score < 0 and user_kw_lower:
+        print(
+            f"    [DEBUG score] {org.get('name', '')}: "
+            f"score={score}, phrase={phrase_matched}, terms={product_terms}, "
+            f"has_term={has_product_term}, industry={org.get('industry', '')}, "
+            f"keywords={org.get('keywords', [])[:8]}"
+        )
 
     return score
 
