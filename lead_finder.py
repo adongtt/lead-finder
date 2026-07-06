@@ -982,6 +982,8 @@ EXCLUDED_DOMAINS = {
     "ziprecruiter.com", "craigslist.org", "gumtree.com",
     # Unrelated / false positives seen in tests
     "the-north-pole.com", "flighttothenorthpole.org",
+    # Regional portal / local directory false positives for product searches
+    "albany.com",
     # Automotive (motorcycle brands with riding gear/gloves)
     "bmw.com", "bmwmotorcycles.com",
 }
@@ -1022,7 +1024,7 @@ POSITIVE_SIGNALS = [
     " sourcing", "procurement", "purchasing",
 ]
 
-# Negative signals: news, blogs, reviews, jobs, investor pages
+# Negative signals: news, blogs, reviews, jobs, investor pages, local portals
 NEGATIVE_SIGNALS = [
     "news", "blog", "article", "magazine", "press release", "pressrelease",
     "review", "reviews", "top 10", "top10", "comparison", "compare",
@@ -1039,6 +1041,11 @@ NEGATIVE_SIGNALS = [
     "amazon seller", "marketplace", "directory", "listings",
     "yellow pages", "buyer's guide", "coupon", "discount", "deal",
     "shopping", "cart", "checkout", "wishlist", "personal use",
+    # Local / regional portal signals that frequently rank for broad product queries
+    "local news", "breaking news", "weather", "traffic",
+    "things to do", "events", "restaurants", "real estate",
+    "obituaries", "classifieds", "city guide", "visitor guide",
+    "tourism", "local business", "business directory",
 ]
 
 # Content-relevance scoring: used after we fetch the homepage
@@ -1061,6 +1068,11 @@ B2B_CONTENT_NEGATIVE = [
     "ecommerce", "e-commerce", "consumer", "home delivery",
     "marketplace", "directory", "listings", "yellow pages",
     "coupon", "discount", "deal", "shopping", "cart", "checkout",
+    # Local / regional portal content that should not be treated as B2B leads
+    "local news", "breaking news", "weather", "traffic",
+    "things to do", "events", "restaurants", "real estate",
+    "obituaries", "classifieds", "city guide", "visitor guide",
+    "tourism", "local business", "business directory",
 ]
 
 
