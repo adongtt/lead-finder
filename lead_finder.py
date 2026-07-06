@@ -686,10 +686,13 @@ def _score_apollo_organization_relevance(org: dict, user_keywords: Optional[List
                 score += 20
                 if _has_b2b_role(all_text):
                     score += 10
-            else:
+            elif not phrase_matched:
                 # Query contains a concrete product but the org does not mention
                 # it anywhere -- likely a broad tag match, not a real lead.
-                score -= 35
+                # Keep the penalty moderate so general sporting-goods distributors
+                # (which match the expanded tag but not the exact product word)
+                # still have a chance to survive downstream scoring.
+                score -= 20
 
         if not phrase_matched and not product_terms:
             # Channel-role-only query (e.g. "distributor") with no product term.
