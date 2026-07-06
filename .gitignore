@@ -8,6 +8,7 @@ config.yaml.bak
 leads.csv
 web_results/
 *.csv
+*.log
 
 # Python cache
 __pycache__/

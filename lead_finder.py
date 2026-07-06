@@ -594,12 +594,18 @@ def _score_apollo_contact_relevance(person: dict) -> int:
     return score
 
 
-def _score_apollo_organization_relevance(org: dict) -> int:
+def _score_apollo_organization_relevance(org: dict, user_keywords: Optional[List[str]] = None) -> int:
     """Score an Apollo organization for B2B relevance.
 
     Similar to _score_apollo_contact_relevance but works on organization-level
     data before any contacts are fetched. Returns integer score; negative means
     likely irrelevant.
+
+    If user_keywords is provided, the score is conditioned on whether the actual
+    user keyword / product term appears in the organization data. This prevents
+    generic B2B roles (e.g. "distributor") or generic product words (e.g.
+    "gloves") from inflating the score when they do not relate to the user's
+    query.
     """
     score = 0
     org_name = (org.get("name") or "").lower()
@@ -608,6 +614,9 @@ def _score_apollo_organization_relevance(org: dict) -> int:
     industry = (org.get("industry") or "").lower()
     industries = " ".join(i.lower() for i in (org.get("industries") or []))
     all_text = f"{org_name} {description} {keywords} {industry} {industries}".strip()
+
+    user_kw_lower = [k.lower().strip() for k in user_keywords if k.strip()] if user_keywords else []
+    product_terms = _apollo_extract_product_terms(user_kw_lower) if user_kw_lower else set()
 
     b2b_roles = {
         "distributor", "distributors", "distributing", "distribution",
@@ -654,6 +663,39 @@ def _score_apollo_organization_relevance(org: dict) -> int:
         score -= 35
     if _has_weak_retail_signal(all_text):
         score -= 25
+
+    # User-keyword conditioning. When the caller gives us the original query,
+    # reward organizations that actually mention the keyword/product, and
+    # penalize those that only match Apollo's broad tag OR logic.
+    if user_kw_lower:
+        phrase_matched = False
+        for kw in user_kw_lower:
+            if kw in org_name:
+                score += 25
+                phrase_matched = True
+            elif kw in description or kw in keywords:
+                score += 18
+                phrase_matched = True
+            elif kw in industry or kw in industries:
+                score += 12
+                phrase_matched = True
+
+        if product_terms:
+            has_product_term = any(term in all_text for term in product_terms)
+            if has_product_term:
+                score += 20
+                if _has_b2b_role(all_text):
+                    score += 10
+            else:
+                # Query contains a concrete product but the org does not mention
+                # it anywhere -- likely a broad tag match, not a real lead.
+                score -= 35
+
+        if not phrase_matched and not product_terms:
+            # Channel-role-only query (e.g. "distributor") with no product term.
+            # Still require at least one keyword match somewhere; otherwise the
+            # result is too generic.
+            score -= 25
 
     # Industry scoring
     if industry:
@@ -2230,7 +2272,7 @@ class ApolloClient:
             print(f"    [Apollo CACHE write error] {e}")
 
     @staticmethod
-    def _expand_keyword_tags(keywords: List[str]) -> List[str]:
+    def _expand_keyword_tags(keywords: List[str], expand_product_phrase: bool = True) -> List[str]:
         """Expand composite 'product + channel role' keywords into Apollo keyword tags.
 
         Apollo's q_organization_keyword_tags parameter matches against pre-existing
@@ -2243,6 +2285,12 @@ class ApolloClient:
         Apollo treats the tag list as OR, so a lone role tag would return distributors
         of unrelated products. Downstream scoring can filter some of those, but the
         noise is high and hurts perceived relevance.
+
+        Args:
+            expand_product_phrase: If False (recommended for Organization Search),
+                only the exact original phrase is sent, avoiding broad tag OR matches.
+                If True (People Search fallback), the product phrase/sub-phrases are
+                also emitted to improve recall.
         """
         channel_roles = {
             "distributor", "distributors", "importer", "importers",
@@ -2261,6 +2309,10 @@ class ApolloClient:
             if original_lower not in seen:
                 seen.add(original_lower)
                 tags.append(original_lower)
+            if not expand_product_phrase:
+                # For Organization Search we intentionally keep only the exact phrase
+                # to reduce Apollo's broad OR tag matching.
+                continue
             parts = original_lower.split()
             if len(parts) <= 1:
                 continue
@@ -2736,7 +2788,7 @@ class ApolloClient:
             "page": page,
         }
         if keyword_tags:
-            params["q_organization_keyword_tags[]"] = self._expand_keyword_tags(keyword_tags)
+            params["q_organization_keyword_tags[]"] = self._expand_keyword_tags(keyword_tags, expand_product_phrase=False)
             print(f"    [Apollo] Organization keyword tags: {params['q_organization_keyword_tags[]']}")
         if locations:
             params["organization_locations[]"] = locations
@@ -5184,10 +5236,13 @@ class LeadFinder:
         # Stage 1: Fetch organizations
         # -----------------------------------------------------------------------
         all_orgs: List[dict] = []
-        per_page = min(max_orgs, 100)
+        # Fetch more organizations than we need so we can re-rank locally and
+        # keep only the most relevant ones. This costs at most one extra page.
+        fetch_target = max(max_orgs, 100)
+        per_page = min(fetch_target, 100)
         page = 1
-        while len(all_orgs) < max_orgs:
-            print(f"[Apollo] Fetching organization page {page}...")
+        while len(all_orgs) < fetch_target:
+            print(f"[Apollo] Fetching organization page {page} (target {fetch_target})...")
             orgs = self.apollo.search_organizations(
                 keyword_tags=org_keywords,
                 locations=org_locations or None,
@@ -5247,13 +5302,13 @@ class LeadFinder:
         # -----------------------------------------------------------------------
         # Stage 2: Filter/score organizations
         # -----------------------------------------------------------------------
-        kept_orgs: List[dict] = []
+        scored_orgs: List[tuple] = []
         filtered_out = 0
         for org in all_orgs:
-            score = _score_apollo_organization_relevance(org)
+            score = _score_apollo_organization_relevance(org, user_keywords=org_keywords)
             org["_relevance_score"] = score
             if score >= min_relevance:
-                kept_orgs.append(org)
+                scored_orgs.append((score, org))
             else:
                 filtered_out += 1
                 if filtered_out <= 5:
@@ -5264,7 +5319,13 @@ class LeadFinder:
                         safe_name = filtered_org_name.encode("ascii", "replace").decode("ascii")
                         print(f"    [Filter] -'{safe_name}' (score {score})")
 
-        print(f"\n[Apollo] Organizations kept after filtering: {len(kept_orgs)} (filtered {filtered_out})")
+        # Re-rank by local relevance and keep only the top max_orgs. Apollo's
+        # default ordering is not always best for our B2B intent, so ranking on
+        # our own score gives better precision without extra API calls.
+        scored_orgs.sort(key=lambda x: x[0], reverse=True)
+        kept_orgs = [org for _, org in scored_orgs[:max_orgs]]
+
+        print(f"\n[Apollo] Organizations kept after filtering: {len(kept_orgs)} (filtered {filtered_out}, reranked to top {max_orgs})")
         if not kept_orgs:
             print("[WARNING] All organizations filtered out as irrelevant.")
             return []
