@@ -17,6 +17,8 @@ Usage:
 import argparse
 import concurrent.futures
 import csv
+import hashlib
+import json
 import os
 import re
 import sys
@@ -2182,6 +2184,50 @@ class ApolloClient:
         self.api_key = api_key
         self.base_url = "https://api.apollo.io/v1"
         self._match_cache: Dict[str, dict] = {}
+        # On-disk cache for Apollo API responses. Set APOLLO_CACHE_TTL_HOURS=0
+        # to disable; APOLLO_CACHE_DIR to override the default location.
+        self.cache_ttl_hours = float(os.getenv("APOLLO_CACHE_TTL_HOURS", "24"))
+        self.cache_dir = Path(os.getenv("APOLLO_CACHE_DIR", ".apollo_cache"))
+
+    def _cache_key(self, data: dict) -> str:
+        canonical = json.dumps(data, sort_keys=True, separators=(",", ":"), default=str)
+        return hashlib.md5(canonical.encode("utf-8")).hexdigest()
+
+    def _cache_path(self, cache_type: str, key: str) -> Path:
+        return self.cache_dir / cache_type / f"{key}.json"
+
+    def _cache_get(self, cache_type: str, request_data: dict):
+        """Return cached data if present and not expired, else None."""
+        if self.cache_ttl_hours <= 0:
+            return None
+        key = self._cache_key(request_data)
+        path = self._cache_path(cache_type, key)
+        if not path.exists():
+            return None
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                entry = json.load(f)
+            cached_at = entry.get("cached_at", 0)
+            age_hours = (time.time() - cached_at) / 3600
+            if age_hours > self.cache_ttl_hours:
+                return None
+            print(f"    [Apollo CACHE hit] {cache_type} ({age_hours:.1f}h old)")
+            return entry.get("data")
+        except Exception:
+            return None
+
+    def _cache_set(self, cache_type: str, request_data: dict, data):
+        """Write data to the on-disk cache."""
+        if self.cache_ttl_hours <= 0:
+            return
+        key = self._cache_key(request_data)
+        path = self._cache_path(cache_type, key)
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump({"cached_at": time.time(), "data": data}, f, ensure_ascii=False, default=str)
+        except Exception as e:
+            print(f"    [Apollo CACHE write error] {e}")
 
     @staticmethod
     def _expand_keyword_tags(keywords: List[str]) -> List[str]:
@@ -2330,50 +2376,61 @@ class ApolloClient:
                 "details": [{"id": p.get("id")} for _, p in chunk],
                 "reveal_personal_emails": True,
             }
-            try:
-                resp = _get_session().post(
-                    f"{self.base_url}/people/bulk_match",
-                    headers=headers,
-                    json=payload,
-                    timeout=20,
-                )
-                if resp.status_code == 429:
-                    print("    [Apollo] Bulk match rate limited. Sleeping 5s...")
-                    time.sleep(5)
-                    return
-                if resp.status_code == 422:
-                    err_text = resp.text or ""
-                    if "insufficient credits" in err_text.lower():
-                        credits_exhausted = True
-                        print("    [Apollo WARNING] Bulk match failed: account has insufficient Apollo credits. Enrichment skipped for remaining contacts.")
+            cache_data = {
+                "endpoint": "people/bulk_match",
+                "ids": sorted([p.get("id") for _, p in chunk]),
+                "reveal_personal_emails": True,
+            }
+            cached = self._cache_get("bulk_match", cache_data)
+            if cached is not None:
+                people_list = cached
+            else:
+                try:
+                    resp = _get_session().post(
+                        f"{self.base_url}/people/bulk_match",
+                        headers=headers,
+                        json=payload,
+                        timeout=20,
+                    )
+                    if resp.status_code == 429:
+                        print("    [Apollo] Bulk match rate limited. Sleeping 5s...")
+                        time.sleep(5)
                         return
-                if resp.status_code != 200:
-                    print(f"    [Apollo] Bulk match returned {resp.status_code}, falling back to single /people/match")
-                    for idx, orig in chunk:
-                        enriched_copy = self._enrich_person(orig.copy())
-                        self._merge_enriched_fields(results[idx], enriched_copy)
+                    if resp.status_code == 422:
+                        err_text = resp.text or ""
+                        if "insufficient credits" in err_text.lower():
+                            credits_exhausted = True
+                            print("    [Apollo WARNING] Bulk match failed: account has insufficient Apollo credits. Enrichment skipped for remaining contacts.")
+                            return
+                    if resp.status_code != 200:
+                        print(f"    [Apollo] Bulk match returned {resp.status_code}, falling back to single /people/match")
+                        for idx, orig in chunk:
+                            enriched_copy = self._enrich_person(orig.copy())
+                            self._merge_enriched_fields(results[idx], enriched_copy)
+                        return
+                    data = resp.json() if resp.text else {}
+                    people_list = data.get("people", []) if isinstance(data, dict) else []
+                    self._cache_set("bulk_match", cache_data, people_list)
+                except Exception as e:
+                    print(f"    [Apollo ERROR] bulk enrich chunk: {e}")
                     return
-                data = resp.json() if resp.text else {}
-                people_list = data.get("people", []) if isinstance(data, dict) else []
-                for enriched in people_list:
-                    pid = enriched.get("id")
-                    if not pid:
-                        continue
-                    for idx, orig in chunk:
-                        if orig.get("id") == pid:
-                            self._merge_enriched_fields(results[idx], enriched)
-                            self._match_cache[pid] = {
-                                "email": results[idx].get("email"),
-                                "last_name": results[idx].get("last_name"),
-                                "_enriched_org": results[idx].get("_enriched_org"),
-                                "_parent_org_name": results[idx].get("_parent_org_name"),
-                                "_hq_country": results[idx].get("_hq_country"),
-                                "_org_structure_type": results[idx].get("_org_structure_type"),
-                                "organization_website": results[idx].get("organization_website"),
-                            }
-                            break
-            except Exception as e:
-                print(f"    [Apollo ERROR] bulk enrich chunk: {e}")
+            for enriched in people_list:
+                pid = enriched.get("id")
+                if not pid:
+                    continue
+                for idx, orig in chunk:
+                    if orig.get("id") == pid:
+                        self._merge_enriched_fields(results[idx], enriched)
+                        self._match_cache[pid] = {
+                            "email": results[idx].get("email"),
+                            "last_name": results[idx].get("last_name"),
+                            "_enriched_org": results[idx].get("_enriched_org"),
+                            "_parent_org_name": results[idx].get("_parent_org_name"),
+                            "_hq_country": results[idx].get("_hq_country"),
+                            "_org_structure_type": results[idx].get("_org_structure_type"),
+                            "organization_website": results[idx].get("organization_website"),
+                        }
+                        break
 
         for i in range(0, len(indexed), 10):
             _enrich_chunk(indexed[i:i + 10])
@@ -2505,6 +2562,11 @@ class ApolloClient:
         # because they severely reduce results for specific product keywords like "football gloves".
         # Quality is enforced by downstream relevance scoring + Hunter enrichment.
 
+        cache_data = {"endpoint": "mixed_people/api_search", "payload": payload, "enrich": enrich}
+        cached = self._cache_get("people", cache_data)
+        if cached is not None:
+            return cached
+
         try:
             last_error = ""
             for attempt in range(2):
@@ -2616,6 +2678,7 @@ class ApolloClient:
                 if p.get("_org_structure_type"):
                     result_item["_org_structure_type"] = p["_org_structure_type"]
                 results.append(result_item)
+            self._cache_set("people", cache_data, results)
             return results
         except requests.exceptions.HTTPError as e:
             print(f"    [Apollo ERROR] people search: {e}")
@@ -2739,6 +2802,11 @@ class ApolloClient:
         if job_posted_date_max:
             params["organization_job_posted_at_range[max]"] = job_posted_date_max
 
+        cache_data = {"endpoint": "mixed_companies/search", "params": params}
+        cached = self._cache_get("organizations", cache_data)
+        if cached is not None:
+            return cached
+
         try:
             last_error = ""
             for attempt in range(2):
@@ -2809,6 +2877,7 @@ class ApolloClient:
                     "linkedin_url": org.get("linkedin_url", ""),
                 }
                 results.append(result_item)
+            self._cache_set("organizations", cache_data, results)
             return results
         except requests.exceptions.HTTPError as e:
             print(f"    [Apollo ERROR] organization search: {e}")

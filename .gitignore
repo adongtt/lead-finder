@@ -34,5 +34,8 @@ dist/
 .DS_Store
 Thumbs.db
 
+# Apollo API response cache
+.apollo_cache/
+
 # Claude usage data (if any)
 .claude/usage-data/

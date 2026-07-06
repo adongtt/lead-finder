@@ -1,0 +1,40 @@
+
+============================================================
+  B2B Lead Finder
+  Keyword : cross country ski gloves
+  Query   : cross country ski gloves (distributor OR importer OR wholesaler OR dealer)
+  Engine  : serpapi
+  Pages   : 3
+  Output  : test_cross_country_serpapi.csv
+============================================================
+
+PROGRESS: 5
+[1/5] Searching Google via SerpAPI...
+  [RATE_LIMIT] SerpAPI search rate limited (429). Try --engine duckduckgo or upgrade your SerpAPI plan.
+      Total results found: 0
+PROGRESS: 20
+
+[1c/5] Discovering companies via LinkedIn profiles...
+  [RATE_LIMIT] SerpAPI LinkedIn discovery rate limited (429). Skipping LinkedIn enrichment.
+      No LinkedIn profiles found
+PROGRESS: 25
+
+[2/5] Scoring and extracting domains...
+      Unique domains: 0 (excluded 0 big-brand domains)
+PROGRESS: 30
+
+[3/5] Fetching website metadata and scoring relevance...
+      Fetched descriptions for 0/0 domains
+      Relevance: 0 high, 0 low
+      LinkedIn profiles found on websites: 0
+PROGRESS: 50
+
+[4/5] Finding emails via Hunter.io + Apollo.io (merge & enrich)...
+
+      Total leads after filtering: 0
+PROGRESS: 90
+
+[6/6] Skipping email validation (pass --validate to enable)
+PROGRESS: 100
+
+[WARNING] No leads found. Nothing to export.

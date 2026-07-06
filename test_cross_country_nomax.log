@@ -1,0 +1,71 @@
+
+============================================================
+  B2B Lead Finder
+  Keyword : cross country ski gloves
+  Query   : cross country ski gloves (distributor OR importer OR wholesaler OR dealer)
+  Engine  : duckduckgo
+  Pages   : 5
+  Output  : test_cross_country_nomax.csv
+============================================================
+
+PROGRESS: 5
+[1/5] Searching via DuckDuckGo (free, no API key)...
+  [DuckDuckGo] Found 14 results
+      Total results found: 14
+      Filtered out 9 low-relevance search results (title/snippet score)
+PROGRESS: 20
+
+[1c/5] Discovering companies via LinkedIn profiles...
+  [RATE_LIMIT] SerpAPI LinkedIn discovery rate limited (429). Skipping LinkedIn enrichment.
+      No LinkedIn profiles found
+PROGRESS: 25
+
+[2/5] Scoring and extracting domains...
+      Unique domains: 4 (excluded 1 big-brand domains)
+      Score distribution: 2 positive, 1 negative
+PROGRESS: 30
+
+[3/5] Fetching website metadata and scoring relevance...
+PROGRESS: 33
+PROGRESS: 37
+      [Browser fallback] lyze-radotin.cz
+PROGRESS: 41
+PROGRESS: 45
+      Fetched descriptions for 4/4 domains
+      Relevance: 3 high, 0 low
+      LinkedIn profiles found on websites: 0
+PROGRESS: 50
+
+[4/5] Finding emails via Hunter.io + Apollo.io (merge & enrich)...
+PROGRESS: 56
+  [1/4] chongjen.com ... 1 kept / 2 total (hunter.io)
+PROGRESS: 62
+  [2/4] superiorglove.com ... 10 kept / 10 total (hunter.io)
+PROGRESS: 68
+  [3/4] barnettcanada.ca ... 0 found
+PROGRESS: 75
+  [4/4] lyze-radotin.cz ... 1 kept / 1 total (hunter.io)
+
+      Total leads after filtering: 12
+PROGRESS: 80
+
+[4b/5] Searching LinkedIn via DuckDuckGo for 10 leads...
+      Found 4 LinkedIn profiles via DuckDuckGo
+PROGRESS: 90
+
+[6/6] Skipping email validation (pass --validate to enable)
+PROGRESS: 100
+
+[OK] Exported 12 leads to: test_cross_country_nomax.csv
+
+============================================================
+  SUMMARY
+============================================================
+  Keyword          : cross country ski gloves
+  Domains searched : 4
+  Unique leads     : 12
+  Personal emails  : 12
+  High confidence  : 11
+  Customer tiers   : A=2, B=9, C=1
+============================================================
+
