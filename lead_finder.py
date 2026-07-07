@@ -4042,7 +4042,7 @@ class LeadFinder:
         max_domains: Optional[int] = None,
         deep: bool = False,
         b2b_focus: bool = True,
-        min_relevance: int = -50,
+        min_relevance: int = 0,
         domains: Optional[List[str]] = None,
         target_tlds: Optional[List[str]] = None,
         amazon: bool = False,
@@ -5943,8 +5943,8 @@ def main():
     parser.add_argument(
         "--min-relevance",
         type=int,
-        default=-50,
-        help="Minimum content-relevance score for a domain to be processed (default: -50, use 0 for stricter filtering)",
+        default=0,
+        help="Minimum content-relevance score for a domain to be processed (default: 0, negative scores are dropped)",
     )
     parser.add_argument(
         "--domains",
