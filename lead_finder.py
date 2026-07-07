@@ -4019,18 +4019,18 @@ class LeadFinder:
             return "google_maps"
         if self.engine != "auto":
             return self.engine
-        # Priority: serper > duckduckgo > browser > serpapi
-        # Serper is paid but cheap and stable; DuckDuckGo is free but less reliable.
-        # SerpAPI is kept as last fallback because it rate-limits heavily.
+        # Priority: serper > serpapi > duckduckgo > browser
+        # Serper and SerpAPI both use Google results; prefer Google-based engines
+        # when configured. DuckDuckGo/Browser are free fallbacks.
         if self.serper is not None:
             return "serper"
+        if self.serp is not None:
+            return "serpapi"
         if DDGS is not None:
             return "duckduckgo"
         if sync_playwright is not None:
             return "browser"
-        if self.serp is not None:
-            return "serpapi"
-        print("[FATAL] No search engine available. Install duckduckgo-search or playwright, or configure serper_key.")
+        print("[FATAL] No search engine available. Install duckduckgo-search or playwright, or configure serper_key/serpapi_key.")
         sys.exit(1)
 
     def run(
@@ -4115,12 +4115,12 @@ class LeadFinder:
                 if d and "_maps_meta" in r:
                     domain_maps_meta[d] = r["_maps_meta"]
                     domain_source_type[d] = "google_maps"
-        elif engine == "serpapi" and self.serp:
-            print("[1/5] Searching Google via SerpAPI...")
-            raw_results = self.serp.search(search_query, pages=pages, skip_pages=skip_pages)
         elif engine == "serper" and self.serper:
             print("[1/5] Searching Google via Serper.dev...")
             raw_results = self.serper.search(search_query, pages=pages, skip_pages=skip_pages)
+        elif engine == "serpapi" and self.serp:
+            print("[1/5] Searching Google via SerpAPI...")
+            raw_results = self.serp.search(search_query, pages=pages, skip_pages=skip_pages)
         elif engine == "browser":
             print("[1/5] Searching via Browser (Playwright + DuckDuckGo)...")
             raw_results = self.browser.search(search_query, max_results=pages * 10, skip_pages=skip_pages)
@@ -4150,7 +4150,9 @@ class LeadFinder:
                     sr_score += 25
                     threshold = -60 if strict_mode else -90
                 else:
-                    threshold = 5 if strict_mode else -40
+                    # Keyword search uses Google (Serper/SerpAPI) or DuckDuckGo.
+                    # Drop results with negative relevance scores to reduce noise.
+                    threshold = 5 if strict_mode else 0
                 if sr_score >= threshold:
                     scored_results.append(r)
             raw_results = scored_results
@@ -5920,7 +5922,7 @@ def main():
         type=str,
         default="auto",
         choices=["auto", "duckduckgo", "browser", "serper", "serpapi", "google_maps"],
-        help="Search engine: auto (default), duckduckgo, browser (Playwright), serper (Serper.dev), serpapi, or google_maps",
+        help="Search engine: auto (default, Google via Serper/SerpAPI when configured), duckduckgo, browser (Playwright), serper (Google via Serper.dev), serpapi (Google via SerpAPI), or google_maps",
     )
     parser.add_argument(
         "--exclude",
