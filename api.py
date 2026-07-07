@@ -17,9 +17,9 @@ import csv
 import io
 import json
 import os
-import os
 import psycopg2
 import requests
+from contextlib import contextmanager
 from psycopg2.extras import RealDictCursor
 from psycopg2 import pool as psycopg2_pool
 import subprocess
@@ -227,159 +227,180 @@ def _get_pool():
 def _get_conn():
     return _get_pool().getconn()
 
-def _put_conn(conn):
+def _put_conn(conn, close=False):
     try:
-        _get_pool().putconn(conn)
+        _get_pool().putconn(conn, close=close)
     except Exception:
-        pass
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
+@contextmanager
+def _db_cursor():
+    """
+    Get a cursor from the connection pool and ensure the connection is always
+    returned. If an exception occurs (including SSL errors), the connection is
+    closed/discarded instead of being returned to the pool, so the next request
+    gets a fresh connection.
+    """
+    conn = None
+    close_conn = False
+    try:
+        conn = _get_conn()
+        yield conn.cursor()
+    except Exception:
+        close_conn = True
+        if conn is not None:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        raise
+    finally:
+        if conn is not None:
+            _put_conn(conn, close=close_conn)
 
 
 def _init_db() -> None:
-    DATA_DIR.mkdir(exist_ok=True)
-    conn = _get_conn()
-    c = conn.cursor()
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    with _db_cursor() as c:
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS searches (
+                id SERIAL PRIMARY KEY,
+                job_id TEXT UNIQUE,
+                keyword TEXT,
+                pages INTEGER,
+                total INTEGER,
+                user_id TEXT,
+                user_name TEXT,
+                searched_at TEXT,
+                deep INTEGER DEFAULT 0,
+                source_type TEXT,
+                csv_content TEXT
+            )
+        """)
+        # Migrate existing searches table (add missing columns)
+        for col in ("csv_content", "source_type"):
+            try:
+                c.execute(f"ALTER TABLE searches ADD COLUMN IF NOT EXISTS {col} TEXT")
+            except Exception:
+                pass
 
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS searches (
-            id SERIAL PRIMARY KEY,
-            job_id TEXT UNIQUE,
-            keyword TEXT,
-            pages INTEGER,
-            total INTEGER,
-            user_id TEXT,
-            user_name TEXT,
-            searched_at TEXT,
-            deep INTEGER DEFAULT 0,
-            source_type TEXT,
-            csv_content TEXT
-        )
-    """)
-    # Migrate existing searches table (add missing columns)
-    for col in ("csv_content", "source_type"):
+        # Backfill source_type for legacy rows based on keyword prefix
         try:
-            c.execute(f"ALTER TABLE searches ADD COLUMN IF NOT EXISTS {col} TEXT")
+            c.execute("UPDATE searches SET source_type = 'apollo' WHERE source_type IS NULL AND keyword LIKE 'Apollo:%'")
+            c.execute("UPDATE searches SET source_type = 'supplier_portal' WHERE source_type IS NULL AND keyword LIKE 'Supplier Portal:%'")
+            c.execute("UPDATE searches SET source_type = 'keyword' WHERE source_type IS NULL OR source_type = ''")
         except Exception:
             pass
 
-    # Backfill source_type for legacy rows based on keyword prefix
-    try:
-        c.execute("UPDATE searches SET source_type = 'apollo' WHERE source_type IS NULL AND keyword LIKE 'Apollo:%'")
-        c.execute("UPDATE searches SET source_type = 'supplier_portal' WHERE source_type IS NULL AND keyword LIKE 'Supplier Portal:%'")
-        c.execute("UPDATE searches SET source_type = 'keyword' WHERE source_type IS NULL OR source_type = ''")
-    except Exception:
-        pass
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS contacts (
+                id SERIAL PRIMARY KEY,
+                email TEXT UNIQUE,
+                domain TEXT,
+                user_id TEXT,
+                user_name TEXT,
+                status TEXT DEFAULT '已发邮件',
+                next_follow_up TEXT,
+                created_at TEXT,
+                domain_alive BOOLEAN DEFAULT NULL,
+                email_valid BOOLEAN DEFAULT NULL,
+                company_active BOOLEAN DEFAULT NULL,
+                last_verified_at TEXT DEFAULT '',
+                org_structure_type TEXT DEFAULT '',
+                parent_company_name TEXT DEFAULT '',
+                parent_company_country TEXT DEFAULT '',
+                hq_country TEXT DEFAULT '',
+                purchasing_authority TEXT DEFAULT '',
+                purchasing_authority_reason TEXT DEFAULT '',
+                parent_org_data_source TEXT DEFAULT ''
+            )
+        """)
 
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS contacts (
-            id SERIAL PRIMARY KEY,
-            email TEXT UNIQUE,
-            domain TEXT,
-            user_id TEXT,
-            user_name TEXT,
-            status TEXT DEFAULT '已发邮件',
-            next_follow_up TEXT,
-            created_at TEXT,
-            domain_alive BOOLEAN DEFAULT NULL,
-            email_valid BOOLEAN DEFAULT NULL,
-            company_active BOOLEAN DEFAULT NULL,
-            last_verified_at TEXT DEFAULT '',
-            org_structure_type TEXT DEFAULT '',
-            parent_company_name TEXT DEFAULT '',
-            parent_company_country TEXT DEFAULT '',
-            hq_country TEXT DEFAULT '',
-            purchasing_authority TEXT DEFAULT '',
-            purchasing_authority_reason TEXT DEFAULT '',
-            parent_org_data_source TEXT DEFAULT ''
-        )
-    """)
+        # Migrate existing contacts table (add verification columns)
+        for col in ("domain_alive", "email_valid", "company_active", "last_verified_at"):
+            try:
+                if col == "last_verified_at":
+                    c.execute(f"ALTER TABLE contacts ADD COLUMN IF NOT EXISTS {col} TEXT DEFAULT ''")
+                else:
+                    c.execute(f"ALTER TABLE contacts ADD COLUMN IF NOT EXISTS {col} BOOLEAN DEFAULT NULL")
+            except Exception:
+                pass
 
-    # Migrate existing contacts table (add verification columns)
-    for col in ("domain_alive", "email_valid", "company_active", "last_verified_at"):
-        try:
-            if col == "last_verified_at":
+        # Migrate existing contacts table (add parent company / purchasing authority columns)
+        for col in (
+            "org_structure_type", "parent_company_name", "parent_company_country",
+            "hq_country", "purchasing_authority", "purchasing_authority_reason", "parent_org_data_source"
+        ):
+            try:
                 c.execute(f"ALTER TABLE contacts ADD COLUMN IF NOT EXISTS {col} TEXT DEFAULT ''")
-            else:
-                c.execute(f"ALTER TABLE contacts ADD COLUMN IF NOT EXISTS {col} BOOLEAN DEFAULT NULL")
-        except Exception:
-            pass
+            except Exception:
+                pass
 
-    # Migrate existing contacts table (add parent company / purchasing authority columns)
-    for col in (
-        "org_structure_type", "parent_company_name", "parent_company_country",
-        "hq_country", "purchasing_authority", "purchasing_authority_reason", "parent_org_data_source"
-    ):
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS followups (
+                id SERIAL PRIMARY KEY,
+                contact_email TEXT,
+                action TEXT,
+                notes TEXT,
+                user_id TEXT,
+                user_name TEXT,
+                created_at TEXT
+            )
+        """)
+
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS keywords (
+                id SERIAL PRIMARY KEY,
+                term TEXT UNIQUE,
+                count INTEGER DEFAULT 0
+            )
+        """)
+
+        # Performance indexes for Render / production
+        c.execute("CREATE INDEX IF NOT EXISTS idx_searches_user_id ON searches(user_id)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_searches_searched_at ON searches(searched_at DESC)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_searches_source_type ON searches(source_type)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_contacts_user_id ON contacts(user_id)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_contacts_email ON contacts(email)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_contacts_status ON contacts(status)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_followups_email ON followups(contact_email)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_followups_user_id ON followups(user_id)")
+
+        # Functional indexes for dashboard date aggregations on TEXT timestamp columns
         try:
-            c.execute(f"ALTER TABLE contacts ADD COLUMN IF NOT EXISTS {col} TEXT DEFAULT ''")
+            c.execute("CREATE INDEX IF NOT EXISTS idx_searches_searched_at_date ON searches((searched_at::date))")
+            c.execute("CREATE INDEX IF NOT EXISTS idx_contacts_created_at_date ON contacts((created_at::date))")
         except Exception:
             pass
 
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS followups (
-            id SERIAL PRIMARY KEY,
-            contact_email TEXT,
-            action TEXT,
-            notes TEXT,
-            user_id TEXT,
-            user_name TEXT,
-            created_at TEXT
-        )
-    """)
-
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS keywords (
-            id SERIAL PRIMARY KEY,
-            term TEXT UNIQUE,
-            count INTEGER DEFAULT 0
-        )
-    """)
-
-    # Performance indexes for Render / production
-    c.execute("CREATE INDEX IF NOT EXISTS idx_searches_user_id ON searches(user_id)")
-    c.execute("CREATE INDEX IF NOT EXISTS idx_searches_searched_at ON searches(searched_at DESC)")
-    c.execute("CREATE INDEX IF NOT EXISTS idx_searches_source_type ON searches(source_type)")
-    c.execute("CREATE INDEX IF NOT EXISTS idx_contacts_user_id ON contacts(user_id)")
-    c.execute("CREATE INDEX IF NOT EXISTS idx_contacts_email ON contacts(email)")
-    c.execute("CREATE INDEX IF NOT EXISTS idx_contacts_status ON contacts(status)")
-    c.execute("CREATE INDEX IF NOT EXISTS idx_followups_email ON followups(contact_email)")
-    c.execute("CREATE INDEX IF NOT EXISTS idx_followups_user_id ON followups(user_id)")
-
-    # Functional indexes for dashboard date aggregations on TEXT timestamp columns
-    try:
-        c.execute("CREATE INDEX IF NOT EXISTS idx_searches_searched_at_date ON searches((searched_at::date))")
-        c.execute("CREATE INDEX IF NOT EXISTS idx_contacts_created_at_date ON contacts((created_at::date))")
-    except Exception:
-        pass
-
-    conn.commit()
-    _put_conn(conn)
+        c.connection.commit()
 
 
 def _migrate_json_to_postgres() -> None:
     """One-time migration from JSON files to PostgreSQL."""
-    conn = _get_conn()
-    c = conn.cursor()
-    c.execute("SELECT COUNT(*) FROM contacts")
-    if c.fetchone()["count"] > 0:
-        _put_conn(conn)
-        return  # Already has data, skip migration
-    _put_conn(conn)
+    with _db_cursor() as c:
+        c.execute("SELECT COUNT(*) FROM contacts")
+        if c.fetchone()["count"] > 0:
+            return  # Already has data, skip migration
 
     # Migrate searches
     searches_file = DATA_DIR / "searches.json"
     if searches_file.exists():
         with open(searches_file, "r", encoding="utf-8") as f:
             searches = json.load(f)
-        conn = _get_conn()
-        c = conn.cursor()
-        for s in searches:
-            c.execute("""
-                INSERT INTO searches (job_id, keyword, pages, total, user_id, user_name, searched_at, deep)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT(job_id) DO NOTHING
-            """, (s.get("job_id"), s.get("keyword"), s.get("pages"), s.get("total"),
-                  s.get("user_id"), s.get("user_name"), s.get("searched_at"), 1 if s.get("deep") else 0))
-        conn.commit()
-        _put_conn(conn)
+        with _db_cursor() as c:
+            for s in searches:
+                c.execute("""
+                    INSERT INTO searches (job_id, keyword, pages, total, user_id, user_name, searched_at, deep)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT(job_id) DO NOTHING
+                """, (s.get("job_id"), s.get("keyword"), s.get("pages"), s.get("total"),
+                      s.get("user_id"), s.get("user_name"), s.get("searched_at"), 1 if s.get("deep") else 0))
+            c.connection.commit()
         searches_file.rename(searches_file.with_suffix(".json.bak"))
 
     # Migrate contacts and followups
@@ -387,40 +408,38 @@ def _migrate_json_to_postgres() -> None:
     if contacted_file.exists():
         with open(contacted_file, "r", encoding="utf-8") as f:
             data = json.load(f)
-        conn = _get_conn()
-        c = conn.cursor()
-        for email, info in data.items():
-            email = email.lower().strip()
-            if "history" not in info:
-                # Old flat format
-                user_id = info.get("user_id", "")
-                user_name = info.get("user_name", info.get("contacted_by", ""))
-                created_at = info.get("contacted_at", datetime.now().isoformat())
-                c.execute("""
-                    INSERT INTO contacts (email, domain, user_id, user_name, status, next_follow_up, created_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s)
-                    ON CONFLICT(email) DO NOTHING
-                """, (email, info.get("domain", ""), user_id, user_name, "已发邮件", "", created_at))
-                c.execute("""
-                    INSERT INTO followups (contact_email, action, notes, user_id, user_name, created_at)
-                    VALUES (%s, %s, %s, %s, %s, %s)
-                """, (email, "已发邮件", info.get("notes", ""), user_id, user_name, created_at))
-            else:
-                # New CRM format
-                c.execute("""
-                    INSERT INTO contacts (email, domain, user_id, user_name, status, next_follow_up, created_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s)
-                    ON CONFLICT(email) DO NOTHING
-                """, (email, info.get("domain", ""), info.get("user_id", ""), info.get("user_name", ""),
-                      info.get("status", "已发邮件"), info.get("next_follow_up", ""),
-                      info.get("created_at", datetime.now().isoformat())))
-                for h in info.get("history", []):
+        with _db_cursor() as c:
+            for email, info in data.items():
+                email = email.lower().strip()
+                if "history" not in info:
+                    # Old flat format
+                    user_id = info.get("user_id", "")
+                    user_name = info.get("user_name", info.get("contacted_by", ""))
+                    created_at = info.get("contacted_at", datetime.now().isoformat())
+                    c.execute("""
+                        INSERT INTO contacts (email, domain, user_id, user_name, status, next_follow_up, created_at)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT(email) DO NOTHING
+                    """, (email, info.get("domain", ""), user_id, user_name, "已发邮件", "", created_at))
                     c.execute("""
                         INSERT INTO followups (contact_email, action, notes, user_id, user_name, created_at)
                         VALUES (%s, %s, %s, %s, %s, %s)
-                    """, (email, h.get("action"), h.get("notes", ""), h.get("user_id", ""), h.get("user_name", ""), h.get("at")))
-        conn.commit()
-        _put_conn(conn)
+                    """, (email, "已发邮件", info.get("notes", ""), user_id, user_name, created_at))
+                else:
+                    # New CRM format
+                    c.execute("""
+                        INSERT INTO contacts (email, domain, user_id, user_name, status, next_follow_up, created_at)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT(email) DO NOTHING
+                    """, (email, info.get("domain", ""), info.get("user_id", ""), info.get("user_name", ""),
+                          info.get("status", "已发邮件"), info.get("next_follow_up", ""),
+                          info.get("created_at", datetime.now().isoformat())))
+                    for h in info.get("history", []):
+                        c.execute("""
+                            INSERT INTO followups (contact_email, action, notes, user_id, user_name, created_at)
+                            VALUES (%s, %s, %s, %s, %s, %s)
+                        """, (email, h.get("action"), h.get("notes", ""), h.get("user_id", ""), h.get("user_name", ""), h.get("at")))
+            c.connection.commit()
         contacted_file.rename(contacted_file.with_suffix(".json.bak"))
 
     # Migrate keywords
@@ -428,16 +447,14 @@ def _migrate_json_to_postgres() -> None:
     if keywords_file.exists():
         with open(keywords_file, "r", encoding="utf-8") as f:
             keywords = json.load(f)
-        conn = _get_conn()
-        c = conn.cursor()
-        for term, count in keywords.items():
-            c.execute("""
-                INSERT INTO keywords (term, count)
-                VALUES (%s, %s)
-                ON CONFLICT(term) DO NOTHING
-            """, (term, count))
-        conn.commit()
-        _put_conn(conn)
+        with _db_cursor() as c:
+            for term, count in keywords.items():
+                c.execute("""
+                    INSERT INTO keywords (term, count)
+                    VALUES (%s, %s)
+                    ON CONFLICT(term) DO NOTHING
+                """, (term, count))
+            c.connection.commit()
         keywords_file.rename(keywords_file.with_suffix(".json.bak"))
 
 
@@ -503,14 +520,12 @@ async def list_users(user: dict = Depends(require_admin)):
 # ---------------------------------------------------------------------------
 
 def db_save_search(job_id: str, keyword: str, pages: int, total: int, user_id: str, user_name: str, deep: bool, csv_content: str = "", source_type: str = "") -> None:
-    conn = _get_conn()
-    c = conn.cursor()
-    c.execute("""
-        INSERT INTO searches (job_id, keyword, pages, total, user_id, user_name, searched_at, deep, source_type, csv_content)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-    """, (job_id, keyword, pages, total, user_id, user_name, datetime.now().isoformat(), 1 if deep else 0, source_type, csv_content))
-    conn.commit()
-    _put_conn(conn)
+    with _db_cursor() as c:
+        c.execute("""
+            INSERT INTO searches (job_id, keyword, pages, total, user_id, user_name, searched_at, deep, source_type, csv_content)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """, (job_id, keyword, pages, total, user_id, user_name, datetime.now().isoformat(), 1 if deep else 0, source_type, csv_content))
+        c.connection.commit()
     # Invalidate search history cache so new records appear immediately
     _cache.clear()
 
@@ -524,9 +539,6 @@ def db_list_searches(
     source_type: str = "",
     filter_user_id: str = "",
 ) -> list:
-    conn = _get_conn()
-    c = conn.cursor()
-
     where = []
     params = []
     if role == "admin":
@@ -561,9 +573,9 @@ def db_list_searches(
         sql += " WHERE " + " AND ".join(where)
     sql += " ORDER BY searched_at DESC LIMIT 200"
 
-    c.execute(sql, tuple(params))
-    rows = c.fetchall()
-    _put_conn(conn)
+    with _db_cursor() as c:
+        c.execute(sql, tuple(params))
+        rows = c.fetchall()
     results = []
     for row in rows:
         d = dict(row)
@@ -573,11 +585,9 @@ def db_list_searches(
 
 
 def db_get_search(job_id: str) -> Optional[dict]:
-    conn = _get_conn()
-    c = conn.cursor()
-    c.execute("SELECT * FROM searches WHERE job_id = %s", (job_id,))
-    row = c.fetchone()
-    _put_conn(conn)
+    with _db_cursor() as c:
+        c.execute("SELECT * FROM searches WHERE job_id = %s", (job_id,))
+        row = c.fetchone()
     if not row:
         return None
     d = dict(row)
@@ -599,61 +609,55 @@ def db_create_contact(
     purchasing_authority_reason: str = "",
     parent_org_data_source: str = "",
 ) -> None:
-    conn = _get_conn()
-    c = conn.cursor()
-    now = datetime.now().isoformat()
-    c.execute("""
-        INSERT INTO contacts (
-            email, domain, user_id, user_name, status, next_follow_up, created_at,
+    with _db_cursor() as c:
+        now = datetime.now().isoformat()
+        c.execute("""
+            INSERT INTO contacts (
+                email, domain, user_id, user_name, status, next_follow_up, created_at,
+                org_structure_type, parent_company_name, parent_company_country, hq_country,
+                purchasing_authority, purchasing_authority_reason, parent_org_data_source
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT(email) DO UPDATE SET
+                domain = EXCLUDED.domain,
+                user_id = EXCLUDED.user_id,
+                user_name = EXCLUDED.user_name,
+                status = EXCLUDED.status,
+                next_follow_up = EXCLUDED.next_follow_up,
+                created_at = EXCLUDED.created_at,
+                org_structure_type = EXCLUDED.org_structure_type,
+                parent_company_name = EXCLUDED.parent_company_name,
+                parent_company_country = EXCLUDED.parent_company_country,
+                hq_country = EXCLUDED.hq_country,
+                purchasing_authority = EXCLUDED.purchasing_authority,
+                purchasing_authority_reason = EXCLUDED.purchasing_authority_reason,
+                parent_org_data_source = EXCLUDED.parent_org_data_source
+        """, (
+            email.lower().strip(), domain, user_id, user_name, "已发邮件", "", now,
             org_structure_type, parent_company_name, parent_company_country, hq_country,
-            purchasing_authority, purchasing_authority_reason, parent_org_data_source
-        )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-        ON CONFLICT(email) DO UPDATE SET
-            domain = EXCLUDED.domain,
-            user_id = EXCLUDED.user_id,
-            user_name = EXCLUDED.user_name,
-            status = EXCLUDED.status,
-            next_follow_up = EXCLUDED.next_follow_up,
-            created_at = EXCLUDED.created_at,
-            org_structure_type = EXCLUDED.org_structure_type,
-            parent_company_name = EXCLUDED.parent_company_name,
-            parent_company_country = EXCLUDED.parent_company_country,
-            hq_country = EXCLUDED.hq_country,
-            purchasing_authority = EXCLUDED.purchasing_authority,
-            purchasing_authority_reason = EXCLUDED.purchasing_authority_reason,
-            parent_org_data_source = EXCLUDED.parent_org_data_source
-    """, (
-        email.lower().strip(), domain, user_id, user_name, "已发邮件", "", now,
-        org_structure_type, parent_company_name, parent_company_country, hq_country,
-        purchasing_authority, purchasing_authority_reason, parent_org_data_source,
-    ))
-    c.execute("""
-        INSERT INTO followups (contact_email, action, notes, user_id, user_name, created_at)
-        VALUES (%s, %s, %s, %s, %s, %s)
-    """, (email.lower().strip(), "已发邮件", notes, user_id, user_name, now))
-    conn.commit()
-    _put_conn(conn)
+            purchasing_authority, purchasing_authority_reason, parent_org_data_source,
+        ))
+        c.execute("""
+            INSERT INTO followups (contact_email, action, notes, user_id, user_name, created_at)
+            VALUES (%s, %s, %s, %s, %s, %s)
+        """, (email.lower().strip(), "已发邮件", notes, user_id, user_name, now))
+        c.connection.commit()
 
 
 def db_list_contacts(user_id: str, role: str) -> list:
-    conn = _get_conn()
-    c = conn.cursor()
-    if role == "admin":
-        c.execute("SELECT * FROM contacts ORDER BY created_at DESC")
-    else:
-        c.execute("SELECT * FROM contacts WHERE user_id = %s ORDER BY created_at DESC", (user_id,))
-    rows = c.fetchall()
-    _put_conn(conn)
+    with _db_cursor() as c:
+        if role == "admin":
+            c.execute("SELECT * FROM contacts ORDER BY created_at DESC")
+        else:
+            c.execute("SELECT * FROM contacts WHERE user_id = %s ORDER BY created_at DESC", (user_id,))
+        rows = c.fetchall()
     return [dict(r) for r in rows]
 
 
 def db_get_contact(email: str) -> Optional[dict]:
-    conn = _get_conn()
-    c = conn.cursor()
-    c.execute("SELECT * FROM contacts WHERE email = %s", (email.lower().strip(),))
-    row = c.fetchone()
-    _put_conn(conn)
+    with _db_cursor() as c:
+        c.execute("SELECT * FROM contacts WHERE email = %s", (email.lower().strip(),))
+        row = c.fetchone()
     if not row:
         return None
     contact = dict(row)
@@ -667,34 +671,28 @@ def db_get_contact(email: str) -> Optional[dict]:
 
 
 def db_update_contact_status(email: str, status: str) -> None:
-    conn = _get_conn()
-    c = conn.cursor()
-    c.execute("UPDATE contacts SET status = %s WHERE email = %s", (status, email.lower().strip()))
-    conn.commit()
-    _put_conn(conn)
+    with _db_cursor() as c:
+        c.execute("UPDATE contacts SET status = %s WHERE email = %s", (status, email.lower().strip()))
+        c.connection.commit()
 
 
 def db_add_followup(email: str, action: str, notes: str, next_follow_up: str, user_id: str, user_name: str) -> None:
-    conn = _get_conn()
-    c = conn.cursor()
-    now = datetime.now().isoformat()
-    c.execute("""
-        INSERT INTO followups (contact_email, action, notes, user_id, user_name, created_at)
-        VALUES (%s, %s, %s, %s, %s, %s)
-    """, (email.lower().strip(), action, notes, user_id, user_name, now))
-    c.execute("UPDATE contacts SET status = %s WHERE email = %s", (action, email.lower().strip()))
-    if next_follow_up:
-        c.execute("UPDATE contacts SET next_follow_up = %s WHERE email = %s", (next_follow_up, email.lower().strip()))
-    conn.commit()
-    _put_conn(conn)
+    with _db_cursor() as c:
+        now = datetime.now().isoformat()
+        c.execute("""
+            INSERT INTO followups (contact_email, action, notes, user_id, user_name, created_at)
+            VALUES (%s, %s, %s, %s, %s, %s)
+        """, (email.lower().strip(), action, notes, user_id, user_name, now))
+        c.execute("UPDATE contacts SET status = %s WHERE email = %s", (action, email.lower().strip()))
+        if next_follow_up:
+            c.execute("UPDATE contacts SET next_follow_up = %s WHERE email = %s", (next_follow_up, email.lower().strip()))
+        c.connection.commit()
 
 
 def db_list_followups(email: str) -> list:
-    conn = _get_conn()
-    c = conn.cursor()
-    c.execute("SELECT * FROM followups WHERE contact_email = %s ORDER BY created_at ASC", (email.lower().strip(),))
-    rows = c.fetchall()
-    _put_conn(conn)
+    with _db_cursor() as c:
+        c.execute("SELECT * FROM followups WHERE contact_email = %s ORDER BY created_at ASC", (email.lower().strip(),))
+        rows = c.fetchall()
     results = []
     for r in rows:
         d = dict(r)
@@ -704,16 +702,14 @@ def db_list_followups(email: str) -> list:
 
 
 def db_enrich_leads(leads: list) -> list:
-    conn = _get_conn()
-    c = conn.cursor()
     emails = [lead.get("email", "").lower().strip() for lead in leads if lead.get("email")]
     contact_map = {}
     if emails:
         placeholders = ",".join(["%s"] * len(emails))
-        c.execute(f"SELECT email, user_name, status, created_at FROM contacts WHERE email IN ({placeholders})", emails)
-        for r in c.fetchall():
-            contact_map[r["email"]] = {"user_name": r["user_name"], "status": r["status"], "created_at": r["created_at"]}
-    _put_conn(conn)
+        with _db_cursor() as c:
+            c.execute(f"SELECT email, user_name, status, created_at FROM contacts WHERE email IN ({placeholders})", emails)
+            for r in c.fetchall():
+                contact_map[r["email"]] = {"user_name": r["user_name"], "status": r["status"], "created_at": r["created_at"]}
     for lead in leads:
         email = lead.get("email", "").lower().strip()
         info = contact_map.get(email)
@@ -787,61 +783,54 @@ _sort_leads_by_position = _sort_leads
 
 
 def db_increment_keyword(term: str) -> None:
-    conn = _get_conn()
-    c = conn.cursor()
-    c.execute("INSERT INTO keywords (term, count) VALUES (%s, 1) ON CONFLICT(term) DO UPDATE SET count = keywords.count + 1", (term.strip().lower(),))
-    conn.commit()
-    _put_conn(conn)
+    with _db_cursor() as c:
+        c.execute("INSERT INTO keywords (term, count) VALUES (%s, 1) ON CONFLICT(term) DO UPDATE SET count = keywords.count + 1", (term.strip().lower(),))
+        c.connection.commit()
 
 
 def db_list_keywords() -> list:
-    conn = _get_conn()
-    c = conn.cursor()
-    c.execute("SELECT term, count FROM keywords ORDER BY count DESC")
-    rows = c.fetchall()
-    _put_conn(conn)
+    with _db_cursor() as c:
+        c.execute("SELECT term, count FROM keywords ORDER BY count DESC")
+        rows = c.fetchall()
     return [{"term": r["term"], "count": r["count"]} for r in rows]
 
 
 def db_get_stats(user_id: str, role: str) -> dict:
     """Return dashboard stats for the current user (or all if admin)."""
-    conn = _get_conn()
-    c = conn.cursor()
+    with _db_cursor() as c:
+        # Weekly leads (searches created this week)
+        c.execute("""
+            SELECT COALESCE(SUM(total), 0) as total
+            FROM searches
+            WHERE searched_at::timestamp >= date_trunc('week', now()::timestamp)
+            AND (%s = 'admin' OR user_id = %s)
+        """, (role, user_id))
+        total_leads = c.fetchone()["total"] or 0
 
-    # Weekly leads (searches created this week)
-    c.execute("""
-        SELECT COALESCE(SUM(total), 0) as total
-        FROM searches
-        WHERE searched_at::timestamp >= date_trunc('week', now()::timestamp)
-        AND (%s = 'admin' OR user_id = %s)
-    """, (role, user_id))
-    total_leads = c.fetchone()["total"] or 0
+        # Contacted count
+        c.execute("""
+            SELECT COUNT(*) as cnt FROM contacts
+            WHERE (%s = 'admin' OR user_id = %s)
+        """, (role, user_id))
+        contacted = c.fetchone()["cnt"] or 0
 
-    # Contacted count
-    c.execute("""
-        SELECT COUNT(*) as cnt FROM contacts
-        WHERE (%s = 'admin' OR user_id = %s)
-    """, (role, user_id))
-    contacted = c.fetchone()["cnt"] or 0
+        # Won count
+        c.execute("""
+            SELECT COUNT(*) as cnt FROM contacts
+            WHERE status = '成交'
+            AND (%s = 'admin' OR user_id = %s)
+        """, (role, user_id))
+        won = c.fetchone()["cnt"] or 0
 
-    # Won count
-    c.execute("""
-        SELECT COUNT(*) as cnt FROM contacts
-        WHERE status = '成交'
-        AND (%s = 'admin' OR user_id = %s)
-    """, (role, user_id))
-    won = c.fetchone()["cnt"] or 0
+        # Follow-up needed (has next_follow_up in the future or no follow-up)
+        c.execute("""
+            SELECT COUNT(*) as cnt FROM contacts
+            WHERE (next_follow_up IS NULL OR next_follow_up = '' OR next_follow_up >= %s)
+            AND status NOT IN ('成交', '放弃')
+            AND (%s = 'admin' OR user_id = %s)
+        """, (datetime.now().isoformat(), role, user_id))
+        followup = c.fetchone()["cnt"] or 0
 
-    # Follow-up needed (has next_follow_up in the future or no follow-up)
-    c.execute("""
-        SELECT COUNT(*) as cnt FROM contacts
-        WHERE (next_follow_up IS NULL OR next_follow_up = '' OR next_follow_up >= %s)
-        AND status NOT IN ('成交', '放弃')
-        AND (%s = 'admin' OR user_id = %s)
-    """, (datetime.now().isoformat(), role, user_id))
-    followup = c.fetchone()["cnt"] or 0
-
-    _put_conn(conn)
     return {
         "total_leads": total_leads,
         "contacted": contacted,
@@ -959,11 +948,9 @@ async def config_status(user: dict = Depends(require_user)):
     key_status = _load_config_status()
     db_ok = False
     try:
-        conn = _get_conn()
-        c = conn.cursor()
-        c.execute("SELECT 1")
-        c.fetchone()
-        _put_conn(conn)
+        with _db_cursor() as c:
+            c.execute("SELECT 1")
+            c.fetchone()
         db_ok = True
     except Exception:
         db_ok = False
@@ -1955,128 +1942,125 @@ async def get_dashboard(user: dict = Depends(require_user)):
     if cached is not None:
         return cached
 
-    conn = _get_conn()
-    c = conn.cursor()
     role = user["role"]
     uid = user["user_id"]
     now = datetime.now()
     now_iso = now.isoformat()
     week_start = now - timedelta(days=now.weekday())
 
-    # KPI: weekly leads
-    c.execute("""
-        SELECT COALESCE(SUM(total), 0) AS total
-        FROM searches
-        WHERE searched_at >= %s
-        AND (%s = 'admin' OR user_id = %s)
-    """, (week_start.replace(hour=0, minute=0, second=0, microsecond=0).isoformat(), role, uid))
-    weekly_leads = int(c.fetchone()["total"] or 0)
-
-    # KPI: contacted
-    c.execute("""
-        SELECT COUNT(*) AS cnt FROM contacts
-        WHERE (%s = 'admin' OR user_id = %s)
-    """, (role, uid))
-    contacted = int(c.fetchone()["cnt"] or 0)
-
-    # KPI: won
-    c.execute("""
-        SELECT COUNT(*) AS cnt FROM contacts
-        WHERE status = '成交'
-        AND (%s = 'admin' OR user_id = %s)
-    """, (role, uid))
-    won = int(c.fetchone()["cnt"] or 0)
-
-    # KPI: follow-up needed (no next date or next date >= now, excluding 成交/放弃)
-    c.execute("""
-        SELECT COUNT(*) AS cnt FROM contacts
-        WHERE status NOT IN ('成交', '放弃')
-        AND (next_follow_up IS NULL OR next_follow_up = '' OR next_follow_up >= %s)
-        AND (%s = 'admin' OR user_id = %s)
-    """, (now_iso, role, uid))
-    followup = int(c.fetchone()["cnt"] or 0)
-
-    # Trend: last 30 days
-    c.execute("""
-        SELECT searched_at::date AS day, COALESCE(SUM(total), 0) AS leads
-        FROM searches
-        WHERE searched_at >= (now() - interval '30 days')::text
-        AND (%s = 'admin' OR user_id = %s)
-        GROUP BY searched_at::date
-        ORDER BY day
-    """, (role, uid))
-    trend_rows = c.fetchall()
-
-    c.execute("""
-        SELECT created_at::date AS day, COUNT(*) AS cnt
-        FROM contacts
-        WHERE created_at >= (now() - interval '30 days')::text
-        AND (%s = 'admin' OR user_id = %s)
-        GROUP BY created_at::date
-        ORDER BY day
-    """, (role, uid))
-    contacted_trend_rows = c.fetchall()
-
-    # Source distribution
-    c.execute("""
-        SELECT source_type, COALESCE(SUM(total), 0) AS total
-        FROM searches
-        WHERE (%s = 'admin' OR user_id = %s)
-        GROUP BY source_type
-        ORDER BY total DESC
-    """, (role, uid))
-    source_rows = c.fetchall()
-
-    # Conversion funnel by status
-    c.execute("""
-        SELECT status, COUNT(*) AS cnt
-        FROM contacts
-        WHERE (%s = 'admin' OR user_id = %s)
-        GROUP BY status
-        ORDER BY cnt DESC
-    """, (role, uid))
-    status_rows = c.fetchall()
-
-    # Top keywords (global)
-    c.execute("SELECT term, count FROM keywords ORDER BY count DESC LIMIT 10")
-    keyword_rows = c.fetchall()
-
-    # Follow-up calendar: next 14 days
-    c.execute("""
-        SELECT email, domain, status, next_follow_up
-        FROM contacts
-        WHERE next_follow_up IS NOT NULL AND next_follow_up != ''
-        AND next_follow_up >= %s
-        AND next_follow_up <= (now() + interval '14 days')::text
-        AND status NOT IN ('成交', '放弃')
-        AND (%s = 'admin' OR user_id = %s)
-        ORDER BY next_follow_up
-    """, (now_iso, role, uid))
-    calendar_rows = c.fetchall()
-
-    # Quality: searches & leads per source
-    c.execute("""
-        SELECT source_type, COUNT(*) AS searches, COALESCE(SUM(total), 0) AS leads
-        FROM searches
-        WHERE (%s = 'admin' OR user_id = %s)
-        GROUP BY source_type
-        ORDER BY leads DESC
-    """, (role, uid))
-    quality_rows = c.fetchall()
-
-    # Top users (admin only)
-    top_users = []
-    if role == "admin":
+    with _db_cursor() as c:
+        # KPI: weekly leads
         c.execute("""
-            SELECT user_id, user_name, COUNT(*) AS searches, COALESCE(SUM(total), 0) AS leads
+            SELECT COALESCE(SUM(total), 0) AS total
             FROM searches
-            GROUP BY user_id, user_name
-            ORDER BY leads DESC
-            LIMIT 10
-        """)
-        top_users = [dict(r) for r in c.fetchall()]
+            WHERE searched_at >= %s
+            AND (%s = 'admin' OR user_id = %s)
+        """, (week_start.replace(hour=0, minute=0, second=0, microsecond=0).isoformat(), role, uid))
+        weekly_leads = int(c.fetchone()["total"] or 0)
 
-    _put_conn(conn)
+        # KPI: contacted
+        c.execute("""
+            SELECT COUNT(*) AS cnt FROM contacts
+            WHERE (%s = 'admin' OR user_id = %s)
+        """, (role, uid))
+        contacted = int(c.fetchone()["cnt"] or 0)
+
+        # KPI: won
+        c.execute("""
+            SELECT COUNT(*) AS cnt FROM contacts
+            WHERE status = '成交'
+            AND (%s = 'admin' OR user_id = %s)
+        """, (role, uid))
+        won = int(c.fetchone()["cnt"] or 0)
+
+        # KPI: follow-up needed (no next date or next date >= now, excluding 成交/放弃)
+        c.execute("""
+            SELECT COUNT(*) AS cnt FROM contacts
+            WHERE status NOT IN ('成交', '放弃')
+            AND (next_follow_up IS NULL OR next_follow_up = '' OR next_follow_up >= %s)
+            AND (%s = 'admin' OR user_id = %s)
+        """, (now_iso, role, uid))
+        followup = int(c.fetchone()["cnt"] or 0)
+
+        # Trend: last 30 days
+        c.execute("""
+            SELECT searched_at::date AS day, COALESCE(SUM(total), 0) AS leads
+            FROM searches
+            WHERE searched_at >= (now() - interval '30 days')::text
+            AND (%s = 'admin' OR user_id = %s)
+            GROUP BY searched_at::date
+            ORDER BY day
+        """, (role, uid))
+        trend_rows = c.fetchall()
+
+        c.execute("""
+            SELECT created_at::date AS day, COUNT(*) AS cnt
+            FROM contacts
+            WHERE created_at >= (now() - interval '30 days')::text
+            AND (%s = 'admin' OR user_id = %s)
+            GROUP BY created_at::date
+            ORDER BY day
+        """, (role, uid))
+        contacted_trend_rows = c.fetchall()
+
+        # Source distribution
+        c.execute("""
+            SELECT source_type, COALESCE(SUM(total), 0) AS total
+            FROM searches
+            WHERE (%s = 'admin' OR user_id = %s)
+            GROUP BY source_type
+            ORDER BY total DESC
+        """, (role, uid))
+        source_rows = c.fetchall()
+
+        # Conversion funnel by status
+        c.execute("""
+            SELECT status, COUNT(*) AS cnt
+            FROM contacts
+            WHERE (%s = 'admin' OR user_id = %s)
+            GROUP BY status
+            ORDER BY cnt DESC
+        """, (role, uid))
+        status_rows = c.fetchall()
+
+        # Top keywords (global)
+        c.execute("SELECT term, count FROM keywords ORDER BY count DESC LIMIT 10")
+        keyword_rows = c.fetchall()
+
+        # Follow-up calendar: next 14 days
+        c.execute("""
+            SELECT email, domain, status, next_follow_up
+            FROM contacts
+            WHERE next_follow_up IS NOT NULL AND next_follow_up != ''
+            AND next_follow_up >= %s
+            AND next_follow_up <= (now() + interval '14 days')::text
+            AND status NOT IN ('成交', '放弃')
+            AND (%s = 'admin' OR user_id = %s)
+            ORDER BY next_follow_up
+        """, (now_iso, role, uid))
+        calendar_rows = c.fetchall()
+
+        # Quality: searches & leads per source
+        c.execute("""
+            SELECT source_type, COUNT(*) AS searches, COALESCE(SUM(total), 0) AS leads
+            FROM searches
+            WHERE (%s = 'admin' OR user_id = %s)
+            GROUP BY source_type
+            ORDER BY leads DESC
+        """, (role, uid))
+        quality_rows = c.fetchall()
+
+        # Top users (admin only)
+        top_users = []
+        if role == "admin":
+            c.execute("""
+                SELECT user_id, user_name, COUNT(*) AS searches, COALESCE(SUM(total), 0) AS leads
+                FROM searches
+                GROUP BY user_id, user_name
+                ORDER BY leads DESC
+                LIMIT 10
+            """)
+            top_users = [dict(r) for r in c.fetchall()]
 
     # Build full 30-day date range with zeros for missing days
     today = now.date()
