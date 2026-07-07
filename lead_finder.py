@@ -2864,8 +2864,10 @@ class ApolloClient:
             params["organization_not_locations[]"] = not_locations
         if organization_name:
             params["q_organization_name"] = organization_name
+            print(f"    [Apollo] Organization name filter: {organization_name}")
         if organization_domains:
             params["q_organization_domains_list[]"] = organization_domains
+            print(f"    [Apollo] Organization domain filter: {organization_domains}")
         if country:
             params["country"] = country
         if state:
@@ -2896,6 +2898,7 @@ class ApolloClient:
             params["currently_using_any_of_technology_uids[]"] = technologies
         if organization_ids:
             params["organization_ids[]"] = organization_ids
+            print(f"    [Apollo] Organization ID filter: {organization_ids}")
         if latest_funding_amount_min is not None:
             params["latest_funding_amount_range[min]"] = latest_funding_amount_min
         if latest_funding_amount_max is not None:
@@ -5328,6 +5331,9 @@ class LeadFinder:
         print(f"\n{'='*60}")
         print(f"  Apollo.io Organization Search")
         print(f"  Input          : {org_keywords or []}")
+        print(f"  Org Name       : {organization_name or ''}")
+        print(f"  Org Domains    : {organization_domains or []}")
+        print(f"  Org IDs        : {organization_ids or []}")
         print(f"  Locations      : {location_summary}")
         print(f"  Employee Range : {employee_range or 'Any'}")
         print(f"  Min Relevance  : {min_relevance}{' (strict)' if strict_mode else ''}")
@@ -5350,6 +5356,9 @@ class LeadFinder:
             keyword_tags: Optional[List[str]],
             emp_range: Optional[List[str]],
             strategy_name: str,
+            org_name: Optional[str] = None,
+            org_domains: Optional[List[str]] = None,
+            org_ids: Optional[List[str]] = None,
         ) -> List[dict]:
             fetched: List[dict] = []
             page = 1
@@ -5360,12 +5369,12 @@ class LeadFinder:
                     locations=org_locations or None,
                     not_locations=org_not_locations or None,
                     organization_num_employees_ranges=emp_range,
-                    organization_domains=organization_domains or None,
-                    organization_name=organization_name or None,
+                    organization_domains=org_domains,
+                    organization_name=org_name,
                     revenue_min=revenue_min,
                     revenue_max=revenue_max,
                     technologies=technologies or None,
-                    organization_ids=organization_ids or None,
+                    organization_ids=org_ids,
                     latest_funding_amount_min=latest_funding_amount_min,
                     latest_funding_amount_max=latest_funding_amount_max,
                     total_funding_min=total_funding_min,
@@ -5417,7 +5426,12 @@ class LeadFinder:
         for strategy_name, tags, emp in strategies:
             if len(all_orgs) >= fetch_target:
                 break
-            fetched = _fetch_orgs_for_strategy(tags, emp, strategy_name)
+            fetched = _fetch_orgs_for_strategy(
+                tags, emp, strategy_name,
+                org_name=organization_name or None,
+                org_domains=organization_domains or None,
+                org_ids=organization_ids or None,
+            )
             if fetched:
                 print(f"[Apollo] Strategy '{strategy_name}' returned {len(fetched)} organizations")
                 all_orgs.extend(fetched)
