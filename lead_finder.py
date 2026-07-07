@@ -3311,9 +3311,36 @@ def check_companies_status_concurrently(
 class GoogleMapsClient:
     """Google Places API (New) — search businesses via Google Maps."""
 
+    # Place types we keep for B2B lead generation (retail/wholesale-related).
+    # Full list: https://developers.google.com/maps/documentation/places/web-service/place-types
+    RELEVANT_PLACE_TYPES = {
+        "sporting_goods_store",
+        "store",
+        "shopping_mall",
+        "bicycle_store",
+        "book_store",
+        "clothing_store",
+        "department_store",
+        "electronics_store",
+        "furniture_store",
+        "hardware_store",
+        "home_goods_store",
+        "jewelry_store",
+        "pet_store",
+        "shoe_store",
+        "supermarket",
+        "wholesale",
+    }
+
     def __init__(self, api_key: str):
         self.api_key = api_key
         self.base_url = "https://places.googleapis.com/v1/places:searchText"
+
+    def _is_relevant_place_type(self, types: List[str]) -> bool:
+        """Return True if any of the place types look like retail/wholesale."""
+        if not types:
+            return True  # Keep places with no type rather than discarding them
+        return any(t in self.RELEVANT_PLACE_TYPES for t in types)
 
     def search(self, query: str, region: str = "", max_results: int = 60) -> List[dict]:
         """
@@ -3360,17 +3387,28 @@ class GoogleMapsClient:
                 status = place.get("businessStatus", "")
                 if status in ("CLOSED_PERMANENTLY", "CLOSED_TEMPORARILY"):
                     continue
-                website = place.get("websiteUri", "")
-                if not website:
-                    continue
-                domain = extract_domain(website)
-                if not domain:
-                    continue
 
                 # Build a search-result-compatible dict
                 display_name = place.get("displayName", {}).get("text", "")
                 primary_type = place.get("primaryTypeDisplayName", {}).get("text", "")
                 types = place.get("types", [])
+
+                # Filter out irrelevant place types (restaurants, hotels, etc.)
+                if not self._is_relevant_place_type(types):
+                    continue
+
+                # Resolve domain from website, or fall back to business-name search
+                website = place.get("websiteUri", "")
+                domain = ""
+                if website:
+                    domain = extract_domain(website) or ""
+                if not domain and display_name:
+                    resolved = _resolve_company_website(display_name)
+                    if resolved:
+                        domain = resolved
+                if not domain:
+                    continue
+
                 address = place.get("formattedAddress", "")
                 snippet_parts = [address]
                 if primary_type:
@@ -3379,11 +3417,12 @@ class GoogleMapsClient:
                     snippet_parts.append(", ".join(types[:3]))
 
                 result = {
-                    "url": website,
+                    "url": f"https://{domain}",
                     "title": display_name or domain,
                     "snippet": " — ".join(snippet_parts),
                     "_maps_meta": {
                         "place_id": place.get("id", ""),
+                        "display_name": display_name,
                         "phone": place.get("internationalPhoneNumber", place.get("nationalPhoneNumber", "")),
                         "address": address,
                         "rating": place.get("rating", 0) or 0,
@@ -4266,7 +4305,7 @@ class LeadFinder:
                     org_data = org_structure_map.get(domain, {})
                     lead = Lead(
                         domain=domain,
-                        company=domain,
+                        company=maps_meta.get("display_name") or domain,
                         email="",
                         first_name="",
                         last_name="",
@@ -4331,7 +4370,7 @@ class LeadFinder:
                 org_data = org_structure_map.get(domain, {})
                 lead = Lead(
                     domain=domain,
-                    company=e.get("domain", domain),
+                    company=maps_meta.get("display_name") or e.get("domain") or domain,
                     email=email,
                     first_name=e.get("first_name", ""),
                     last_name=e.get("last_name", ""),
