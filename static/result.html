@@ -432,15 +432,6 @@
       <label class="checkbox"><input type="checkbox" id="filterDomainAlive"> 仅域名存活</label>
       <label class="checkbox"><input type="checkbox" id="filterCompanyActive"> 仅公司活跃</label>
       <label style="display:flex;align-items:center;gap:6px;font-size:14px;color:var(--text);white-space:nowrap;">
-        采购决策
-        <select id="authorityFilter" onchange="applyFilter()" style="padding:6px 8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;font-size:14px;outline:none;">
-          <option value="">全部</option>
-          <option value="local">本地决策</option>
-          <option value="headquarter">总部决策</option>
-          <option value="unknown">未知</option>
-        </select>
-      </label>
-      <label style="display:flex;align-items:center;gap:6px;font-size:14px;color:var(--text);white-space:nowrap;">
         客户分层
         <select id="tierFilter" onchange="applyFilter()" style="padding:6px 8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;font-size:14px;outline:none;">
           <option value="">全部</option>
@@ -463,9 +454,6 @@
             <th>姓名</th>
             <th class="sortable" onclick="sortBy('position')">职位<span id="sortPosition" class="sort-arrow"></span></th>
             <th class="sortable" onclick="sortBy('company')">公司<span id="sortCompany" class="sort-arrow"></span></th>
-            <th class="sortable" onclick="sortBy('purchasing_authority')">采购决策<span id="sortAuthority" class="sort-arrow"></span></th>
-            <th>母公司</th>
-            <th>母公司国家</th>
             <th>电话</th>
             <th>域名</th>
             <th>来源</th>
@@ -919,10 +907,6 @@ Best regards,
     function updateSortIndicators() {
       document.getElementById('sortPosition').textContent = sortState.column === 'position' ? (sortState.direction === 'asc' ? ' ↑' : ' ↓') : '';
       document.getElementById('sortCompany').textContent = sortState.column === 'company' ? (sortState.direction === 'asc' ? ' ↑' : ' ↓') : '';
-      const authorityEl = document.getElementById('sortAuthority');
-      if (authorityEl) {
-        authorityEl.textContent = sortState.column === 'purchasing_authority' ? (sortState.direction === 'asc' ? ' ↑' : ' ↓') : '';
-      }
       const tierEl = document.getElementById('sortTier');
       if (tierEl) {
         tierEl.textContent = sortState.column === 'tier' ? (sortState.direction === 'asc' ? ' ↑' : ' ↓') : '';
@@ -967,9 +951,6 @@ Best regards,
           `<td>${escapeHtml((row.first_name || '') + ' ' + (row.last_name || ''))}</td>` +
           `<td>${escapeHtml(row.position || '')}</td>` +
           `<td>${escapeHtml(row.company || '')} <a href="https://www.linkedin.com/search/results/companies/?keywords=${encodeURIComponent(row.company || row.domain || '')}" target="_blank" rel="noopener" title="LinkedIn 搜索公司" style="color:#0a66c2;font-size:11px;margin-left:4px;">[in]</a></td>` +
-          `<td title="${escapeHtml(row.purchasing_authority_reason || '')}">${escapeHtml(row.purchasing_authority || '')}</td>` +
-          `<td>${escapeHtml(row.parent_company_name || '')}</td>` +
-          `<td>${escapeHtml(row.parent_company_country || row.hq_country || '')}</td>` +
           `<td>${formatPhoneCell(row)}</td>` +
           `<td>${escapeHtml(row.domain || '')}</td>` +
           `<td>${sourceTypeLabel(row.source_type || '')}</td>` +
@@ -1177,7 +1158,6 @@ Best regards,
       const relMin = relFilter === '' ? null : parseFloat(relFilter);
       const domainAliveOnly = document.getElementById('filterDomainAlive').checked;
       const companyActiveOnly = document.getElementById('filterCompanyActive').checked;
-      const authorityFilter = document.getElementById('authorityFilter').value;
       const tierFilter = document.getElementById('tierFilter').value;
 
       filteredLeads = allLeads.slice();
@@ -1193,13 +1173,10 @@ Best regards,
       if (companyActiveOnly) {
         filteredLeads = filteredLeads.filter(l => isVerifyTrue(l.company_active));
       }
-      if (authorityFilter) {
-        filteredLeads = filteredLeads.filter(l => (l.purchasing_authority || '').toLowerCase() === authorityFilter);
-      }
       if (tierFilter) {
         filteredLeads = filteredLeads.filter(l => (l.tier || '') === tierFilter);
       }
-      if (!posFilter && relMin === null && !domainAliveOnly && !companyActiveOnly && !authorityFilter && !tierFilter) {
+      if (!posFilter && relMin === null && !domainAliveOnly && !companyActiveOnly && !tierFilter) {
         clearFilter();
         return;
       }
@@ -1209,10 +1186,6 @@ Best regards,
       if (relMin !== null) parts.push(`关联度 ≥ ${relMin}`);
       if (domainAliveOnly) parts.push('域名存活');
       if (companyActiveOnly) parts.push('公司活跃');
-      if (authorityFilter) {
-        const labelMap = { local: '本地决策', headquarter: '总部决策', unknown: '未知' };
-        parts.push(`采购决策：${labelMap[authorityFilter] || authorityFilter}`);
-      }
       if (tierFilter) {
         const tierLabelMap = { A: 'A 核心大客户', B: 'B 潜力客户', C: 'C 低价值线索' };
         parts.push(`客户分层：${tierLabelMap[tierFilter] || tierFilter}`);
@@ -1229,7 +1202,6 @@ Best regards,
       document.getElementById('filterDomainAlive').checked = false;
       document.getElementById('filterEmailValid').checked = false;
       document.getElementById('filterCompanyActive').checked = false;
-      document.getElementById('authorityFilter').value = '';
       document.getElementById('tierFilter').value = '';
       filteredLeads = allLeads.slice();
       currentPage = 1;
