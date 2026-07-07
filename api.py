@@ -1642,20 +1642,21 @@ async def stream_apollo_organization_leads(
     user: dict = Depends(require_user),
 ):
     """Stream Apollo.io Organization Search progress via Server-Sent Events."""
-    if not apollo_org_keywords:
-        raise HTTPException(status_code=400, detail="apollo_org_keywords is required.")
+    if not any([apollo_org_keywords, apollo_org_name, apollo_org_domains, apollo_org_organization_ids]):
+        raise HTTPException(status_code=400, detail="At least one of apollo_org_keywords, apollo_org_name, apollo_org_domains, or apollo_org_organization_ids is required.")
 
     job_id = str(uuid.uuid4())[:8]
     output_file = DATA_DIR / f"{job_id}.csv"
 
     cmd = [
         sys.executable or "python", "lead_finder.py", "apollo-org-search",
-        "--apollo-org-keywords", apollo_org_keywords,
         "--apollo-titles", apollo_titles,
         "--apollo-org-max-orgs", str(apollo_org_max_orgs),
         "--apollo-org-max-people-per-org", str(apollo_org_max_people_per_org),
         "--output", str(output_file),
     ]
+    if apollo_org_keywords:
+        cmd.extend(["--apollo-org-keywords", apollo_org_keywords])
     if apollo_org_locations:
         cmd.extend(["--apollo-org-locations", apollo_org_locations])
     if apollo_org_exclude_locations:

@@ -468,12 +468,12 @@
             <div style="margin-bottom:16px">
               <label>搜索模式</label>
               <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                <button type="button" id="modeApollo" class="mode-btn" onclick="setMode('apollo')" style="flex:1;padding:8px 12px;font-size:13px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;cursor:pointer;min-width:100px;display:none;">Apollo 搜索</button>
-                <button type="button" id="modeApolloOrg" class="mode-btn active" onclick="setMode('apollo_org')" style="flex:1;padding:8px 12px;font-size:13px;background:var(--primary);color:#fff;border:none;border-radius:6px;cursor:pointer;min-width:100px;">Apollo 企业搜索</button>
-                <button type="button" id="modeSupplierPortal" class="mode-btn" onclick="setMode('supplier_portal')" style="flex:1;padding:8px 12px;font-size:13px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;cursor:pointer;min-width:100px;">供应商门户</button>
+                <button type="button" id="modeKeyword" class="mode-btn active" onclick="setMode('keyword')" style="flex:1;padding:8px 12px;font-size:13px;background:var(--primary);color:#fff;border:none;border-radius:6px;cursor:pointer;min-width:100px;">关键词搜索</button>
+                <button type="button" id="modeApolloOrg" class="mode-btn" onclick="setMode('apollo_org')" style="flex:1;padding:8px 12px;font-size:13px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;cursor:pointer;min-width:100px;">Apollo 企业搜索</button>
                 <button type="button" id="modeGoogleMaps" class="mode-btn" onclick="setMode('google_maps')" style="flex:1;padding:8px 12px;font-size:13px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;cursor:pointer;min-width:100px;">谷歌地图搜索</button>
-                <button type="button" id="modeKeyword" class="mode-btn" onclick="setMode('keyword')" style="flex:1;padding:8px 12px;font-size:13px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;cursor:pointer;min-width:100px;">关键词搜索</button>
+                <button type="button" id="modeSupplierPortal" class="mode-btn" onclick="setMode('supplier_portal')" style="flex:1;padding:8px 12px;font-size:13px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;cursor:pointer;min-width:100px;">供应商门户</button>
                 <button type="button" id="modeDomains" class="mode-btn" onclick="setMode('domains')" style="flex:1;padding:8px 12px;font-size:13px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;cursor:pointer;min-width:100px;">批量导入域名</button>
+                <button type="button" id="modeApollo" class="mode-btn" onclick="setMode('apollo')" style="display:none;">Apollo 搜索</button>
               </div>
             </div>
 
@@ -597,9 +597,9 @@
             <!-- Apollo 企业搜索 -->
             <div id="apolloOrgWrap" style="margin-bottom:16px;display:none;">
               <div style="margin-bottom:16px">
-                <label for="apolloOrgKeywords">企业关键词（建议「产品 + 渠道角色」）</label>
+                <label for="apolloOrgKeywords">企业关键词（可选，建议「产品 + 渠道角色」）</label>
                 <input type="text" id="apolloOrgKeywords" name="apollo_org_keywords" placeholder='例如 "football gloves distributor" 或 "ski equipment importer"'>
-                <p class="hint">先搜索企业，再在每个企业内查找采购联系人；用「产品 + 渠道角色」更精准</p>
+                <p class="hint">留空时可通过下方「企业名称」「企业域名列表」或「Apollo 企业 ID 列表」进行筛选</p>
               </div>
               <div style="margin-bottom:16px">
                 <label for="apolloOrgLocations">企业所在地区（可选）</label>
@@ -1056,7 +1056,7 @@
     const progressFill = document.getElementById('progressFill');
     const progressPct = document.getElementById('progressPct');
     const progressStep = document.getElementById('progressStep');
-    let currentMode = 'apollo_org';
+    let currentMode = 'keyword';
 
     function setMode(mode) {
       currentMode = mode;
@@ -1123,7 +1123,7 @@
         apolloKeywords.required = false;
       } else if (mode === 'apollo_org') {
         apolloOrgWrap.style.display = 'block';
-        apolloOrgKeywords.required = true;
+        apolloOrgKeywords.required = false;
       } else if (mode === 'google_maps') {
         keywordWrap.style.display = 'block';
         keywordInput.required = true;
@@ -1338,15 +1338,15 @@
         const apolloOrgMinRelevance = document.getElementById('apolloOrgMinRelevance').value;
         const apolloOrgStrictMode = document.getElementById('apolloOrgStrictMode').checked;
 
-        if (!apolloOrgKeywords) {
-          resultDiv.innerHTML = '<div class="badge badge-error">请输入企业关键词</div>';
+        if (!apolloOrgKeywords && !apolloOrgName && !apolloOrgDomains && !apolloOrgOrganizationIds) {
+          resultDiv.innerHTML = '<div class="badge badge-error">请至少输入企业关键词、企业名称、企业域名或 Apollo 企业 ID 中的一项</div>';
           btn.disabled = false;
           resetSubmitButtonText();
           return;
         }
 
         const params = new URLSearchParams();
-        params.append('apollo_org_keywords', apolloOrgKeywords);
+        if (apolloOrgKeywords) params.append('apollo_org_keywords', apolloOrgKeywords);
         if (apolloOrgLocations) params.append('apollo_org_locations', apolloOrgLocations);
         if (apolloOrgExcludeLocations) params.append('apollo_org_exclude_locations', apolloOrgExcludeLocations);
         if (apolloOrgEmployeeRange) params.append('apollo_org_employee_range', apolloOrgEmployeeRange);
@@ -2093,7 +2093,7 @@
 
     function applyQueryParams() {
       const params = new URLSearchParams(window.location.search);
-      const mode = params.get('mode') || 'apollo_org';
+      const mode = params.get('mode') || 'keyword';
       setMode(mode);
 
       function setInput(id, val) {
