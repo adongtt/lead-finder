@@ -1064,10 +1064,10 @@
       const btnKeyword = document.getElementById('modeKeyword');
       const btnGoogleMaps = document.getElementById('modeGoogleMaps');
       const btnDomains = document.getElementById('modeDomains');
-      const btnSupplierPortal = document.getElementById('modeSupplierPortal');
 
       // Reset all buttons
-      [btnApollo, btnApolloOrg, btnKeyword, btnGoogleMaps, btnDomains, btnSupplierPortal].forEach(btn => {
+      [btnApollo, btnApolloOrg, btnKeyword, btnGoogleMaps, btnDomains].forEach(btn => {
+        if (!btn) return;
         btn.style.background = 'var(--bg)';
         btn.style.color = 'var(--text)';
         btn.style.border = '1px solid var(--border)';
@@ -1077,8 +1077,7 @@
       const activeBtn = mode === 'apollo' ? btnApollo :
                         mode === 'apollo_org' ? btnApolloOrg :
                         mode === 'keyword' ? btnKeyword :
-                        mode === 'google_maps' ? btnGoogleMaps :
-                        mode === 'supplier_portal' ? btnSupplierPortal : btnDomains;
+                        mode === 'google_maps' ? btnGoogleMaps : btnDomains;
       activeBtn.style.background = 'var(--primary)';
       activeBtn.style.color = '#fff';
       activeBtn.style.border = 'none';
