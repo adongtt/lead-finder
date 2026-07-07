@@ -6102,7 +6102,7 @@ def main():
         return
 
     # Apollo Organization Search mode
-    if args.apollo_org_keywords:
+    if args.apollo_org_keywords or args.apollo_org_name or args.apollo_org_domains or args.apollo_org_organization_ids:
         org_keywords = [k.strip() for k in args.apollo_org_keywords.split(",") if k.strip()]
         org_locations = [l.strip() for l in args.apollo_org_locations.split(",") if l.strip()] or None
         org_not_locations = [l.strip() for l in args.apollo_org_exclude_locations.split(",") if l.strip()] or None
