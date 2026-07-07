@@ -4967,54 +4967,61 @@ class LeadFinder:
         print(f"\n[Stage 2.5/4] Scoring relevance for {len(people_with_domains)} contacts (min={min_relevance})...")
         scored_people: List[tuple] = []
         filtered_out = 0
-        for person, domain in people_with_domains:
-            score = _score_apollo_contact_relevance(person)
-            has_org_data = bool(person.get("_enriched_org"))
-            org_name = (person.get("organization_name") or "").lower()
+        skip_contact_filtering = (source_type == "apollo_org" and not organization_keywords)
+        if skip_contact_filtering:
+            print("[Apollo] Organization-driven search without keywords; skipping contact-level relevance filtering.")
+            scored_people = [(person, domain, 0) for person, domain in people_with_domains]
+            for person, domain, score in scored_people:
+                person["_relevance_score"] = score
+        else:
+            for person, domain in people_with_domains:
+                score = _score_apollo_contact_relevance(person)
+                has_org_data = bool(person.get("_enriched_org"))
+                org_name = (person.get("organization_name") or "").lower()
 
-            # Boost score when the company name directly contains the user's keyword.
-            # This compensates for missing Apollo enriched org data on small retailers.
-            if organization_keywords:
-                for kw in organization_keywords:
-                    if kw.lower() in org_name:
-                        score += 15
-                        break
+                # Boost score when the company name directly contains the user's keyword.
+                # This compensates for missing Apollo enriched org data on small retailers.
+                if organization_keywords:
+                    for kw in organization_keywords:
+                        if kw.lower() in org_name:
+                            score += 15
+                            break
 
-            if not has_org_data:
-                # Apollo did not return enriched org data. Infer relevance from the
-                # company name so that obviously relevant names (e.g. "Bobs Sporting Goods")
-                # are not discarded just because enrichment failed.
-                if organization_keywords and _apollo_has_positive_signal(person, organization_keywords):
-                    score = max(score, 0)
-                elif any(pos in org_name for pos in APOLLO_PRODUCT_KEYWORDS):
-                    score = max(score, 0)
+                if not has_org_data:
+                    # Apollo did not return enriched org data. Infer relevance from the
+                    # company name so that obviously relevant names (e.g. "Bobs Sporting Goods")
+                    # are not discarded just because enrichment failed.
+                    if organization_keywords and _apollo_has_positive_signal(person, organization_keywords):
+                        score = max(score, 0)
+                    elif any(pos in org_name for pos in APOLLO_PRODUCT_KEYWORDS):
+                        score = max(score, 0)
+                    else:
+                        score = min(score, -20)
+                # For keyword discovery, require at least one positive signal
+                # (user keyword, B2B keyword, or B2B industry) unless the user
+                # explicitly lowered the relevance threshold below 0.
+                # Channel-role-only matches are kept with a low score instead of
+                # being hard-filtered, so relevant distributors/wholesalers whose
+                # company name doesn't include the exact product term still appear.
+                if organization_keywords and min_relevance >= 0 and not _apollo_has_positive_signal(person, organization_keywords):
+                    score = -25
+                elif organization_keywords and min_relevance >= 0:
+                    # Positive signal present but may only be a weak channel role.
+                    # Clamp weak/negative scores up to 0 so they survive the default
+                    # threshold without pushing irrelevant results to the top.
+                    if score < 0:
+                        score = 0
+                if score >= min_relevance:
+                    scored_people.append((person, domain, score))
                 else:
-                    score = min(score, -20)
-            # For keyword discovery, require at least one positive signal
-            # (user keyword, B2B keyword, or B2B industry) unless the user
-            # explicitly lowered the relevance threshold below 0.
-            # Channel-role-only matches are kept with a low score instead of
-            # being hard-filtered, so relevant distributors/wholesalers whose
-            # company name doesn't include the exact product term still appear.
-            if organization_keywords and min_relevance >= 0 and not _apollo_has_positive_signal(person, organization_keywords):
-                score = -25
-            elif organization_keywords and min_relevance >= 0:
-                # Positive signal present but may only be a weak channel role.
-                # Clamp weak/negative scores up to 0 so they survive the default
-                # threshold without pushing irrelevant results to the top.
-                if score < 0:
-                    score = 0
-            if score >= min_relevance:
-                scored_people.append((person, domain, score))
-            else:
-                filtered_out += 1
-                if filtered_out <= 5:
-                    filtered_org_name = person.get("organization_name", "")
-                    try:
-                        print(f"    [Filter] -'{filtered_org_name}' (score {score})")
-                    except UnicodeEncodeError:
-                        safe_name = filtered_org_name.encode("ascii", "replace").decode("ascii")
-                        print(f"    [Filter] -'{safe_name}' (score {score})")
+                    filtered_out += 1
+                    if filtered_out <= 5:
+                        filtered_org_name = person.get("organization_name", "")
+                        try:
+                            print(f"    [Filter] -'{filtered_org_name}' (score {score})")
+                        except UnicodeEncodeError:
+                            safe_name = filtered_org_name.encode("ascii", "replace").decode("ascii")
+                            print(f"    [Filter] -'{safe_name}' (score {score})")
         # Sort by relevance score descending and attach score to person dict
         scored_people.sort(key=lambda x: x[2], reverse=True)
         people_with_domains = []
@@ -5458,20 +5465,27 @@ class LeadFinder:
         # -----------------------------------------------------------------------
         scored_orgs: List[tuple] = []
         filtered_out = 0
-        for org in all_orgs:
-            score = _score_apollo_organization_relevance(org, user_keywords=org_keywords)
-            org["_relevance_score"] = score
-            if score >= min_relevance:
-                scored_orgs.append((score, org))
-            else:
-                filtered_out += 1
-                if filtered_out <= 5:
-                    filtered_org_name = org.get("name", "")
-                    try:
-                        print(f"    [Filter] -'{filtered_org_name}' (score {score})")
-                    except UnicodeEncodeError:
-                        safe_name = filtered_org_name.encode("ascii", "replace").decode("ascii")
-                        print(f"    [Filter] -'{safe_name}' (score {score})")
+        explicit_org_filter = bool(organization_name or organization_domains or organization_ids)
+        if explicit_org_filter:
+            print("[Apollo] Explicit organization filter provided; skipping organization relevance filtering.")
+            scored_orgs = [(0, org) for org in all_orgs]
+            for org in all_orgs:
+                org["_relevance_score"] = 0
+        else:
+            for org in all_orgs:
+                score = _score_apollo_organization_relevance(org, user_keywords=org_keywords)
+                org["_relevance_score"] = score
+                if score >= min_relevance:
+                    scored_orgs.append((score, org))
+                else:
+                    filtered_out += 1
+                    if filtered_out <= 5:
+                        filtered_org_name = org.get("name", "")
+                        try:
+                            print(f"    [Filter] -'{filtered_org_name}' (score {score})")
+                        except UnicodeEncodeError:
+                            safe_name = filtered_org_name.encode("ascii", "replace").decode("ascii")
+                            print(f"    [Filter] -'{safe_name}' (score {score})")
 
         # Re-rank by local relevance and keep only the top max_orgs. Apollo's
         # default ordering is not always best for our B2B intent, so ranking on

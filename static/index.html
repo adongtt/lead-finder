@@ -468,8 +468,8 @@
             <div style="margin-bottom:16px">
               <label>搜索模式</label>
               <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                <button type="button" id="modeKeyword" class="mode-btn active" onclick="setMode('keyword')" style="flex:1;padding:8px 12px;font-size:13px;background:var(--primary);color:#fff;border:none;border-radius:6px;cursor:pointer;min-width:100px;">关键词搜索</button>
-                <button type="button" id="modeApolloOrg" class="mode-btn" onclick="setMode('apollo_org')" style="flex:1;padding:8px 12px;font-size:13px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;cursor:pointer;min-width:100px;">Apollo 企业搜索</button>
+                <button type="button" id="modeApolloOrg" class="mode-btn active" onclick="setMode('apollo_org')" style="flex:1;padding:8px 12px;font-size:13px;background:var(--primary);color:#fff;border:none;border-radius:6px;cursor:pointer;min-width:100px;">Apollo 企业搜索</button>
+                <button type="button" id="modeKeyword" class="mode-btn" onclick="setMode('keyword')" style="flex:1;padding:8px 12px;font-size:13px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;cursor:pointer;min-width:100px;">关键词搜索</button>
                 <button type="button" id="modeGoogleMaps" class="mode-btn" onclick="setMode('google_maps')" style="flex:1;padding:8px 12px;font-size:13px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;cursor:pointer;min-width:100px;">谷歌地图搜索</button>
                 <button type="button" id="modeSupplierPortal" class="mode-btn" onclick="setMode('supplier_portal')" style="flex:1;padding:8px 12px;font-size:13px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;cursor:pointer;min-width:100px;">供应商门户</button>
                 <button type="button" id="modeDomains" class="mode-btn" onclick="setMode('domains')" style="flex:1;padding:8px 12px;font-size:13px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;cursor:pointer;min-width:100px;">批量导入域名</button>
@@ -602,6 +602,10 @@
                 <p class="hint">留空时可通过下方「企业名称」「企业域名列表」或「Apollo 企业 ID 列表」进行筛选</p>
               </div>
               <div style="margin-bottom:16px">
+                <label for="apolloOrgName">企业名称（精确或模糊匹配，可选）</label>
+                <input type="text" id="apolloOrgName" name="apollo_org_name" placeholder="例如 Nike">
+              </div>
+              <div style="margin-bottom:16px">
                 <label for="apolloOrgLocations">企业所在地区（可选）</label>
                 <input type="text" id="apolloOrgLocations" name="apollo_org_locations" placeholder="United States, Germany">
                 <p class="hint">逗号分隔多个地区</p>
@@ -609,9 +613,9 @@
               <div style="margin-bottom:16px">
                 <label for="apolloOrgEmployeeRange">企业规模（可选）</label>
                 <select id="apolloOrgEmployeeRange" style="width:100%;padding:10px 12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;font-size:14px;outline:none;">
-                  <option value="">不限规模</option>
+                  <option value="" selected>不限规模</option>
                   <option value="1,10">1-10 人</option>
-                  <option value="11,50" selected>11-50 人</option>
+                  <option value="11,50">11-50 人</option>
                   <option value="51,200">51-200 人</option>
                   <option value="201,500">201-500 人</option>
                   <option value="501,1000">501-1000 人</option>
@@ -619,7 +623,7 @@
                   <option value="5001,10000">5001-10000 人</option>
                   <option value="10001,100000000">10000+ 人</option>
                 </select>
-                <p class="hint">小经销商通常 11-50 人，选这个范围最精准</p>
+                <p class="hint">只填企业名称时建议选「不限规模」，避免目标被过滤</p>
               </div>
               <div class="row" style="margin-bottom:16px;">
                 <div>
@@ -692,10 +696,6 @@
                     <label for="apolloOrgExcludeLocations">排除地区</label>
                     <input type="text" id="apolloOrgExcludeLocations" name="apollo_org_exclude_locations" placeholder="China, India">
                     <p class="hint">逗号分隔，排除总部在这些地区的企业</p>
-                  </div>
-                  <div style="margin-bottom:16px;">
-                    <label for="apolloOrgName">企业名称（模糊匹配）</label>
-                    <input type="text" id="apolloOrgName" name="apollo_org_name" placeholder="例如 Nike">
                   </div>
                   <div style="margin-bottom:16px;">
                     <label for="apolloOrgDomains">企业域名列表</label>
@@ -1056,7 +1056,7 @@
     const progressFill = document.getElementById('progressFill');
     const progressPct = document.getElementById('progressPct');
     const progressStep = document.getElementById('progressStep');
-    let currentMode = 'keyword';
+    let currentMode = 'apollo_org';
 
     function setMode(mode) {
       currentMode = mode;
@@ -2093,7 +2093,7 @@
 
     function applyQueryParams() {
       const params = new URLSearchParams(window.location.search);
-      const mode = params.get('mode') || 'keyword';
+      const mode = params.get('mode') || 'apollo_org';
       setMode(mode);
 
       function setInput(id, val) {
