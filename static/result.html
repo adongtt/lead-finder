@@ -633,11 +633,23 @@ Best regards,
 
     // Extract a product keyword from the search keyword (first 1-2 meaningful words).
     function extractProductKeyword(keyword) {
-      if (!keyword) return 'our products';
-      const cleaned = keyword.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+      if (!keyword) return 'product';
+      const lower = keyword.toLowerCase().trim();
+      // Strip Apollo UI labels like "Apollo Org Name: ..." so we get the real query.
+      let raw = keyword;
+      if (lower.startsWith('apollo org name:') ||
+          lower.startsWith('apollo org domains:') ||
+          lower.startsWith('apollo org ids:') ||
+          lower.startsWith('apollo org:')) {
+        raw = keyword.substring(keyword.indexOf(':') + 1).trim();
+      } else if (lower.startsWith('apollo')) {
+        // Generic Apollo label with no usable product info.
+        return 'product';
+      }
+      const cleaned = raw.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
       const stopWords = new Set(['manufacturer', 'supplier', 'distributor', 'wholesaler', 'importer', 'exporter', 'dealer', 'reseller', 'buyer', 'retailer', 'oem', 'odm', 'company', 'factory', 'in', 'usa', 'us', 'uk', 'eu', 'europe', 'germany', 'japan', 'china']);
       const words = cleaned.split(' ').filter(w => w && !stopWords.has(w));
-      if (!words.length) return cleaned || 'our products';
+      if (!words.length) return cleaned || 'product';
       // Prefer the first two meaningful words (e.g. "football gloves").
       return words.slice(0, 2).join(' ');
     }
@@ -645,7 +657,12 @@ Best regards,
     function fillEmailTemplate(template, lead, meta) {
       const myName = document.getElementById('emailMyName').value.trim();
       const myCompany = document.getElementById('emailMyCompany').value.trim();
-      const product = extractProductKeyword(meta.keyword || lead.search_keyword || '');
+      // For Apollo searches the page-level keyword is a UI label; prefer the lead's own search_keyword.
+      let productSource = meta.keyword || lead.search_keyword || '';
+      if (productSource.toLowerCase().startsWith('apollo')) {
+        productSource = lead.search_keyword || '';
+      }
+      const product = extractProductKeyword(productSource);
       const firstName = lead.first_name || 'there';
       const lastName = lead.last_name || '';
 
