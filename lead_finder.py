@@ -1382,7 +1382,9 @@ class Lead:
     # Customer value tier (A/B/C)
     tier: str = ""                         # A | B | C
     tier_reason: str = ""                  # Human-readable explanation for tier
-
+    # Business operating attribute
+    business_type: str = ""                # wholesaler | retailer | brand | end_buyer | unknown
+    business_type_reason: str = ""         # Human-readable explanation for business_type
 
 def _classify_purchasing_authority(lead: Lead) -> Tuple[str, str]:
     """Classify where procurement decisions are likely made for this lead.
@@ -1559,6 +1561,110 @@ def _classify_tier(lead: Lead) -> Tuple[str, str]:
         return "B", "High relevance but no explicit tier signals"
 
     return "C", "No strong value signals; low priority"
+
+
+# ---------------------------------------------------------------------------
+# Business operating attribute classification
+# ---------------------------------------------------------------------------
+
+WHOLESALER_SIGNALS = [
+    "distributor", "wholesaler", "importer", "exporter", "trading company",
+    "trading", "bulk", "b2b", "supply to retailers", "resell", "reseller",
+    "distribution", "wholesale", "trade only", "trade supplier",
+]
+
+RETAILER_SIGNALS = [
+    "retailer", "retail store", "sport store", "sports shop", "shop", "store",
+    "dealer", "outlet", "brick and mortar", "multi-store", "chain",
+    "specialty store", "pro shop", "local store", "high street",
+    "ski store", "ski shop", "snowboard shop", "snowboard store",
+    "outdoor store", "outdoor shop", "outdoor retailer",
+    "ski & sports", "ski and sports",
+]
+
+BRAND_SIGNALS = [
+    "brand", "manufacturer", "factory", "oem", "odm", "original equipment",
+    "private label", "own brand", "designer", "maker", "production",
+    "made in", "branded", "brand owner", "in-house design",
+]
+
+END_BUYER_SIGNALS = [
+    "procurement", "buying office", "purchasing department", "corporate buyer",
+    "team", "club", "school", "university", "academy", "municipal",
+    "government", "institution", "enterprise", "association", "league",
+    "federation", "organization", "sports club", "fitness center", "gym",
+]
+
+
+def _classify_business_type(lead: Lead) -> Tuple[str, str]:
+    """Classify the operating model of the lead's company.
+
+    Categories:
+      - wholesaler: distributor / importer / exporter / trading company
+      - retailer: physical/offline retail store, dealer, outlet, chain
+      - brand: brand owner, manufacturer, OEM/ODM, private label
+      - end_buyer: institutional / corporate / team / procurement buyer
+      - unknown: insufficient or conflicting signals
+
+    Returns a tuple of (business_type, reason).
+    """
+    text_parts = [
+        (lead.company or "").lower(),
+        (lead.website_description or "").lower(),
+        (lead.position or "").lower(),
+        (lead.domain or "").lower(),
+    ]
+    text = " ".join(text_parts)
+
+    wholesaler_hits = [s for s in WHOLESALER_SIGNALS if s in text]
+    retailer_hits = [s for s in RETAILER_SIGNALS if s in text]
+    brand_hits = [s for s in BRAND_SIGNALS if s in text]
+    end_buyer_hits = [s for s in END_BUYER_SIGNALS if s in text]
+
+    # Guard: phrases like "best/top/leading brands" describe a retailer carrying brands,
+    # not a brand owner. Remove "brand" hits in that case.
+    if brand_hits and "brand" in brand_hits:
+        if re.search(r"\b(best|top|leading|popular|carried|carry|carries)\s+\w*\s*brands?\b", text):
+            brand_hits = [s for s in brand_hits if s != "brand"]
+
+    # Guard: dropshipping / affiliate is not a true B2B wholesaler.
+    if wholesaler_hits and not any(s in wholesaler_hits for s in ["distributor", "wholesaler", "importer", "exporter", "distribution", "wholesale"]):
+        if re.search(r"\b(dropship|drop ship|drop-ship|affiliate)\b", text):
+            wholesaler_hits = []
+
+    # Guard: pure online marketplace references without offline store signals
+    # should not count as retailer.
+    if retailer_hits and not any(s in retailer_hits for s in ["store", "shop", "outlet", "dealer", "retailer", "chain", "brick and mortar"]):
+        if re.search(r"\b(amazon store|ebay seller|alibaba seller|shopify store)\b", text):
+            retailer_hits = []
+
+    scores = {
+        "wholesaler": len(wholesaler_hits),
+        "retailer": len(retailer_hits),
+        "brand": len(brand_hits),
+        "end_buyer": len(end_buyer_hits),
+    }
+
+    sorted_scores = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+    top_type, top_score = sorted_scores[0]
+    second_score = sorted_scores[1][1]
+
+    if top_score == 0:
+        return "unknown", "No clear operating-attribute signals"
+
+    # Strong winner: at least 2 hits ahead of the runner-up, or the only scorer.
+    if top_score >= second_score + 2 or second_score == 0:
+        hit_list = {
+            "wholesaler": wholesaler_hits,
+            "retailer": retailer_hits,
+            "brand": brand_hits,
+            "end_buyer": end_buyer_hits,
+        }[top_type]
+        return top_type, f"{top_type} signals: {', '.join(hit_list[:3])}"
+
+    # Conflicting / mixed signals
+    top_two = [t for t, s in sorted_scores if s == top_score][:2]
+    return "unknown", f"Mixed signals: {' vs '.join(top_two)}"
 
 
 # ---------------------------------------------------------------------------
@@ -1838,6 +1944,7 @@ def load_config() -> dict:
     # Fallback: read from environment variables (for cloud deployment)
     # HUNTER_KEY can be a comma-separated list of keys for rotation
     env_config = {
+        "serper_key": os.environ.get("SERPER_KEY", ""),
         "serpapi_key": os.environ.get("SERPAPI_KEY", ""),
         "google_maps_key": os.environ.get("GOOGLE_MAPS_KEY", ""),
         "hunter_key": os.environ.get("HUNTER_KEY", ""),
@@ -1983,6 +2090,58 @@ class SerpAPIClient:
                     print(f"  [SerpAPI ERROR] Page {page + 1}: {e}")
                 break
             time.sleep(1)  # Rate limit
+        return results
+
+
+class SerperClient:
+    def __init__(self, api_key: str):
+        self.api_key = api_key
+        self.base_url = "https://google.serper.dev/search"
+
+    def search(self, query: str, num_results: int = 100, pages: int = 1, skip_pages: int = 0) -> List[dict]:
+        """
+        Search Google via Serper.dev and return result dicts with url, title, snippet.
+        Serper returns 10 results per page by default.
+        skip_pages: number of initial pages to skip (deep search mode).
+        """
+        results = []
+        headers = {
+            "X-API-KEY": self.api_key,
+            "Content-Type": "application/json",
+        }
+        for page in range(skip_pages, skip_pages + pages):
+            payload = {
+                "q": query,
+                "num": min(10, num_results - len(results)),
+                "page": page + 1,  # Serper pages are 1-based
+            }
+            try:
+                resp = _get_session().post(self.base_url, headers=headers, json=payload, timeout=30)
+                resp.raise_for_status()
+                data = resp.json()
+                organic = data.get("organic", [])
+                for result in organic:
+                    link = result.get("link")
+                    if link:
+                        results.append({
+                            "url": link,
+                            "title": result.get("title", ""),
+                            "snippet": result.get("snippet") or result.get("description", ""),
+                        })
+                print(f"  [Serper] Page {page + 1} (skipped first {skip_pages}): {len(organic)} results")
+                if not organic:
+                    break
+            except requests.exceptions.RequestException as e:
+                err_msg = str(e)
+                if "429" in err_msg or "Too Many Requests" in err_msg:
+                    print(f"  [RATE_LIMIT] Serper search rate limited (429). Try --engine duckduckgo or upgrade your Serper plan.")
+                else:
+                    print(f"  [Serper ERROR] Page {page + 1}: {e}")
+                break
+            except Exception as e:
+                print(f"  [Serper ERROR] Page {page + 1}: {e}")
+                break
+            time.sleep(0.5)  # Be polite to the API
         return results
 
 
@@ -3823,12 +3982,16 @@ class LeadFinder:
             self.excluded_domains.update(d.lower().strip() for d in extra_excluded)
 
         # Initialize all search clients
+        self.serper = None
         self.serp = None
         self.ddg = DuckDuckGoClient()
         self.browser = BrowserClient()
         self.google_maps = None
 
         self.linkedin_discovery = None
+        if config.get("serper_key") and config["serper_key"] not in ("", "YOUR_SERPER_KEY_HERE"):
+            self.serper = SerperClient(config["serper_key"])
+
         if config.get("serpapi_key") and config["serpapi_key"] not in ("", "YOUR_SERPAPI_KEY_HERE"):
             self.serp = SerpAPIClient(config["serpapi_key"])
             self.linkedin_discovery = LinkedInDiscoveryClient(config["serpapi_key"])
@@ -3856,15 +4019,18 @@ class LeadFinder:
             return "google_maps"
         if self.engine != "auto":
             return self.engine
-        # Priority: duckduckgo > browser > serpapi
-        # SerpAPI is paid and rate-limits heavily; use it only when free engines are unavailable.
+        # Priority: serper > duckduckgo > browser > serpapi
+        # Serper is paid but cheap and stable; DuckDuckGo is free but less reliable.
+        # SerpAPI is kept as last fallback because it rate-limits heavily.
+        if self.serper is not None:
+            return "serper"
         if DDGS is not None:
             return "duckduckgo"
         if sync_playwright is not None:
             return "browser"
         if self.serp is not None:
             return "serpapi"
-        print("[FATAL] No search engine available. Install duckduckgo-search or playwright.")
+        print("[FATAL] No search engine available. Install duckduckgo-search or playwright, or configure serper_key.")
         sys.exit(1)
 
     def run(
@@ -3952,6 +4118,9 @@ class LeadFinder:
         elif engine == "serpapi" and self.serp:
             print("[1/5] Searching Google via SerpAPI...")
             raw_results = self.serp.search(search_query, pages=pages, skip_pages=skip_pages)
+        elif engine == "serper" and self.serper:
+            print("[1/5] Searching Google via Serper.dev...")
+            raw_results = self.serper.search(search_query, pages=pages, skip_pages=skip_pages)
         elif engine == "browser":
             print("[1/5] Searching via Browser (Playwright + DuckDuckGo)...")
             raw_results = self.browser.search(search_query, max_results=pages * 10, skip_pages=skip_pages)
@@ -4338,6 +4507,7 @@ class LeadFinder:
                     )
                     lead.purchasing_authority, lead.purchasing_authority_reason = _classify_purchasing_authority(lead)
                     lead.tier, lead.tier_reason = _classify_tier(lead)
+                    lead.business_type, lead.business_type_reason = _classify_business_type(lead)
                     all_leads.append(lead)
                     print("0 email, kept domain")
                 else:
@@ -4403,6 +4573,7 @@ class LeadFinder:
                 )
                 lead.purchasing_authority, lead.purchasing_authority_reason = _classify_purchasing_authority(lead)
                 lead.tier, lead.tier_reason = _classify_tier(lead)
+                lead.business_type, lead.business_type_reason = _classify_business_type(lead)
                 all_leads.append(lead)
                 kept += 1
 
@@ -4488,6 +4659,8 @@ class LeadFinder:
             "parent_org_data_source",
             # Customer value tier
             "tier", "tier_reason",
+            # Business operating attribute
+            "business_type", "business_type_reason",
         ]
         with open(path, "w", newline="", encoding="utf-8-sig") as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -5746,8 +5919,8 @@ def main():
         "--engine",
         type=str,
         default="auto",
-        choices=["auto", "duckduckgo", "browser", "serpapi", "google_maps"],
-        help="Search engine: auto (default), duckduckgo, browser (Playwright), serpapi, or google_maps",
+        choices=["auto", "duckduckgo", "browser", "serper", "serpapi", "google_maps"],
+        help="Search engine: auto (default), duckduckgo, browser (Playwright), serper (Serper.dev), serpapi, or google_maps",
     )
     parser.add_argument(
         "--exclude",

@@ -4,6 +4,11 @@
 # SEARCH ENGINE (optional)
 # ---------------------------------------------------------------------------
 
+# Serper.dev - Google Search (recommended paid engine, cheaper than SerpAPI)
+# Get your key at: https://serper.dev
+# Free tier: 2,500 searches/month
+serper_key: ""
+
 # SerpAPI - Google Search (optional, usually not needed)
 # Get your key at: https://serpapi.com
 # Free tier: 100 searches/month

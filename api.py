@@ -60,6 +60,7 @@ CONFIG_PATH = Path("config.yaml")
 def _load_config_status():
     """Return which API keys are configured without exposing their values."""
     key_names = [
+        "serper_key",
         "serpapi_key",
         "google_maps_key",
         "hunter_key",
@@ -2373,6 +2374,8 @@ async def download_search_excel(job_id: str, position: str = "", user: dict = De
         "linkedin_url": "LinkedIn",
         "tier": "客户分层",
         "tier_reason": "分层原因",
+        "business_type": "客户类型",
+        "business_type_reason": "客户类型原因",
         "status": "跟进状态",
         "contacted_by": "跟进人",
         "contacted_at": "跟进时间",

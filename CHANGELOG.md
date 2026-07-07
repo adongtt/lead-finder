@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## 2026-07-07
+
+### Added
+- **Serper.dev search engine support**
+  - New `SerperClient` in `lead_finder.py` calling `POST https://google.serper.dev/search` with `X-API-KEY` header.
+  - Supports pagination and `--deep` skip-pages semantics.
+  - New `serper_key` config option and `SERPER_KEY` environment variable.
+  - `--engine serper` CLI choice added; `--engine auto` now prefers Serper when configured, then DuckDuckGo, Browser, and SerpAPI.
+  - API config status and MCP server env fallback now recognize `serper_key`.
+
+### Added
+- **Business operating attribute classification**
+  - New `business_type` and `business_type_reason` fields on the `Lead` dataclass in `lead_finder.py`.
+  - New `_classify_business_type()` helper with signal-based rules for `wholesaler` (批发商/分销商), `retailer` (线下零售商), `brand` (自有品牌方), `end_buyer` (终端采购方), and `unknown` (未分类).
+  - Classification is computed for every lead produced by keyword search, Apollo People/Org Search, Google Maps, and supplier-portal scan pipelines.
+  - Guard rules avoid false positives: "best brands" does not make a retailer a brand, dropshipping is not a wholesaler, pure marketplace listings are not retailers.
+  - `business_type` is exported to CSV and loaded back by `_leads_from_csv()`.
+  - `result.html` shows a "客户类型" column with color-coded badges and a filter dropdown.
+  - `index.html` preview table also shows business-type badges.
+  - Excel export maps `business_type` to "客户类型" and `business_type_reason` to "客户类型原因".
+
 ## 2026-07-03
 
 ### Added

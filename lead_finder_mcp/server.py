@@ -36,6 +36,7 @@ def _config_safe() -> dict:
         pass
 
     return {
+        "serper_key": os.environ.get("SERPER_KEY", ""),
         "serpapi_key": os.environ.get("SERPAPI_KEY", ""),
         "google_maps_key": os.environ.get("GOOGLE_MAPS_KEY", ""),
         "hunter_key": os.environ.get("HUNTER_KEY", ""),
@@ -177,7 +178,7 @@ async def search_leads(
         pages: Number of search pages (default 2).
         max_domains: Maximum domains to process (default 10).
         deep: Skip first 5 pages to avoid big brands.
-        engine: Search engine: auto, duckduckgo, browser, serpapi, google_maps.
+        engine: Search engine: auto, serper, duckduckgo, browser, serpapi, google_maps.
         output: Output CSV path. Defaults to mcp_search_*.csv in the working directory.
         validate: Validate emails via ZeroBounce (requires key).
     """
