@@ -167,6 +167,7 @@
       font-weight: 600;
     }
     .source-apollo { color: #7c3aed; background: #ede9fe; }
+    .source-apollo_org { color: #5b21b6; background: #ddd6fe; }
     .source-keyword { color: #0369a1; background: #e0f2fe; }
     .source-google_maps { color: #059669; background: #d1fae5; }
     .source-domains { color: #b45309; background: #fef3c7; }
@@ -214,6 +215,7 @@
             <select id="filterSource">
               <option value="">全部模式</option>
               <option value="apollo">Apollo 搜索</option>
+              <option value="apollo_org">Apollo 企业搜索</option>
               <option value="keyword">关键词搜索</option>
               <option value="google_maps">Google Maps</option>
               <option value="domains">批量导入域名</option>
@@ -303,6 +305,7 @@
     function sourceLabel(type) {
       const map = {
         'apollo': ['Apollo 搜索', 'source-apollo'],
+        'apollo_org': ['Apollo 企业搜索', 'source-apollo_org'],
         'keyword': ['关键词搜索', 'source-keyword'],
         'google_maps': ['Google Maps', 'source-google_maps'],
         'domains': ['批量域名', 'source-domains'],

@@ -1734,7 +1734,16 @@ async def stream_apollo_organization_leads(
                 leads.append({k: v for k, v in row.items()})
             leads = db_enrich_leads(leads)
             leads = _sort_leads_by_position(leads)
-            search_label = f"Apollo Org: {apollo_org_keywords}"
+            if apollo_org_keywords:
+                search_label = f"Apollo Org: {apollo_org_keywords}"
+            elif apollo_org_name:
+                search_label = f"Apollo Org Name: {apollo_org_name}"
+            elif apollo_org_domains:
+                search_label = f"Apollo Org Domains: {apollo_org_domains[:80]}"
+            elif apollo_org_organization_ids:
+                search_label = f"Apollo Org IDs: {apollo_org_organization_ids[:80]}"
+            else:
+                search_label = "Apollo Org Search"
             db_save_search(job_id, search_label, 0, len(leads), user["user_id"], user["name"], False, csv_content, source_type="apollo_org")
             return {
                 "type": "done",
