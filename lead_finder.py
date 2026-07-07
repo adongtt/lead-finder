@@ -2425,6 +2425,8 @@ class ApolloClient:
                 person["organization_website"] = f"http://{enriched_org['primary_domain']}"
             elif enriched_org.get("website_url"):
                 person["organization_website"] = enriched_org["website_url"]
+            if enriched_org.get("name"):
+                person["organization_name"] = enriched_org["name"]
         return person
 
     def _enrich_person(self, person: dict) -> dict:
